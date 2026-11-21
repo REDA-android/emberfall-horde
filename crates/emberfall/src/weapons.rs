@@ -65,6 +65,39 @@ impl UpgradeId {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EvolutionId {
+    MeteorBarrage,
+    CrimsonReaper,
+    InfernoVortex,
+}
+
+impl EvolutionId {
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::MeteorBarrage => "METEOR BARRAGE",
+            Self::CrimsonReaper => "CRIMSON REAPER",
+            Self::InfernoVortex => "INFERNO VORTEX",
+        }
+    }
+
+    pub fn emoji(self) -> &'static str {
+        match self {
+            Self::MeteorBarrage => "☄️",
+            Self::CrimsonReaper => "🩸",
+            Self::InfernoVortex => "🌀",
+        }
+    }
+
+    pub fn accent(self) -> Color {
+        match self {
+            Self::MeteorBarrage => Color::from_rgba(251, 146, 60, 255),
+            Self::CrimsonReaper => Color::from_rgba(244, 63, 94, 255),
+            Self::InfernoVortex => Color::from_rgba(232, 121, 249, 255),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct HeroBuild {
     pub slash_lvl: u8,
@@ -119,6 +152,71 @@ impl HeroBuild {
         }
     }
 
+    pub fn has_meteor_barrage(&self) -> bool {
+        self.bolt_lvl >= 3 && self.haste_lvl >= 3
+    }
+
+    pub fn has_crimson_reaper(&self) -> bool {
+        self.slash_lvl >= 3 && self.ward_lvl >= 3
+    }
+
+    pub fn has_inferno_vortex(&self) -> bool {
+        self.orbit_lvl >= 3 && self.dash_lvl >= 3
+    }
+
+    pub fn evolutions(&self) -> Vec<EvolutionId> {
+        let mut out = Vec::new();
+        if self.has_meteor_barrage() {
+            out.push(EvolutionId::MeteorBarrage);
+        }
+        if self.has_crimson_reaper() {
+            out.push(EvolutionId::CrimsonReaper);
+        }
+        if self.has_inferno_vortex() {
+            out.push(EvolutionId::InfernoVortex);
+        }
+        out
+    }
+
+    pub fn newly_unlocked_evolution(&self, prev: &HeroBuild) -> Option<EvolutionId> {
+        if self.has_meteor_barrage() && !prev.has_meteor_barrage() {
+            Some(EvolutionId::MeteorBarrage)
+        } else if self.has_crimson_reaper() && !prev.has_crimson_reaper() {
+            Some(EvolutionId::CrimsonReaper)
+        } else if self.has_inferno_vortex() && !prev.has_inferno_vortex() {
+            Some(EvolutionId::InfernoVortex)
+        } else {
+            None
+        }
+    }
+
+    pub fn build_emojis(&self) -> String {
+        let mut parts = Vec::new();
+        if self.slash_lvl > 0 {
+            parts.push(format!("⚔️{}", self.slash_lvl));
+        }
+        if self.bolt_lvl > 0 {
+            parts.push(format!("🔥{}", self.bolt_lvl));
+        }
+        if self.lightning_lvl > 0 {
+            parts.push(format!("⚡{}", self.lightning_lvl));
+        }
+        if self.orbit_lvl > 0 {
+            parts.push(format!("🛡️{}", self.orbit_lvl));
+        }
+        if self.dash_lvl > 1 {
+            parts.push(format!("💨{}", self.dash_lvl));
+        }
+        for evo in self.evolutions() {
+            parts.push(evo.emoji().to_string());
+        }
+        parts.join(" ")
+    }
+
+    pub fn build_summary(&self) -> String {
+        self.build_emojis()
+    }
+
     pub fn roll_three(&self, rng: &mut Rng) -> [UpgradeId; 3] {
         let mut pool: Vec<UpgradeId> = ALL_UPGRADES
             .iter()
@@ -146,5 +244,84 @@ impl HeroBuild {
 
     pub fn pickup_radius(&self) -> f32 {
         95.0 * (1.0 + (self.magnet_lvl as f32) * 0.42)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn weapon_evolutions_require_lv3_pair() {
+        let mut b = HeroBuild::default();
+        assert!(b.evolutions().is_empty());
+
+        // EmberBolts Lv3 + OverclockHaste Lv2 -> NOT evolved yet
+        b.apply(UpgradeId::EmberBolts);
+        b.apply(UpgradeId::EmberBolts);
+        b.apply(UpgradeId::OverclockHaste);
+        b.apply(UpgradeId::OverclockHaste);
+        assert_eq!(b.bolt_lvl, 3);
+        assert_eq!(b.haste_lvl, 2);
+        assert!(!b.has_meteor_barrage());
+
+        let prev = b.clone();
+        b.apply(UpgradeId::OverclockHaste);
+        assert!(b.has_meteor_barrage());
+        assert_eq!(
+            b.newly_unlocked_evolution(&prev),
+            Some(EvolutionId::MeteorBarrage)
+        );
+
+        // Crimson Reaper: ArcaneSlash Lv3 + VampiricWard Lv3
+        b.slash_lvl = 3;
+        b.ward_lvl = 2;
+        assert!(!b.has_crimson_reaper());
+        let prev2 = b.clone();
+        b.apply(UpgradeId::VampiricWard);
+        assert!(b.has_crimson_reaper());
+        assert_eq!(
+            b.newly_unlocked_evolution(&prev2),
+            Some(EvolutionId::CrimsonReaper)
+        );
+
+        // Inferno Vortex: RunicOrbit Lv3 + NovaDash Lv3
+        b.orbit_lvl = 3;
+        b.dash_lvl = 2;
+        assert!(!b.has_inferno_vortex());
+        let prev3 = b.clone();
+        b.apply(UpgradeId::NovaDash);
+        assert!(b.has_inferno_vortex());
+        assert_eq!(
+            b.newly_unlocked_evolution(&prev3),
+            Some(EvolutionId::InfernoVortex)
+        );
+        assert_eq!(b.evolutions().len(), 3);
+    }
+
+    #[test]
+    fn build_summary_contains_levels_and_evolutions() {
+        let mut b = HeroBuild::default();
+        b.bolt_lvl = 3;
+        b.haste_lvl = 3;
+        b.lightning_lvl = 2;
+        let s = b.build_summary();
+        assert!(s.contains("⚔️1"));
+        assert!(s.contains("🔥3"));
+        assert!(s.contains("⚡2"));
+        assert!(s.contains("☄️"));
+    }
+
+    #[test]
+    fn roll_three_is_deterministic_and_distinct() {
+        let b = HeroBuild::default();
+        let mut r1 = Rng::from_seed_str("2026-11-21");
+        let mut r2 = Rng::from_seed_str("2026-11-21");
+        let c1 = b.roll_three(&mut r1);
+        let c2 = b.roll_three(&mut r2);
+        assert_eq!(c1, c2);
+        assert_ne!(c1[0], c1[1]);
+        assert_ne!(c1[1], c1[2]);
+        assert_ne!(c1[0], c1[2]);
     }
 }

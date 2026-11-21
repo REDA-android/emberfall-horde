@@ -5,8 +5,11 @@
     "dir": "dist/client",
     "entrypoints": {
       "default": {
-        "entry": "index.html",
+        "entry": "splash.html",
         "height": "tall"
+      },
+      "game": {
+        "entry": "index.html"
       }
     }
   },
@@ -22,7 +25,16 @@
     }
   },
   "triggers": {
-    "onAppInstall": "/internal/on-app-install"
+    "onAppInstall": "/internal/on-app-install",
+    "onPostDelete": "/internal/on-post-delete"
+  },
+  "scheduler": {
+    "tasks": {
+      "daily-post": {
+        "endpoint": "/internal/scheduler/daily-post",
+        "cron": "0 * * * *"
+      }
+    }
   },
   "menu": {
     "items": [
