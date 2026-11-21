@@ -98,6 +98,72 @@ impl EvolutionId {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HeroClass {
+    SunKnight,
+    ArcanePyromancer,
+    ShadowAssassin,
+}
+
+impl HeroClass {
+    #[allow(dead_code)]
+    pub fn from_index(idx: usize) -> Self {
+        match idx % 3 {
+            0 => Self::SunKnight,
+            1 => Self::ArcanePyromancer,
+            _ => Self::ShadowAssassin,
+        }
+    }
+
+    pub fn to_index(self) -> usize {
+        match self {
+            Self::SunKnight => 0,
+            Self::ArcanePyromancer => 1,
+            Self::ShadowAssassin => 2,
+        }
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::SunKnight => "SUN KNIGHT",
+            Self::ArcanePyromancer => "PYROMANCER",
+            Self::ShadowAssassin => "SHADOW ASSASSIN",
+        }
+    }
+
+    pub fn faction_name(self) -> &'static str {
+        match self {
+            Self::SunKnight => "SOLAR ORDER",
+            Self::ArcanePyromancer => "ARCANE CONCLAVE",
+            Self::ShadowAssassin => "SHADOW GUILD",
+        }
+    }
+
+    pub fn loadout_desc(self) -> &'static str {
+        match self {
+            Self::SunKnight => "130 HP · Slash + Fireball · Balanced",
+            Self::ArcanePyromancer => "95 HP · Fireball + Chain Lightning + Magnet",
+            Self::ShadowAssassin => "105 HP · Slash + Orbitals + Fast Dash",
+        }
+    }
+
+    pub fn base_max_hp(self) -> f32 {
+        match self {
+            Self::SunKnight => 130.0,
+            Self::ArcanePyromancer => 95.0,
+            Self::ShadowAssassin => 105.0,
+        }
+    }
+
+    pub fn accent(self) -> Color {
+        match self {
+            Self::SunKnight => Color::from_rgba(250, 204, 21, 255),
+            Self::ArcanePyromancer => Color::from_rgba(56, 189, 248, 255),
+            Self::ShadowAssassin => Color::from_rgba(167, 139, 250, 255),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct HeroBuild {
     pub slash_lvl: u8,
@@ -112,20 +178,46 @@ pub struct HeroBuild {
 
 impl Default for HeroBuild {
     fn default() -> Self {
-        Self {
-            slash_lvl: 1,
-            bolt_lvl: 1,
-            lightning_lvl: 0,
-            orbit_lvl: 0,
-            dash_lvl: 1,
-            haste_lvl: 0,
-            magnet_lvl: 0,
-            ward_lvl: 0,
-        }
+        Self::for_class(HeroClass::SunKnight)
     }
 }
 
 impl HeroBuild {
+    pub fn for_class(class: HeroClass) -> Self {
+        match class {
+            HeroClass::SunKnight => Self {
+                slash_lvl: 1,
+                bolt_lvl: 1,
+                lightning_lvl: 0,
+                orbit_lvl: 0,
+                dash_lvl: 1,
+                haste_lvl: 0,
+                magnet_lvl: 0,
+                ward_lvl: 0,
+            },
+            HeroClass::ArcanePyromancer => Self {
+                slash_lvl: 0,
+                bolt_lvl: 1,
+                lightning_lvl: 1,
+                orbit_lvl: 0,
+                dash_lvl: 1,
+                haste_lvl: 0,
+                magnet_lvl: 1,
+                ward_lvl: 0,
+            },
+            HeroClass::ShadowAssassin => Self {
+                slash_lvl: 1,
+                bolt_lvl: 0,
+                lightning_lvl: 0,
+                orbit_lvl: 1,
+                dash_lvl: 2,
+                haste_lvl: 1,
+                magnet_lvl: 0,
+                ward_lvl: 0,
+            },
+        }
+    }
+
     pub fn level_of(&self, id: UpgradeId) -> u8 {
         match id {
             UpgradeId::ArcaneSlash => self.slash_lvl,
@@ -252,6 +344,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn hero_classes_and_factions_roundtrip() {
+        for idx in 0..3 {
+            let c = HeroClass::from_index(idx);
+            assert_eq!(c.to_index(), idx);
+            assert!(!c.title().is_empty());
+            assert!(!c.faction_name().is_empty());
+            assert!(c.base_max_hp() >= 90.0);
+            let b = HeroBuild::for_class(c);
+            assert!(!b.build_summary().is_empty());
+        }
+    }
+
+    #[test]
     fn weapon_evolutions_require_lv3_pair() {
         let mut b = HeroBuild::default();
         assert!(b.evolutions().is_empty());
@@ -325,3 +430,4 @@ mod tests {
         assert_ne!(c1[0], c1[2]);
     }
 }
+

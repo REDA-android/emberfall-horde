@@ -145,6 +145,8 @@
         totalPlayers: 0,
         bossKillsToday: 0,
         siegeTarget: 25,
+        factionScores: [0, 0, 0],
+        yesterdayChampion: null,
         leaderboard: [],
         topGhost: null,
         canVoteMutator: false
@@ -161,6 +163,16 @@
         initData.totalPlayers = Number(d.totalPlayers) || 0;
         initData.bossKillsToday = Number(d.bossKillsToday) || 0;
         initData.siegeTarget = Number(d.siegeTarget) || 25;
+        if (Array.isArray(d.factionScores) && d.factionScores.length >= 3) {
+          initData.factionScores = [
+            Number(d.factionScores[0]) || 0,
+            Number(d.factionScores[1]) || 0,
+            Number(d.factionScores[2]) || 0
+          ];
+        }
+        initData.yesterdayChampion = (d.yesterdayChampion && typeof d.yesterdayChampion.username === 'string')
+          ? d.yesterdayChampion
+          : null;
         initData.leaderboard = Array.isArray(d.leaderboard) ? d.leaderboard : [];
         initData.topGhost = d.topGhost && Array.isArray(d.topGhost.points) ? d.topGhost : null;
         initData.canVoteMutator = Boolean(d.canVoteMutator);
@@ -281,7 +293,7 @@
               .catch(function () {});
           };
 
-          env.emberfall_on_run_complete = function (score, kills, bossSlain, level, buildPtr, buildLen, ghostPtr, ghostCount) {
+          env.emberfall_on_run_complete = function (score, kills, bossSlain, level, heroClass, buildPtr, buildLen, ghostPtr, ghostCount) {
             var buildSummary = readUtf8(buildPtr, buildLen);
             var ghostPoints = readGhostPoints(ghostPtr, ghostCount);
             submitState = 1;
@@ -296,6 +308,7 @@
                 kills: kills,
                 bossSlain: bossSlain === 1,
                 level: level,
+                heroClass: heroClass | 0,
                 buildSummary: buildSummary,
                 ghostPoints: ghostPoints
               })
@@ -312,6 +325,13 @@
                   initData.totalPlayers = Number(res.json.totalPlayers) || initData.totalPlayers;
                   initData.streak = Number(res.json.streak) || initData.streak;
                   initData.bossKillsToday = Number(res.json.bossKillsToday) || initData.bossKillsToday;
+                  if (Array.isArray(res.json.factionScores) && res.json.factionScores.length >= 3) {
+                    initData.factionScores = [
+                      Number(res.json.factionScores[0]) || 0,
+                      Number(res.json.factionScores[1]) || 0,
+                      Number(res.json.factionScores[2]) || 0
+                    ];
+                  }
                   initData.canVoteMutator = Boolean(res.json.canVoteMutator);
                   if (score > initData.personalBest) initData.personalBest = score;
                   lastStatusMsg = res.json.isNewBest ? 'New Daily Best!' : 'Score Submitted!';
@@ -327,7 +347,7 @@
               });
           };
 
-          env.emberfall_share_comment = function (score, kills, bossSlain, level, buildPtr, buildLen) {
+          env.emberfall_share_comment = function (score, kills, bossSlain, level, heroClass, buildPtr, buildLen) {
             var buildEmojis = readUtf8(buildPtr, buildLen) || '⚔️🔥';
             var ov = initData.mutatorOverride;
             var mutatorName = (ov >= 0 && ov <= 3) ? MODIFIERS[ov] : '';
@@ -342,6 +362,7 @@
                 kills: kills,
                 bossSlain: bossSlain === 1,
                 level: level || 1,
+                heroClass: heroClass | 0,
                 streak: initData.streak,
                 mutatorName: mutatorName,
                 buildEmojis: buildEmojis,
@@ -409,6 +430,7 @@
               case 7: return initData.canVoteMutator ? 1 : 0;
               case 8: return initData.leaderboard.length | 0;
               case 9: return (initData.topGhost && initData.topGhost.points) ? initData.topGhost.points.length : 0;
+              case 10: return (initData.yesterdayChampion && initData.yesterdayChampion.score) ? (initData.yesterdayChampion.score | 0) : 0;
               default: return 0;
             }
           };
@@ -423,6 +445,8 @@
               str = (initData.topGhost && initData.topGhost.username) ? initData.topGhost.username : '';
             } else if (fieldId === 3) {
               str = lastStatusMsg || '';
+            } else if (fieldId === 4) {
+              str = (initData.yesterdayChampion && initData.yesterdayChampion.username) ? initData.yesterdayChampion.username : '';
             }
             return writeUtf8(str, outPtr, maxLen);
           };
@@ -430,6 +454,12 @@
           env.emberfall_get_lb_score = function (index) {
             var row = initData.leaderboard[index | 0];
             return row ? (Number(row.score) || 0) >>> 0 : 0;
+          };
+
+          env.emberfall_get_faction_score = function (index) {
+            var idx = index | 0;
+            if (!initData.factionScores || idx < 0 || idx >= 3) return 0;
+            return (Number(initData.factionScores[idx]) || 0) >>> 0;
           };
 
           env.emberfall_get_ghost_x = function (index) {

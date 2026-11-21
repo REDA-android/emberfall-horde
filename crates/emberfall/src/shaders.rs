@@ -46,6 +46,7 @@ uniform float u_low_hp;
 uniform float u_aberration;
 uniform float u_shockwave;
 uniform float u_blood_moon;
+uniform float u_biome;
 
 void main() {
     vec2 center = vec2(0.5, 0.5);
@@ -75,6 +76,15 @@ void main() {
     // Dark fantasy radial vignette
     float vig = smoothstep(0.34, 0.94, dist);
     col *= 1.0 - vig * 0.42;
+
+    // Daily Biome edge atmosphere (0 = Obsidian, 1 = Volcanic Rift, 2 = Frost Abyss)
+    if (u_biome > 1.5) {
+        col += vec3(0.01, 0.09, 0.17) * vig;
+    } else if (u_biome > 0.5) {
+        col += vec3(0.14, 0.04, 0.01) * vig;
+    } else {
+        col += vec3(0.07, 0.02, 0.13) * vig;
+    }
 
     // Subtle Blood Moon tint on edges
     if (u_blood_moon > 0.01) {
@@ -123,6 +133,7 @@ impl GameShaders {
                     UniformDesc::new("u_aberration", UniformType::Float1),
                     UniformDesc::new("u_shockwave", UniformType::Float1),
                     UniformDesc::new("u_blood_moon", UniformType::Float1),
+                    UniformDesc::new("u_biome", UniformType::Float1),
                 ],
                 ..Default::default()
             },
@@ -135,3 +146,4 @@ impl GameShaders {
         }
     }
 }
+

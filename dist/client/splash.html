@@ -233,17 +233,18 @@
     </div>
 
     <div class="card mutator-card">
-      <div class="label">Today's Daily Mutator</div>
+      <div class="label" id="biome-label">Today's Arena &amp; Daily Mutator</div>
       <div class="mutator-name" id="mutator-name">LOADING...</div>
       <div class="mutator-desc" id="mutator-desc">Syncing daily seed from Reddit...</div>
     </div>
 
     <div class="card">
       <div class="siege-head">
-        <div class="label" style="margin:0;">Subreddit Boss Siege</div>
-        <div class="siege-count" id="siege-count">0 / 25 Dragons Slain</div>
+        <div class="label" style="margin:0;">Reddit Faction War &amp; Boss Siege</div>
+        <div class="siege-count" id="siege-count">0 / 25 Arch-Liches Slain</div>
       </div>
       <div class="bar-bg"><div class="bar-fill" id="siege-fill"></div></div>
+      <div class="mutator-desc" id="faction-line" style="margin-top:6px;font-size:11px;color:#fde68a;">☀️ Solar 0 · 🔮 Arcane 0 · 🗡️ Shadow 0</div>
     </div>
 
     <div class="card">
@@ -254,7 +255,7 @@
     </div>
 
     <div class="footer">
-      <button class="cta" id="enter-btn" type="button">⚔️ ENTER DUNGEON</button>
+      <button class="cta" id="enter-btn" type="button">⚔️ ENTER DUNGEON (3 CLASSES)</button>
       <div class="me-bar">
         <span id="me-rank">Play Daily Ranked</span>
         <span id="me-streak">🔥 0d Streak</span>
@@ -270,6 +271,11 @@
         { title: 'SWARM RUSH', desc: 'Massive Swarms · +30% Score Multiplier' },
         { title: "TITAN'S WRATH", desc: 'Enraged Daily Boss · +50% Boss Bounty' }
       ];
+      var BIOMES = [
+        'OBSIDIAN SANCTUARY',
+        'VOLCANIC RIFT',
+        'FROST ABYSS'
+      ];
 
       function utcSeed() {
         var d = new Date();
@@ -279,7 +285,7 @@
         return y + '-' + m + '-' + day;
       }
 
-      function defaultMutator(seed) {
+      function hashSeed(seed) {
         try {
           var mask = 0xffffffffffffffffn;
           var h = 0xcbf29ce484222325n;
@@ -293,10 +299,18 @@
           x ^= (x << 25n) & mask;
           x ^= x >> 27n;
           x = (x * 0x2545f4914f6cdd1dn) & mask;
-          return Number(x % 4n);
+          return x;
         } catch (_) {
-          return 0;
+          return 0n;
         }
+      }
+
+      function defaultMutator(seed) {
+        try { return Number(hashSeed(seed) % 4n); } catch (_) { return 0; }
+      }
+
+      function defaultBiome(seed) {
+        try { return BIOMES[Number(hashSeed(seed + '-biome') % 3n)] || BIOMES[0]; } catch (_) { return BIOMES[0]; }
       }
 
       function esc(s) {
@@ -341,17 +355,27 @@
         var seed = (data && data.seed) ? String(data.seed) : utcSeed();
         document.getElementById('seed-pill').textContent = 'DUNGEON #' + seed;
 
+        var biomeName = (data && data.biomeName) ? String(data.biomeName) : defaultBiome(seed);
         var ov = (data && typeof data.mutatorOverride === 'number') ? data.mutatorOverride : -1;
         var modIdx = (ov >= 0 && ov <= 3) ? ov : defaultMutator(seed);
         var mod = MODIFIERS[modIdx] || MODIFIERS[0];
-        document.getElementById('mutator-name').textContent = mod.title + (ov >= 0 ? ' ★ VOTED' : '');
-        document.getElementById('mutator-desc').textContent = mod.desc;
+        document.getElementById('mutator-name').textContent = biomeName + ' · ' + mod.title + (ov >= 0 ? ' ★ VOTED' : '');
+        document.getElementById('mutator-desc').textContent = mod.desc + ' · Destructible Runic Barrels';
 
         var kills = (data && Number(data.bossKillsToday)) || 0;
         var target = (data && Number(data.siegeTarget)) || 25;
         var pct = Math.min(100, Math.round((kills / Math.max(1, target)) * 100));
-        document.getElementById('siege-count').textContent = kills + ' / ' + target + ' Dragons Slain';
+        document.getElementById('siege-count').textContent = kills + ' / ' + target + ' Arch-Liches Slain';
         document.getElementById('siege-fill').style.width = pct + '%';
+
+        var fs = (data && Array.isArray(data.factionScores)) ? data.factionScores : [0, 0, 0];
+        var fline = '☀️ Solar ' + Number(fs[0] || 0).toLocaleString('en-US') +
+          ' · 🔮 Arcane ' + Number(fs[1] || 0).toLocaleString('en-US') +
+          ' · 🗡️ Shadow ' + Number(fs[2] || 0).toLocaleString('en-US');
+        if (data && data.yesterdayChampion && data.yesterdayChampion.username) {
+          fline += ' · 🏆 J-1: u/' + data.yesterdayChampion.username;
+        }
+        document.getElementById('faction-line').textContent = fline;
 
         var lb = (data && Array.isArray(data.leaderboard)) ? data.leaderboard.slice(0, 3) : [];
         var lbEl = document.getElementById('lb-list');
@@ -385,3 +409,4 @@
   </script>
 </body>
 </html>
+

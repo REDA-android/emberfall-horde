@@ -115,6 +115,68 @@ pub fn generate_shrine_positions(day_seed: &str) -> Vec<(f32, f32)> {
     out
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DailyBiome {
+    ObsidianSanctuary,
+    VolcanicRift,
+    FrostAbyss,
+}
+
+impl DailyBiome {
+    pub fn from_index(idx: usize) -> Self {
+        match idx % 3 {
+            0 => Self::ObsidianSanctuary,
+            1 => Self::VolcanicRift,
+            _ => Self::FrostAbyss,
+        }
+    }
+
+    pub fn to_index(self) -> usize {
+        match self {
+            Self::ObsidianSanctuary => 0,
+            Self::VolcanicRift => 1,
+            Self::FrostAbyss => 2,
+        }
+    }
+
+    pub fn from_seed(seed: &str) -> Self {
+        let mut r = Rng::from_seed_str(&format!("{}-biome", seed));
+        Self::from_index(r.range_usize(0, 3))
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::ObsidianSanctuary => "OBSIDIAN SANCTUARY",
+            Self::VolcanicRift => "VOLCANIC RIFT",
+            Self::FrostAbyss => "FROST ABYSS",
+        }
+    }
+
+    pub fn subtitle(self) -> &'static str {
+        match self {
+            Self::ObsidianSanctuary => "Arcane Barrels (+25% Shockwave Damage)",
+            Self::VolcanicRift => "Magma Barrels (+30% Explosion Radius)",
+            Self::FrostAbyss => "Cryo Barrels (Chills & Slows Hordes 40%)",
+        }
+    }
+}
+
+/// Generates 8 deterministic Runic Barrel coordinates in a ring around the arena for a daily seed.
+pub fn generate_barrel_positions(day_seed: &str) -> Vec<(f32, f32)> {
+    let mut r = Rng::from_seed_str(&format!("{}-barrels", day_seed));
+    let count = 8usize;
+    let base_angle = r.range_f32(0.0, std::f32::consts::TAU);
+    let mut out = Vec::with_capacity(count);
+    for i in 0..count {
+        let sector = (i as f32) * (std::f32::consts::TAU / (count as f32));
+        let jitter = r.range_f32(-0.22, 0.22);
+        let angle = base_angle + sector + jitter;
+        let dist = r.range_f32(210.0, 740.0);
+        out.push((angle.cos() * dist, angle.sin() * dist));
+    }
+    out
+}
+
 pub fn compute_rank(score: u32, boss_slain: bool) -> &'static str {
     if boss_slain && score >= 14_000 {
         "SSS"
@@ -142,6 +204,7 @@ mod tests {
     #[test]
     fn deterministic_365_days_and_ranks() {
         let mut seen_mods = [false; 4];
+        let mut seen_biomes = [false; 3];
         for day in 1..=365 {
             let seed = format!("2026-D{:03}", day);
             let mut r1 = Rng::from_seed_str(&seed);
@@ -152,8 +215,12 @@ mod tests {
 
             let m = DailyModifier::from_seed(&seed);
             seen_mods[m.to_index()] = true;
+
+            let b = DailyBiome::from_seed(&seed);
+            seen_biomes[b.to_index()] = true;
         }
         assert!(seen_mods.iter().all(|&x| x), "All 4 daily modifiers must appear");
+        assert!(seen_biomes.iter().all(|&x| x), "All 3 daily biomes must appear");
         assert_eq!(compute_rank(15_000, true), "SSS");
         assert_eq!(compute_rank(10_000, true), "SS");
         assert_eq!(compute_rank(15_000, false), "S");
@@ -166,12 +233,16 @@ mod tests {
     }
 
     #[test]
-    fn mutator_index_roundtrip() {
+    fn mutator_and_biome_index_roundtrip() {
         for idx in 0..4 {
             let m = DailyModifier::from_index(idx);
             assert_eq!(m.to_index(), idx);
         }
         assert_eq!(DailyModifier::from_index(4), DailyModifier::BloodMoon);
+        for idx in 0..3 {
+            let b = DailyBiome::from_index(idx);
+            assert_eq!(b.to_index(), idx);
+        }
     }
 
     #[test]
@@ -184,7 +255,7 @@ mod tests {
     }
 
     #[test]
-    fn deterministic_shrines_per_seed() {
+    fn deterministic_shrines_and_barrels_per_seed() {
         let s1 = generate_shrine_positions("2026-11-21");
         let s2 = generate_shrine_positions("2026-11-21");
         assert_eq!(s1, s2);
@@ -192,6 +263,15 @@ mod tests {
         for (x, y) in &s1 {
             let dist = (x * x + y * y).sqrt();
             assert!((279.0..=621.0).contains(&dist));
+        }
+
+        let b1 = generate_barrel_positions("2026-11-21");
+        let b2 = generate_barrel_positions("2026-11-21");
+        assert_eq!(b1, b2);
+        assert_eq!(b1.len(), 8);
+        for (x, y) in &b1 {
+            let dist = (x * x + y * y).sqrt();
+            assert!((209.0..=741.0).contains(&dist));
         }
 
         let mut saw_one = false;
@@ -211,3 +291,4 @@ mod tests {
         assert!(saw_one && saw_two, "Both 1 and 2 shrine counts should occur");
     }
 }
+

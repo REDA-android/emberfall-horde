@@ -5,9 +5,12 @@ mod weapons;
 
 use assets::GameAssets;
 use macroquad::prelude::*;
-use rng::{compute_rank, fever_multiplier, generate_shrine_positions, DailyModifier, Rng};
+use rng::{
+    compute_rank, fever_multiplier, generate_barrel_positions, generate_shrine_positions,
+    DailyBiome, DailyModifier, Rng,
+};
 use shaders::GameShaders;
-use weapons::{HeroBuild, UpgradeId};
+use weapons::{HeroBuild, HeroClass, UpgradeId};
 
 #[cfg(target_arch = "wasm32")]
 #[link(wasm_import_module = "env")]
@@ -22,6 +25,7 @@ extern "C" {
         kills: u32,
         boss_slain: i32,
         level: u32,
+        hero_class: u32,
         build_ptr: *const u8,
         build_len: u32,
         ghost_ptr: *const i16,
@@ -32,6 +36,7 @@ extern "C" {
         kills: u32,
         boss_slain: i32,
         level: u32,
+        hero_class: u32,
         build_ptr: *const u8,
         build_len: u32,
     );
@@ -45,6 +50,7 @@ extern "C" {
         max_len: u32,
     ) -> u32;
     fn emberfall_get_lb_score(index: i32) -> u32;
+    fn emberfall_get_faction_score(index: i32) -> u32;
     fn emberfall_get_ghost_x(index: i32) -> i32;
     fn emberfall_get_ghost_y(index: i32) -> i32;
     fn emberfall_get_share_state() -> i32;
@@ -69,6 +75,7 @@ unsafe fn emberfall_on_run_complete(
     _kills: u32,
     _boss_slain: i32,
     _level: u32,
+    _hero_class: u32,
     _build_ptr: *const u8,
     _build_len: u32,
     _ghost_ptr: *const i16,
@@ -81,6 +88,7 @@ unsafe fn emberfall_share_comment(
     _kills: u32,
     _boss_slain: i32,
     _level: u32,
+    _hero_class: u32,
     _build_ptr: *const u8,
     _build_len: u32,
 ) {
@@ -106,6 +114,10 @@ unsafe fn emberfall_copy_str_field(
 }
 #[cfg(not(target_arch = "wasm32"))]
 unsafe fn emberfall_get_lb_score(_index: i32) -> u32 {
+    0
+}
+#[cfg(not(target_arch = "wasm32"))]
+unsafe fn emberfall_get_faction_score(_index: i32) -> u32 {
     0
 }
 #[cfg(not(target_arch = "wasm32"))]
@@ -142,6 +154,38 @@ fn read_ffi_str(field_id: i32, index: i32) -> String {
     let len = unsafe { emberfall_copy_str_field(field_id, index, buf.as_mut_ptr(), buf.len() as u32) };
     let n = (len as usize).min(buf.len());
     String::from_utf8_lossy(&buf[..n]).into_owned()
+}
+
+/// Renders text with our embedded Open-Source TTF font (`ChakraPetch-Bold.ttf`, SIL OFL)
+/// plus a dark drop shadow for crisp readability on mobile and desktop.
+fn draw_ui_text(font: Option<&Font>, text: &str, x: f32, y: f32, size: f32, color: Color) {
+    let font_size = size.round().max(8.0) as u16;
+    draw_text_ex(
+        text,
+        x + 1.4,
+        y + 1.4,
+        TextParams {
+            font,
+            font_size,
+            color: Color::new(0.0, 0.0, 0.0, color.a * 0.72),
+            ..Default::default()
+        },
+    );
+    draw_text_ex(
+        text,
+        x,
+        y,
+        TextParams {
+            font,
+            font_size,
+            color,
+            ..Default::default()
+        },
+    );
+}
+
+fn measure_ui_text(font: Option<&Font>, text: &str, size: u16) -> TextDimensions {
+    measure_text(text, font, size, 1.0)
 }
 
 const ARENA_HALF: f32 = 1050.0;
@@ -183,12 +227,20 @@ struct Enemy {
     phase_timer: f32,
     is_elite: bool,
     squash: f32,
+    chill_timer: f32,
 }
 
 struct BloodShrine {
     pos: Vec2,
     progress: f32,
     completed: bool,
+}
+
+struct RunicBarrel {
+    pos: Vec2,
+    hp: f32,
+    hit_flash: f32,
+    exploded: bool,
 }
 
 struct LeaderboardEntry {
@@ -209,6 +261,9 @@ struct SocialState {
     mutator_override: i32,
     can_vote_mutator: bool,
     leaderboard: Vec<LeaderboardEntry>,
+    faction_scores: [u32; 3],
+    yesterday_champion: String,
+    yesterday_score: i32,
     ghost_username: String,
     ghost_points: Vec<Vec2>,
     last_status_msg: String,
@@ -297,9 +352,11 @@ struct Game {
     phase: Phase,
     day_seed: String,
     modifier: DailyModifier,
+    biome: DailyBiome,
     rng: Rng,
 
-    // Hero
+    // Hero & Class
+    hero_class: HeroClass,
     hero_pos: Vec2,
     hero_vel: Vec2,
     hero_hp: f32,
@@ -329,6 +386,7 @@ struct Game {
     ult_fx: f32,
     ult_pos: Vec2,
     boss_spawned: bool,
+    boss_enraged: bool,
     boss_slain: bool,
     boss_banner_timer: f32,
     evo_banner_text: String,
@@ -336,8 +394,9 @@ struct Game {
     evo_banner_timer: f32,
     reported_run: bool,
 
-    // Shrines & Ghost
+    // Shrines, Barrels & Ghost
     shrines: Vec<BloodShrine>,
+    barrels: Vec<RunicBarrel>,
     shrine_score_mult: f32,
     ghost_record: Vec<i16>,
     ghost_sample_timer: f32,
@@ -384,17 +443,21 @@ impl Game {
         let d = day_num % 100;
         let day_seed = format!("{:04}-{:02}-{:02}", y, m, d);
         let modifier = DailyModifier::from_seed(&day_seed);
+        let biome = DailyBiome::from_seed(&day_seed);
         let rng = Rng::from_seed_str(&day_seed);
+        let hero_class = HeroClass::SunKnight;
 
         Self {
             phase: Phase::Title,
             day_seed,
             modifier,
+            biome,
             rng,
+            hero_class,
             hero_pos: Vec2::ZERO,
             hero_vel: Vec2::ZERO,
-            hero_hp: 120.0,
-            hero_max_hp: 120.0,
+            hero_hp: hero_class.base_max_hp(),
+            hero_max_hp: hero_class.base_max_hp(),
             hero_facing_left: false,
             hero_invuln: 0.0,
             hero_stride: 0.0,
@@ -402,7 +465,7 @@ impl Game {
             dash_cd: 0.0,
             dash_timer: 0.0,
             dash_dir: Vec2::X,
-            build: HeroBuild::default(),
+            build: HeroBuild::for_class(hero_class),
             level: 1,
             xp: 0,
             xp_next: 24,
@@ -422,6 +485,7 @@ impl Game {
             ult_fx: 0.0,
             ult_pos: Vec2::ZERO,
             boss_spawned: false,
+            boss_enraged: false,
             boss_slain: false,
             boss_banner_timer: 0.0,
             evo_banner_text: String::new(),
@@ -429,6 +493,7 @@ impl Game {
             evo_banner_timer: 0.0,
             reported_run: false,
             shrines: Vec::new(),
+            barrels: Vec::new(),
             shrine_score_mult: 1.0,
             ghost_record: Vec::with_capacity(400),
             ghost_sample_timer: 0.0,
@@ -462,6 +527,14 @@ impl Game {
         }
     }
 
+    fn hero_texture<'a>(&self, assets: &'a GameAssets) -> &'a Texture2D {
+        match self.hero_class {
+            HeroClass::SunKnight => &assets.hero,
+            HeroClass::ArcanePyromancer => &assets.hero_mage,
+            HeroClass::ShadowAssassin => &assets.hero_rogue,
+        }
+    }
+
     fn poll_social_bridge(&mut self) {
         let ready = unsafe { emberfall_poll_init_ready() };
         let submit_state = unsafe { emberfall_get_submit_state() };
@@ -478,6 +551,7 @@ impl Game {
             self.social.siege_target = unsafe { emberfall_get_init_field(5) }.max(1);
             self.social.mutator_override = unsafe { emberfall_get_init_field(6) };
             self.social.can_vote_mutator = unsafe { emberfall_get_init_field(7) } == 1;
+            self.social.yesterday_score = unsafe { emberfall_get_init_field(10) }.max(0);
 
             if self.social.mutator_override >= 0 && self.phase != Phase::Playing {
                 self.modifier = DailyModifier::from_index(self.social.mutator_override as usize);
@@ -485,6 +559,11 @@ impl Game {
 
             self.social.username = read_ffi_str(0, 0);
             self.social.ghost_username = read_ffi_str(2, 0);
+            self.social.yesterday_champion = read_ffi_str(4, 0);
+
+            for fi in 0..3 {
+                self.social.faction_scores[fi] = unsafe { emberfall_get_faction_score(fi as i32) };
+            }
 
             let lb_count = (unsafe { emberfall_get_init_field(8) }).clamp(0, 10) as usize;
             self.social.leaderboard.clear();
@@ -516,17 +595,19 @@ impl Game {
 
     fn start_run(&mut self) {
         self.rng = Rng::from_seed_str(&self.day_seed);
+        self.biome = DailyBiome::from_seed(&self.day_seed);
         self.phase = Phase::Playing;
         self.hero_pos = Vec2::ZERO;
         self.hero_vel = Vec2::ZERO;
-        self.hero_max_hp = 120.0;
-        self.hero_hp = 120.0;
+        let max_hp = self.hero_class.base_max_hp();
+        self.hero_max_hp = max_hp;
+        self.hero_hp = max_hp;
         self.hero_invuln = 0.6;
         self.hero_facing_left = false;
         self.hero_squash = 0.0;
         self.dash_cd = 0.0;
         self.dash_timer = 0.0;
-        self.build = HeroBuild::default();
+        self.build = HeroBuild::for_class(self.hero_class);
         self.level = 1;
         self.xp = 0;
         self.xp_next = 22;
@@ -540,6 +621,7 @@ impl Game {
         self.ult_charge = 0.0;
         self.ult_fx = 0.0;
         self.boss_spawned = false;
+        self.boss_enraged = false;
         self.boss_slain = false;
         self.boss_banner_timer = 0.0;
         self.evo_banner_text.clear();
@@ -551,6 +633,15 @@ impl Game {
                 pos: vec2(x, y),
                 progress: 0.0,
                 completed: false,
+            })
+            .collect();
+        self.barrels = generate_barrel_positions(&self.day_seed)
+            .into_iter()
+            .map(|(x, y)| RunicBarrel {
+                pos: vec2(x, y),
+                hp: 55.0,
+                hit_flash: 0.0,
+                exploded: false,
             })
             .collect();
         self.shrine_score_mult = 1.0;
@@ -700,6 +791,7 @@ impl Game {
             phase_timer: 0.0,
             is_elite,
             squash: 0.45,
+            chill_timer: 0.0,
         });
     }
 
@@ -760,14 +852,101 @@ impl Game {
         }
         let dmg = 160.0 + (self.level as f32) * 14.0;
         self.damage_enemies_in_radius(self.hero_pos, 460.0, dmg, 520.0);
-        let cx = self.hero_pos;
-        self.gems.iter_mut().for_each(|g| {
-            let _ = cx;
-            let _ = g;
+    }
+
+    fn damage_barrels_in_radius(&mut self, center: Vec2, radius: f32, dmg: f32) {
+        let mut to_detonate: Vec<usize> = Vec::new();
+        for (bi, b) in self.barrels.iter_mut().enumerate() {
+            if b.exploded {
+                continue;
+            }
+            if b.pos.distance(center) <= radius + 30.0 {
+                b.hp -= dmg;
+                b.hit_flash = 0.14;
+                if b.hp <= 0.0 {
+                    to_detonate.push(bi);
+                }
+            }
+        }
+        for bi in to_detonate {
+            self.detonate_barrel(bi);
+        }
+    }
+
+    fn detonate_barrel(&mut self, idx: usize) {
+        if idx >= self.barrels.len() || self.barrels[idx].exploded {
+            return;
+        }
+        self.barrels[idx].exploded = true;
+        let bpos = self.barrels[idx].pos;
+        self.shockwave = self.shockwave.max(0.85);
+        self.add_trauma(0.55);
+        self.hitstop = self.hitstop.max(0.045);
+        play_sfx(4);
+
+        let (rad, dmg, col, label) = match self.biome {
+            DailyBiome::ObsidianSanctuary => (
+                175.0,
+                165.0,
+                Color::from_rgba(192, 132, 252, 255),
+                "ARCANE BLAST!",
+            ),
+            DailyBiome::VolcanicRift => (
+                228.0,
+                145.0,
+                Color::from_rgba(251, 146, 60, 255),
+                "MAGMA ERUPTION!",
+            ),
+            DailyBiome::FrostAbyss => (
+                185.0,
+                125.0,
+                Color::from_rgba(56, 189, 248, 255),
+                "CRYO SHATTER!",
+            ),
+        };
+
+        self.spawn_burst(bpos, 28, col, VfxKind::Flame, 310.0);
+        self.spawn_burst(bpos, 16, Color::from_rgba(253, 224, 71, 255), VfxKind::Spark, 250.0);
+        self.float_texts.push(FloatText {
+            pos: bpos + vec2(0.0, -32.0),
+            text: label.to_string(),
+            color: col,
+            life: 1.1,
+            scale: 22.0,
         });
+
+        let is_frost = self.biome == DailyBiome::FrostAbyss;
+        let mut hits: Vec<(usize, Vec2)> = Vec::new();
+        for (i, e) in self.enemies.iter_mut().enumerate() {
+            let delta = e.pos - bpos;
+            let dist = delta.length();
+            if dist <= rad + e.radius {
+                if is_frost {
+                    e.chill_timer = 3.5;
+                }
+                let dir = if dist > 1.0 { delta / dist } else { Vec2::X };
+                hits.push((i, dir));
+            }
+        }
+        for (ei, dir) in hits {
+            self.apply_enemy_damage(ei, dmg, true, dir * 320.0);
+        }
+
+        // Chain-detonate nearby barrels!
+        let mut chain: Vec<usize> = Vec::new();
+        for (bi, b) in self.barrels.iter_mut().enumerate() {
+            if !b.exploded && b.pos.distance(bpos) <= rad * 0.95 {
+                b.hp = 0.0;
+                chain.push(bi);
+            }
+        }
+        for bi in chain {
+            self.detonate_barrel(bi);
+        }
     }
 
     fn damage_enemies_in_radius(&mut self, center: Vec2, radius: f32, base_dmg: f32, knockback: f32) -> usize {
+        self.damage_barrels_in_radius(center, radius, base_dmg);
         let crit_chance = if self.modifier == DailyModifier::BloodMoon {
             0.35
         } else {
@@ -797,18 +976,33 @@ impl Game {
         }
         let pos;
         let is_boss;
+        let mut trigger_enrage = false;
         {
             let e = &mut self.enemies[idx];
             e.hp -= dmg;
             e.hit_flash = 0.12;
             e.squash = -0.22;
             is_boss = e.kind == EnemyKind::Boss;
+            if is_boss && !self.boss_enraged && e.hp > 0.0 && e.hp <= e.max_hp * 0.5 {
+                trigger_enrage = true;
+            }
             if !is_boss {
                 e.vel += knock;
             } else {
                 e.vel += knock * 0.12;
             }
             pos = e.pos;
+        }
+
+        if trigger_enrage {
+            self.boss_enraged = true;
+            self.evo_banner_text = "ARCH-LICH ENRAGED — PHASE II!".to_string();
+            self.evo_banner_color = Color::from_rgba(244, 63, 94, 255);
+            self.evo_banner_timer = 3.2;
+            self.shockwave = 1.0;
+            self.add_trauma(0.85);
+            play_sfx(6);
+            self.spawn_burst(pos, 32, Color::from_rgba(244, 63, 94, 255), VfxKind::Flame, 320.0);
         }
 
         self.float_texts.push(FloatText {
@@ -1049,6 +1243,9 @@ impl Game {
         self.shockwave = (self.shockwave - dt * 1.9).max(0.0);
         self.ult_fx = (self.ult_fx - dt * 1.4).max(0.0);
         self.hero_squash *= (1.0 - dt * 12.0).max(0.0);
+        for b in &mut self.barrels {
+            b.hit_flash = (b.hit_flash - dt).max(0.0);
+        }
 
         if self.combo_timer > 0.0 {
             self.combo_timer -= dt;
@@ -1206,7 +1403,7 @@ impl Game {
 
         // 1. Arcane Slash (or Evolved: Crimson Reaper)
         self.slash_cd -= dt * haste;
-        if self.slash_cd <= 0.0 {
+        if self.slash_cd <= 0.0 && self.build.slash_lvl > 0 {
             let evolved = self.build.has_crimson_reaper();
             let search_r = if evolved { 380.0 } else { 320.0 };
             if let Some(target_idx) = self.nearest_enemy_index(self.hero_pos, search_r) {
@@ -1346,13 +1543,17 @@ impl Game {
 
         // Update Enemies & Boss AI
         let hero_p = self.hero_pos;
+        let boss_enraged = self.boss_enraged;
         let mut enemy_shots: Vec<Projectile> = Vec::new();
         let mut new_telegraphs: Vec<TelegraphRing> = Vec::new();
         let mut hero_hit_dmg = 0.0f32;
 
         for e in &mut self.enemies {
             e.hit_flash = (e.hit_flash - dt).max(0.0);
+            e.chill_timer = (e.chill_timer - dt).max(0.0);
             e.squash *= (1.0 - dt * 12.0).max(0.0);
+            let chill_mult = if e.chill_timer > 0.0 { 0.58 } else { 1.0 };
+            let eff_speed = e.speed * chill_mult;
             let to_hero = hero_p - e.pos;
             let dist = to_hero.length().max(0.001);
             let dir = to_hero / dist;
@@ -1360,7 +1561,7 @@ impl Game {
 
             match e.kind {
                 EnemyKind::Wraith => {
-                    let desired = if dist > 260.0 { dir * e.speed } else if dist < 170.0 { -dir * e.speed * 0.6 } else { Vec2::ZERO };
+                    let desired = if dist > 260.0 { dir * eff_speed } else if dist < 170.0 { -dir * eff_speed * 0.6 } else { Vec2::ZERO };
                     e.vel = e.vel.lerp(desired, (dt * 6.0).min(1.0));
                     e.attack_cd -= dt;
                     if e.attack_cd <= 0.0 && dist < 440.0 {
@@ -1378,38 +1579,53 @@ impl Game {
                     }
                 }
                 EnemyKind::Boss => {
-                    e.vel = e.vel.lerp(dir * e.speed, (dt * 4.0).min(1.0));
+                    let p2_mult = if boss_enraged { 1.24 } else { 1.0 };
+                    e.vel = e.vel.lerp(dir * eff_speed * p2_mult, (dt * 4.0).min(1.0));
                     e.attack_cd -= dt;
                     e.phase_timer += dt;
                     if e.attack_cd <= 0.0 {
-                        e.attack_cd = 2.5;
-                        // Telegraph fiery slam at hero's position!
+                        e.attack_cd = if boss_enraged { 1.85 } else { 2.5 };
+                        // Telegraph fiery slam at hero's position (+ second offset slam in Phase 2!)
                         new_telegraphs.push(TelegraphRing {
                             pos: hero_p,
-                            max_radius: 125.0,
+                            max_radius: if boss_enraged { 138.0 } else { 125.0 },
                             elapsed: 0.0,
-                            duration: 1.05,
-                            damage: 26.0,
+                            duration: if boss_enraged { 0.92 } else { 1.05 },
+                            damage: if boss_enraged { 30.0 } else { 26.0 },
                         });
-                        // Plus 8-way spiral ember nova!
+                        if boss_enraged {
+                            new_telegraphs.push(TelegraphRing {
+                                pos: hero_p + dir * 135.0,
+                                max_radius: 115.0,
+                                elapsed: 0.0,
+                                duration: 0.95,
+                                damage: 28.0,
+                            });
+                        }
+                        // Spiral ember nova (12-way in Phase 2, 8-way in Phase 1)
+                        let spokes = if boss_enraged { 12 } else { 8 };
                         let base_a = e.phase_timer * 1.4;
-                        for k in 0..8 {
-                            let a = base_a + (k as f32) * (std::f32::consts::TAU / 8.0);
+                        for k in 0..spokes {
+                            let a = base_a + (k as f32) * (std::f32::consts::TAU / (spokes as f32));
                             enemy_shots.push(Projectile {
                                 pos: e.pos,
-                                vel: Vec2::from_angle(a) * 235.0,
+                                vel: Vec2::from_angle(a) * if boss_enraged { 265.0 } else { 235.0 },
                                 damage: 16.0,
                                 radius: 10.0,
                                 life: 2.8,
                                 pierce: 1,
                                 from_enemy: true,
-                                color: Color::from_rgba(251, 146, 60, 255),
+                                color: if boss_enraged {
+                                    Color::from_rgba(244, 63, 94, 255)
+                                } else {
+                                    Color::from_rgba(251, 146, 60, 255)
+                                },
                             });
                         }
                     }
                 }
                 _ => {
-                    e.vel = e.vel.lerp(dir * e.speed, (dt * 7.0).min(1.0));
+                    e.vel = e.vel.lerp(dir * eff_speed, (dt * 7.0).min(1.0));
                 }
             }
 
@@ -1496,16 +1712,34 @@ impl Game {
                         remove = true;
                     }
                 } else {
-                    for ei in 0..self.enemies.len() {
-                        if self.enemies[ei].pos.distance(p_pos) < self.enemies[ei].radius + p_rad {
-                            let is_crit = self.rng.next_f32() < 0.16;
-                            let dmg = if is_crit { p_dmg * 1.75 } else { p_dmg };
-                            self.apply_enemy_damage(ei, dmg, is_crit, p_vel.normalize_or_zero() * 95.0);
-                            self.spawn_burst(p_pos, 4, Color::from_rgba(251, 146, 60, 255), VfxKind::Spark, 120.0);
-                            self.projectiles[p_i].pierce -= 1;
-                            if self.projectiles[p_i].pierce <= 0 {
-                                remove = true;
-                                break;
+                    // Check projectile hit against Runic Barrels
+                    let mut hit_barrel: Option<usize> = None;
+                    for (bi, b) in self.barrels.iter_mut().enumerate() {
+                        if !b.exploded && b.pos.distance(p_pos) < 30.0 + p_rad {
+                            b.hp -= p_dmg;
+                            b.hit_flash = 0.14;
+                            remove = true;
+                            if b.hp <= 0.0 {
+                                hit_barrel = Some(bi);
+                            }
+                            break;
+                        }
+                    }
+                    if let Some(bi) = hit_barrel {
+                        self.detonate_barrel(bi);
+                    }
+                    if !remove {
+                        for ei in 0..self.enemies.len() {
+                            if self.enemies[ei].pos.distance(p_pos) < self.enemies[ei].radius + p_rad {
+                                let is_crit = self.rng.next_f32() < 0.16;
+                                let dmg = if is_crit { p_dmg * 1.75 } else { p_dmg };
+                                self.apply_enemy_damage(ei, dmg, is_crit, p_vel.normalize_or_zero() * 95.0);
+                                self.spawn_burst(p_pos, 4, Color::from_rgba(251, 146, 60, 255), VfxKind::Spark, 120.0);
+                                self.projectiles[p_i].pierce -= 1;
+                                if self.projectiles[p_i].pierce <= 0 {
+                                    remove = true;
+                                    break;
+                                }
                             }
                         }
                     }
@@ -1649,6 +1883,7 @@ impl Game {
                 self.kills,
                 if self.boss_slain { 1 } else { 0 },
                 self.level,
+                self.hero_class.to_index() as u32,
                 bytes.as_ptr(),
                 bytes.len() as u32,
                 self.ghost_record.as_ptr(),
@@ -1672,6 +1907,8 @@ impl Game {
     fn draw_world(&self, assets: &GameAssets, shaders: &GameShaders, rt: Option<&RenderTarget>) {
         let sw = screen_width();
         let sh = screen_height();
+        let font = assets.ui_font.as_ref();
+        let hero_tex = self.hero_texture(assets);
         let shake_mag = 22.0 * self.trauma * self.trauma;
         let shake_off = if shake_mag > 0.1 {
             vec2(
@@ -1693,12 +1930,23 @@ impl Game {
             clear_background(Color::from_rgba(6, 9, 20, 255));
         }
 
-        // 1. Seamless Basalt Dungeon Floor Tiling (real texture!)
+        // 1. Seamless Basalt Dungeon Floor Tiling tinted by Daily Biome!
         let tile = 256.0;
         let min_x = ((self.cam_pos.x - sw * 0.65) / tile).floor() as i32;
         let max_x = ((self.cam_pos.x + sw * 0.65) / tile).ceil() as i32;
         let min_y = ((self.cam_pos.y - sh * 0.65) / tile).floor() as i32;
         let max_y = ((self.cam_pos.y + sh * 0.65) / tile).ceil() as i32;
+
+        let floor_tint = match self.biome {
+            DailyBiome::ObsidianSanctuary => Color::from_rgba(175, 175, 220, 255),
+            DailyBiome::VolcanicRift => Color::from_rgba(225, 170, 145, 255),
+            DailyBiome::FrostAbyss => Color::from_rgba(145, 205, 235, 255),
+        };
+        let border_col = match self.biome {
+            DailyBiome::ObsidianSanctuary => Color::from_rgba(192, 132, 252, 200),
+            DailyBiome::VolcanicRift => Color::from_rgba(249, 115, 22, 205),
+            DailyBiome::FrostAbyss => Color::from_rgba(56, 189, 248, 205),
+        };
 
         for tx in min_x..=max_x {
             for ty in min_y..=max_y {
@@ -1706,7 +1954,7 @@ impl Game {
                     &assets.floor,
                     tx as f32 * tile,
                     ty as f32 * tile,
-                    Color::from_rgba(175, 185, 210, 255),
+                    floor_tint,
                     DrawTextureParams {
                         dest_size: Some(vec2(tile, tile)),
                         ..Default::default()
@@ -1722,7 +1970,7 @@ impl Game {
             ARENA_HALF * 2.0,
             ARENA_HALF * 2.0,
             8.0,
-            Color::from_rgba(249, 115, 22, 190),
+            border_col,
         );
 
         // 1b. Blood Shrines
@@ -1759,14 +2007,57 @@ impl Game {
             } else {
                 "BLOOD SHRINE"
             };
-            let ld = measure_text(lbl, None, 15, 1.0);
-            draw_text(
+            let ld = measure_ui_text(font, lbl, 14);
+            draw_ui_text(
+                font,
                 lbl,
                 shrine.pos.x - ld.width * 0.5,
                 shrine.pos.y - 74.0,
-                15.0,
+                14.0,
                 ring_col,
             );
+        }
+
+        // 1c. Runic Explosive Barrels (Real illustrated RGBA sprite!)
+        for barrel in &self.barrels {
+            if barrel.exploded {
+                draw_circle(
+                    barrel.pos.x,
+                    barrel.pos.y,
+                    26.0,
+                    Color::from_rgba(15, 23, 42, 125),
+                );
+                continue;
+            }
+            let pulse = 1.0 + (self.elapsed * 5.0 + barrel.pos.x * 0.02).sin() * 0.04;
+            let bsz = 64.0 * pulse;
+            draw_ellipse(
+                barrel.pos.x,
+                barrel.pos.y + 20.0,
+                20.0,
+                8.0,
+                0.0,
+                Color::from_rgba(0, 0, 0, 125),
+            );
+            if barrel.hit_flash > 0.0 {
+                if let Some(mat) = &shaders.hit_flash {
+                    mat.set_uniform("u_flash", (barrel.hit_flash / 0.14).clamp(0.0, 1.0));
+                    gl_use_material(mat);
+                }
+            }
+            draw_texture_ex(
+                &assets.barrel,
+                barrel.pos.x - bsz * 0.5,
+                barrel.pos.y - bsz * 0.5,
+                WHITE,
+                DrawTextureParams {
+                    dest_size: Some(vec2(bsz, bsz)),
+                    ..Default::default()
+                },
+            );
+            if barrel.hit_flash > 0.0 {
+                gl_use_default_material();
+            }
         }
 
         // 2. Telegraphed Boss Rings (outer warning + inner filling progress circle)
@@ -1858,23 +2149,25 @@ impl Game {
             } else {
                 format!("u/{}", self.social.ghost_username)
             };
-            let gd = measure_text(&glbl, None, 15, 1.0);
-            draw_text(
+            let gd = measure_ui_text(font, &glbl, 14);
+            draw_ui_text(
+                font,
                 &glbl,
                 gpos.x - gd.width * 0.5,
                 gpos.y - 48.0,
-                15.0,
+                14.0,
                 Color::new(1.0, 0.88, 0.35, 0.85),
             );
         }
 
         // 4. Hero Aura & Dash Afterimages
+        let aura_col = self.hero_class.accent();
         let aura_sz = 110.0 + (self.elapsed * 4.0).sin() * 6.0;
         draw_texture_ex(
             &assets.vfx_light,
             self.hero_pos.x - aura_sz * 0.5,
             self.hero_pos.y - aura_sz * 0.5,
-            Color::from_rgba(56, 189, 248, 65),
+            Color::new(aura_col.r, aura_col.g, aura_col.b, 0.26),
             DrawTextureParams {
                 dest_size: Some(vec2(aura_sz, aura_sz)),
                 ..Default::default()
@@ -1888,18 +2181,29 @@ impl Game {
                 let r = tk * 520.0;
                 let a = ((1.0 - tk) * 255.0) as u8;
                 if r > 1.0 {
-                    draw_circle_lines(self.ult_pos.x, self.ult_pos.y, r, 10.0 - k as f32 * 3.0, Color::from_rgba(253, 224 - k as u8 * 60, 71 + k as u8 * 40, a));
+                    draw_circle_lines(
+                        self.ult_pos.x,
+                        self.ult_pos.y,
+                        r,
+                        10.0 - k as f32 * 3.0,
+                        Color::from_rgba(253, 224 - k as u8 * 60, 71 + k as u8 * 40, a),
+                    );
                 }
             }
-            draw_circle(self.ult_pos.x, self.ult_pos.y, 120.0 * self.ult_fx, Color::from_rgba(255, 244, 200, (self.ult_fx * 170.0) as u8));
+            draw_circle(
+                self.ult_pos.x,
+                self.ult_pos.y,
+                120.0 * self.ult_fx,
+                Color::from_rgba(255, 244, 200, (self.ult_fx * 170.0) as u8),
+            );
         }
         for a in &self.afterimages {
             let alpha = (a.life / 0.22).clamp(0.0, 1.0) * 0.55;
             draw_texture_ex(
-                &assets.hero,
+                hero_tex,
                 a.pos.x - 42.0,
                 a.pos.y - 42.0,
-                Color::new(0.22, 0.74, 0.97, alpha),
+                Color::new(aura_col.r, aura_col.g, aura_col.b, alpha),
                 DrawTextureParams {
                     dest_size: Some(vec2(84.0, 84.0)),
                     flip_x: a.facing_left,
@@ -1933,7 +2237,15 @@ impl Game {
                 Color::from_rgba(0, 0, 0, 115),
             );
 
-            if e.is_elite {
+            if e.kind == EnemyKind::Boss && self.boss_enraged {
+                draw_circle_lines(
+                    e.pos.x,
+                    e.pos.y + 8.0,
+                    draw_sz * 0.52,
+                    3.5,
+                    Color::from_rgba(244, 63, 94, 225),
+                );
+            } else if e.is_elite {
                 draw_circle_lines(
                     e.pos.x,
                     e.pos.y + draw_sz * 0.15,
@@ -1943,7 +2255,11 @@ impl Game {
                 );
             }
 
-            let tint = if e.is_elite {
+            let tint = if e.chill_timer > 0.0 {
+                Color::from_rgba(125, 211, 252, 255)
+            } else if e.kind == EnemyKind::Boss && self.boss_enraged {
+                Color::from_rgba(255, 185, 190, 255)
+            } else if e.is_elite {
                 Color::from_rgba(255, 224, 150, 255)
             } else {
                 Color::from_rgba(242, 242, 248, 255)
@@ -1976,12 +2292,24 @@ impl Game {
             {
                 let bw = draw_sz * 0.65;
                 let pct = (e.hp / e.max_hp).clamp(0.0, 1.0);
-                draw_rectangle(e.pos.x - bw * 0.5, e.pos.y - draw_sz * 0.56, bw, 5.0, Color::from_rgba(0, 0, 0, 180));
-                draw_rectangle(e.pos.x - bw * 0.5, e.pos.y - draw_sz * 0.56, bw * pct, 5.0, Color::from_rgba(244, 63, 94, 240));
+                draw_rectangle(
+                    e.pos.x - bw * 0.5,
+                    e.pos.y - draw_sz * 0.56,
+                    bw,
+                    5.0,
+                    Color::from_rgba(0, 0, 0, 180),
+                );
+                draw_rectangle(
+                    e.pos.x - bw * 0.5,
+                    e.pos.y - draw_sz * 0.56,
+                    bw * pct,
+                    5.0,
+                    Color::from_rgba(244, 63, 94, 240),
+                );
             }
         }
 
-        // 6. Hero Sprite (Arcane Knight + squash & stretch!)
+        // 6. Hero Sprite (Selected Class Sprite + squash & stretch!)
         let hero_bob = self.hero_stride.sin().abs() * -5.0;
         let hsx = (1.0 + self.hero_squash).clamp(0.7, 1.4);
         let hsy = (1.0 - self.hero_squash).clamp(0.7, 1.4);
@@ -2001,7 +2329,7 @@ impl Game {
             WHITE
         };
         draw_texture_ex(
-            &assets.hero,
+            hero_tex,
             self.hero_pos.x - hw * 0.5,
             self.hero_pos.y - hh * 0.5 + hero_bob,
             hero_tint,
@@ -2078,8 +2406,22 @@ impl Game {
         for l in &self.lightnings {
             let a = (l.life / 0.22).clamp(0.0, 1.0);
             for w in l.points.windows(2) {
-                draw_line(w[0].x, w[0].y, w[1].x, w[1].y, 6.0, Color::new(0.22, 0.74, 0.97, a * 0.55));
-                draw_line(w[0].x, w[0].y, w[1].x, w[1].y, 2.4, Color::new(0.92, 0.98, 1.0, a));
+                draw_line(
+                    w[0].x,
+                    w[0].y,
+                    w[1].x,
+                    w[1].y,
+                    6.0,
+                    Color::new(0.22, 0.74, 0.97, a * 0.55),
+                );
+                draw_line(
+                    w[0].x,
+                    w[0].y,
+                    w[1].x,
+                    w[1].y,
+                    2.4,
+                    Color::new(0.92, 0.98, 1.0, a),
+                );
             }
         }
 
@@ -2108,10 +2450,11 @@ impl Game {
             );
         }
 
-        // 12. Floating Damage Numbers
+        // 12. Floating Damage Numbers (crisp TTF font!)
         for ft in &self.float_texts {
             let a = (ft.life / 0.62).clamp(0.0, 1.0);
-            draw_text(
+            draw_ui_text(
+                font,
                 &ft.text,
                 ft.pos.x - 10.0,
                 ft.pos.y,
@@ -2123,22 +2466,28 @@ impl Game {
         set_default_camera();
     }
 
-    fn draw_button(&self, rect: Rect, label: &str, fill: Color, border: Color) -> bool {
+    fn draw_button(&self, font: Option<&Font>, rect: Rect, label: &str, fill: Color, border: Color) -> bool {
         let mp = vec2(mouse_position().0, mouse_position().1);
         let hovered = rect.contains(mp);
         let bg = if hovered {
-            Color::new((fill.r + 0.08).min(1.0), (fill.g + 0.08).min(1.0), (fill.b + 0.08).min(1.0), fill.a)
+            Color::new(
+                (fill.r + 0.08).min(1.0),
+                (fill.g + 0.08).min(1.0),
+                (fill.b + 0.08).min(1.0),
+                fill.a,
+            )
         } else {
             fill
         };
         draw_rectangle(rect.x, rect.y, rect.w, rect.h, bg);
         draw_rectangle_lines(rect.x, rect.y, rect.w, rect.h, 2.2, border);
-        let dims = measure_text(label, None, 22, 1.0);
-        draw_text(
+        let dims = measure_ui_text(font, label, 19);
+        draw_ui_text(
+            font,
             label,
             rect.x + (rect.w - dims.width) * 0.5,
             rect.y + (rect.h + dims.height) * 0.5 - 2.0,
-            22.0,
+            19.0,
             WHITE,
         );
 
@@ -2151,54 +2500,171 @@ impl Game {
         clicked
     }
 
-    fn draw_social_panel(&self, x: f32, y: f32, w: f32, max_rows: usize) {
+    fn draw_social_panel(&self, font: Option<&Font>, x: f32, y: f32, w: f32, max_rows: usize) {
+        // 1. Subreddit Faction War bar (3 Reddit Orders)
+        let f0 = self.social.faction_scores[0].max(1) as f32;
+        let f1 = self.social.faction_scores[1].max(1) as f32;
+        let f2 = self.social.faction_scores[2].max(1) as f32;
+        let f_total = (f0 + f1 + f2).max(1.0);
+        let w0 = w * (f0 / f_total);
+        let w1 = w * (f1 / f_total);
+        let w2 = (w - w0 - w1).max(0.0);
+
+        draw_rectangle(x, y, w0, 18.0, Color::from_rgba(234, 179, 8, 225));
+        draw_rectangle(x + w0, y, w1, 18.0, Color::from_rgba(14, 165, 233, 225));
+        draw_rectangle(x + w0 + w1, y, w2, 18.0, Color::from_rgba(168, 85, 247, 225));
+        draw_rectangle_lines(x, y, w, 18.0, 1.4, Color::from_rgba(226, 232, 240, 160));
+        let fw_lbl = format!(
+            "FACTION WAR: SOLAR {} · ARCANE {} · SHADOW {}",
+            self.social.faction_scores[0],
+            self.social.faction_scores[1],
+            self.social.faction_scores[2]
+        );
+        let fwd = measure_ui_text(font, &fw_lbl, 11);
+        draw_ui_text(font, &fw_lbl, x + (w - fwd.width) * 0.5, y + 13.0, 11.0, WHITE);
+
+        // 2. Subreddit Boss Siege bar
+        let sy = y + 22.0;
         let siege_t = self.social.siege_target.max(1);
         let siege_pct = (self.social.boss_kills_today as f32 / siege_t as f32).clamp(0.0, 1.0);
-        draw_rectangle(x, y, w, 24.0, Color::from_rgba(15, 23, 42, 210));
-        draw_rectangle(x, y, w * siege_pct, 24.0, Color::from_rgba(234, 88, 12, 220));
-        draw_rectangle_lines(x, y, w, 24.0, 1.5, Color::from_rgba(251, 191, 36, 170));
+        draw_rectangle(x, sy, w, 20.0, Color::from_rgba(15, 23, 42, 210));
+        draw_rectangle(x, sy, w * siege_pct, 20.0, Color::from_rgba(234, 88, 12, 220));
+        draw_rectangle_lines(x, sy, w, 20.0, 1.4, Color::from_rgba(251, 191, 36, 170));
         let siege_lbl = format!(
             "SUBREDDIT BOSS SIEGE: {}/{}",
             self.social.boss_kills_today, siege_t
         );
-        let sd = measure_text(&siege_lbl, None, 15, 1.0);
-        draw_text(&siege_lbl, x + (w - sd.width) * 0.5, y + 17.0, 15.0, WHITE);
+        let sd = measure_ui_text(font, &siege_lbl, 12);
+        draw_ui_text(font, &siege_lbl, x + (w - sd.width) * 0.5, sy + 14.0, 12.0, WHITE);
+
+        // 3. Daily Leaderboard + Yesterday's Crowned Champion
+        let mut ly = sy + 25.0;
+        if !self.social.yesterday_champion.is_empty() {
+            let y_lbl = format!(
+                "YESTERDAY'S #1 CHAMPION: u/{} ({} PTS)",
+                self.social.yesterday_champion, self.social.yesterday_score
+            );
+            let yd = measure_ui_text(font, &y_lbl, 12);
+            draw_ui_text(
+                font,
+                &y_lbl,
+                x + (w - yd.width) * 0.5,
+                ly + 11.0,
+                12.0,
+                Color::from_rgba(250, 204, 21, 255),
+            );
+            ly += 17.0;
+        }
 
         if !self.social.leaderboard.is_empty() {
             let rows = self.social.leaderboard.len().min(max_rows);
-            let box_h = 26.0 + (rows as f32) * 20.0;
-            let ly = y + 30.0;
-            draw_rectangle(x, ly, w, box_h, Color::from_rgba(8, 13, 28, 200));
+            let box_h = 24.0 + (rows as f32) * 18.0;
+            draw_rectangle(x, ly, w, box_h, Color::from_rgba(8, 13, 28, 205));
             draw_rectangle_lines(x, ly, w, box_h, 1.2, Color::from_rgba(148, 163, 184, 90));
-            draw_text(
+            draw_ui_text(
+                font,
                 "DAILY LEADERBOARD",
                 x + 10.0,
-                ly + 17.0,
-                14.0,
+                ly + 15.0,
+                12.0,
                 Color::from_rgba(56, 189, 248, 255),
             );
             for (idx, entry) in self.social.leaderboard.iter().take(rows).enumerate() {
-                let ry = ly + 36.0 + (idx as f32) * 20.0;
+                let ry = ly + 32.0 + (idx as f32) * 18.0;
                 let col = if idx == 0 {
                     Color::from_rgba(250, 204, 21, 255)
                 } else {
                     Color::from_rgba(226, 232, 240, 255)
                 };
-                draw_text(&format!("#{} u/{}", idx + 1, entry.username), x + 10.0, ry, 15.0, col);
+                draw_ui_text(
+                    font,
+                    &format!("#{} u/{}", idx + 1, entry.username),
+                    x + 10.0,
+                    ry,
+                    13.0,
+                    col,
+                );
                 let sc_str = format!("{}", entry.score);
-                let sc_d = measure_text(&sc_str, None, 15, 1.0);
-                draw_text(&sc_str, x + w - sc_d.width - 10.0, ry, 15.0, col);
+                let sc_d = measure_ui_text(font, &sc_str, 13);
+                draw_ui_text(font, &sc_str, x + w - sc_d.width - 10.0, ry, 13.0, col);
             }
         }
+    }
+
+    fn draw_minimap_radar(&self, sw: f32) {
+        let map_sz = 78.0;
+        let mx = sw - map_sz - 14.0;
+        let my = 88.0;
+        let cx = mx + map_sz * 0.5;
+        let cy = my + map_sz * 0.5;
+        let scale = (map_sz * 0.46) / ARENA_HALF;
+
+        draw_rectangle(mx, my, map_sz, map_sz, Color::from_rgba(8, 13, 28, 195));
+        draw_rectangle_lines(
+            mx,
+            my,
+            map_sz,
+            map_sz,
+            1.5,
+            Color::from_rgba(148, 163, 184, 140),
+        );
+
+        // Barrels (orange dots)
+        for b in &self.barrels {
+            if !b.exploded {
+                let bx = cx + b.pos.x * scale;
+                let by = cy + b.pos.y * scale;
+                draw_circle(bx, by, 2.2, Color::from_rgba(251, 146, 60, 220));
+            }
+        }
+        // Shrines (crimson dots)
+        for s in &self.shrines {
+            if !s.completed {
+                let sx = cx + s.pos.x * scale;
+                let sy = cy + s.pos.y * scale;
+                draw_circle(sx, sy, 3.2, Color::from_rgba(244, 63, 94, 255));
+            }
+        }
+        // #1 Ghost (gold dot)
+        if !self.social.ghost_points.is_empty() {
+            let pts = &self.social.ghost_points;
+            let idx = ((self.elapsed / 0.5).floor() as usize).min(pts.len() - 1);
+            let gp = pts[idx];
+            draw_circle(
+                cx + gp.x * scale,
+                cy + gp.y * scale,
+                2.8,
+                Color::from_rgba(250, 204, 21, 240),
+            );
+        }
+        // Boss (pulsing magenta/crimson beacon)
+        for e in &self.enemies {
+            if e.kind == EnemyKind::Boss {
+                draw_circle(
+                    cx + e.pos.x * scale,
+                    cy + e.pos.y * scale,
+                    4.4,
+                    Color::from_rgba(232, 121, 249, 255),
+                );
+            }
+        }
+        // Hero (cyan center beacon)
+        draw_circle(
+            cx + self.hero_pos.x * scale,
+            cy + self.hero_pos.y * scale,
+            3.2,
+            Color::from_rgba(56, 189, 248, 255),
+        );
     }
 
     fn draw_ui(&mut self, assets: &GameAssets) {
         let sw = screen_width();
         let sh = screen_height();
+        let font = assets.ui_font.as_ref();
 
         if self.phase == Phase::Title {
             self.title_time += get_frame_time();
-            draw_rectangle(0.0, 0.0, sw, sh, Color::from_rgba(6, 9, 20, 195));
+            draw_rectangle(0.0, 0.0, sw, sh, Color::from_rgba(6, 9, 20, 205));
 
             // Top-left user & streak badge
             let user_lbl = if self.social.username.is_empty() {
@@ -2208,13 +2674,23 @@ impl Game {
             };
             let info_lbl = format!(
                 "{}  ·  STREAK {}d  ·  PB {}",
-                user_lbl, self.social.streak, self.social.personal_best.max(0)
+                user_lbl,
+                self.social.streak,
+                self.social.personal_best.max(0)
             );
-            draw_text(&info_lbl, 14.0, 26.0, 16.0, Color::from_rgba(203, 213, 225, 255));
+            draw_ui_text(
+                font,
+                &info_lbl,
+                14.0,
+                26.0,
+                14.0,
+                Color::from_rgba(203, 213, 225, 255),
+            );
 
             // Top-right Mute button
-            let mute_rect = Rect::new(sw - 108.0, 10.0, 94.0, 30.0);
+            let mute_rect = Rect::new(sw - 108.0, 10.0, 94.0, 28.0);
             if self.draw_button(
+                font,
                 mute_rect,
                 if self.muted { "SFX: OFF" } else { "SFX: ON" },
                 Color::from_rgba(15, 23, 42, 220),
@@ -2223,46 +2699,177 @@ impl Game {
                 self.toggle_mute();
             }
 
-            // Showcase real hero & boss sprites on title!
-            let bob = (self.title_time * 3.0).sin() * 8.0;
             let cx = sw * 0.5;
-            let cy = (sh * 0.40).max(180.0);
-            draw_texture_ex(
-                &assets.vfx_light,
-                cx - 160.0,
-                cy - 195.0,
-                Color::from_rgba(249, 115, 22, 90),
-                DrawTextureParams { dest_size: Some(vec2(320.0, 320.0)), ..Default::default() },
-            );
-            draw_texture_ex(
-                &assets.hero,
-                cx - 130.0,
-                cy - 145.0 + bob,
-                WHITE,
-                DrawTextureParams { dest_size: Some(vec2(120.0, 120.0)), ..Default::default() },
-            );
-            draw_texture_ex(
-                &assets.boss,
-                cx + 8.0,
-                cy - 168.0 - bob * 0.7,
-                WHITE,
-                DrawTextureParams { dest_size: Some(vec2(148.0, 148.0)), flip_x: true, ..Default::default() },
-            );
+            let top_y = (sh * 0.07).max(38.0);
 
             let title = "EMBERFALL";
-            let td = measure_text(title, None, 48, 1.0);
-            draw_text(title, cx - td.width * 0.5, cy + 4.0, 48.0, Color::from_rgba(251, 191, 36, 255));
+            let td = measure_ui_text(font, title, 40);
+            draw_ui_text(
+                font,
+                title,
+                cx - td.width * 0.5,
+                top_y + 24.0,
+                40.0,
+                Color::from_rgba(251, 191, 36, 255),
+            );
 
-            let sub = format!("DAILY HORDE #{}  ·  {}", self.day_seed, self.modifier.title());
-            let sd = measure_text(&sub, None, 18, 1.0);
-            draw_text(&sub, cx - sd.width * 0.5, cy + 32.0, 18.0, Color::from_rgba(56, 189, 248, 255));
+            let sub = format!(
+                "#{} · {} · {}",
+                self.day_seed,
+                self.biome.title(),
+                self.modifier.title()
+            );
+            let sd = measure_ui_text(font, &sub, 14);
+            draw_ui_text(
+                font,
+                &sub,
+                cx - sd.width * 0.5,
+                top_y + 46.0,
+                14.0,
+                Color::from_rgba(56, 189, 248, 255),
+            );
 
-            let desc = self.modifier.subtitle();
-            let dd = measure_text(desc, None, 16, 1.0);
-            draw_text(desc, cx - dd.width * 0.5, cy + 56.0, 16.0, Color::from_rgba(203, 213, 225, 255));
+            let bdesc = format!("{}  |  {}", self.biome.subtitle(), self.modifier.subtitle());
+            let bdd = measure_ui_text(font, &bdesc, 12);
+            draw_ui_text(
+                font,
+                &bdesc,
+                cx - bdd.width * 0.5,
+                top_y + 64.0,
+                12.0,
+                Color::from_rgba(203, 213, 225, 255),
+            );
 
-            let btn = Rect::new(cx - 125.0, cy + 74.0, 250.0, 50.0);
+            // 3 Playable Hero Class & Reddit Faction Cards (with real illustrated sprites!)
+            let cards_y = top_y + 76.0;
+            let total_w = (sw - 24.0).min(430.0);
+            let gap = 8.0;
+            let card_w = (total_w - gap * 2.0) / 3.0;
+            let card_h = 128.0;
+            let start_x = cx - total_w * 0.5;
+            let bob = (self.title_time * 3.2).sin() * 4.0;
+
+            let classes = [
+                (HeroClass::SunKnight, &assets.hero),
+                (HeroClass::ArcanePyromancer, &assets.hero_mage),
+                (HeroClass::ShadowAssassin, &assets.hero_rogue),
+            ];
+
+            if is_key_pressed(KeyCode::Key1) {
+                self.hero_class = HeroClass::SunKnight;
+                play_sfx(0);
+            } else if is_key_pressed(KeyCode::Key2) {
+                self.hero_class = HeroClass::ArcanePyromancer;
+                play_sfx(0);
+            } else if is_key_pressed(KeyCode::Key3) {
+                self.hero_class = HeroClass::ShadowAssassin;
+                play_sfx(0);
+            }
+
+            for (ci, (hclass, htex)) in classes.iter().enumerate() {
+                let rx = start_x + (ci as f32) * (card_w + gap);
+                let rect = Rect::new(rx, cards_y, card_w, card_h);
+                let selected = self.hero_class == *hclass;
+                let mp = vec2(mouse_position().0, mouse_position().1);
+                let hovered = rect.contains(mp);
+
+                draw_rectangle(
+                    rect.x,
+                    rect.y,
+                    rect.w,
+                    rect.h,
+                    if selected {
+                        Color::from_rgba(30, 41, 75, 245)
+                    } else if hovered {
+                        Color::from_rgba(20, 29, 55, 230)
+                    } else {
+                        Color::from_rgba(11, 17, 34, 215)
+                    },
+                );
+                draw_rectangle_lines(
+                    rect.x,
+                    rect.y,
+                    rect.w,
+                    rect.h,
+                    if selected { 2.8 } else { 1.4 },
+                    if selected {
+                        hclass.accent()
+                    } else {
+                        Color::from_rgba(100, 116, 139, 130)
+                    },
+                );
+
+                let spr_sz = 66.0;
+                draw_texture_ex(
+                    htex,
+                    rect.x + (rect.w - spr_sz) * 0.5,
+                    rect.y + 6.0 + if selected { bob } else { 0.0 },
+                    WHITE,
+                    DrawTextureParams {
+                        dest_size: Some(vec2(spr_sz, spr_sz)),
+                        ..Default::default()
+                    },
+                );
+
+                let cname = hclass.title();
+                let cnd = measure_ui_text(font, cname, 13);
+                draw_ui_text(
+                    font,
+                    cname,
+                    rect.x + (rect.w - cnd.width) * 0.5,
+                    rect.y + 88.0,
+                    13.0,
+                    hclass.accent(),
+                );
+
+                let fname = hclass.faction_name();
+                let fnd = measure_ui_text(font, fname, 11);
+                draw_ui_text(
+                    font,
+                    fname,
+                    rect.x + (rect.w - fnd.width) * 0.5,
+                    rect.y + 104.0,
+                    11.0,
+                    Color::from_rgba(203, 213, 225, 240),
+                );
+
+                let fpts = format!("{} PTS", self.social.faction_scores[ci]);
+                let fpd = measure_ui_text(font, &fpts, 11);
+                draw_ui_text(
+                    font,
+                    &fpts,
+                    rect.x + (rect.w - fpd.width) * 0.5,
+                    rect.y + 120.0,
+                    11.0,
+                    Color::from_rgba(250, 204, 21, 235),
+                );
+
+                let mut clicked = is_mouse_button_pressed(MouseButton::Left) && hovered;
+                for t in touches() {
+                    if t.phase == TouchPhase::Started && rect.contains(t.position) {
+                        clicked = true;
+                    }
+                }
+                if clicked {
+                    self.hero_class = *hclass;
+                    play_sfx(0);
+                }
+            }
+
+            let ldesc = self.hero_class.loadout_desc();
+            let ldd = measure_ui_text(font, ldesc, 13);
+            draw_ui_text(
+                font,
+                ldesc,
+                cx - ldd.width * 0.5,
+                cards_y + card_h + 18.0,
+                13.0,
+                self.hero_class.accent(),
+            );
+
+            let btn = Rect::new(cx - 130.0, cards_y + card_h + 26.0, 260.0, 44.0);
             if self.draw_button(
+                font,
                 btn,
                 "PLAY DAILY (90s)",
                 Color::from_rgba(234, 88, 12, 235),
@@ -2273,12 +2880,25 @@ impl Game {
                 self.start_run();
             }
 
-            let panel_w = (sw - 32.0).min(360.0);
-            self.draw_social_panel(cx - panel_w * 0.5, cy + 136.0, panel_w, 5);
+            let panel_w = (sw - 28.0).min(380.0);
+            self.draw_social_panel(
+                font,
+                cx - panel_w * 0.5,
+                cards_y + card_h + 78.0,
+                panel_w,
+                4,
+            );
 
-            let tip = "1-Thumb Drag · Auto-Attack · SPACE/DASH · P Pause · M Mute";
-            let tip_d = measure_text(tip, None, 14, 1.0);
-            draw_text(tip, cx - tip_d.width * 0.5, sh - 14.0, 14.0, Color::from_rgba(148, 163, 184, 255));
+            let tip = "1-Thumb Drag · Shoot Barrels · SPACE Dash · Q/E Nova · 1/2/3 Class";
+            let tip_d = measure_ui_text(font, tip, 12);
+            draw_ui_text(
+                font,
+                tip,
+                cx - tip_d.width * 0.5,
+                sh - 10.0,
+                12.0,
+                Color::from_rgba(148, 163, 184, 255),
+            );
             return;
         }
 
@@ -2288,22 +2908,42 @@ impl Game {
         draw_rectangle(0.0, 0.0, sw, 8.0, Color::from_rgba(15, 23, 42, 220));
         draw_rectangle(0.0, 0.0, sw * xp_pct, 8.0, Color::from_rgba(56, 189, 248, 255));
 
-        // Top-Left: HP Bar, Level & Fever Meter
-        draw_rectangle(14.0, 18.0, 176.0, 58.0, Color::from_rgba(8, 13, 28, 200));
-        draw_rectangle_lines(14.0, 18.0, 176.0, 58.0, 1.5, Color::from_rgba(148, 163, 184, 90));
-        draw_text(&format!("LVL {}", self.level), 24.0, 36.0, 18.0, Color::from_rgba(250, 204, 21, 255));
+        // Top-Left: HP Bar, Class/Level & Fever Meter
+        draw_rectangle(14.0, 16.0, 184.0, 62.0, Color::from_rgba(8, 13, 28, 205));
+        draw_rectangle_lines(14.0, 16.0, 184.0, 62.0, 1.5, self.hero_class.accent());
+        draw_ui_text(
+            font,
+            &format!("LV.{} {}", self.level, self.hero_class.title()),
+            22.0,
+            33.0,
+            14.0,
+            self.hero_class.accent(),
+        );
         let hp_pct = (self.hero_hp / self.hero_max_hp).clamp(0.0, 1.0);
-        draw_rectangle(24.0, 42.0, 154.0, 9.0, Color::from_rgba(30, 41, 59, 240));
-        draw_rectangle(24.0, 42.0, 154.0 * hp_pct, 9.0, Color::from_rgba(244, 63, 94, 255));
+        draw_rectangle(22.0, 40.0, 166.0, 9.0, Color::from_rgba(30, 41, 59, 240));
+        draw_rectangle(
+            22.0,
+            40.0,
+            166.0 * hp_pct,
+            9.0,
+            Color::from_rgba(244, 63, 94, 255),
+        );
 
         let f_mult = fever_multiplier(self.fever);
-        draw_rectangle(24.0, 57.0, 154.0, 7.0, Color::from_rgba(30, 41, 59, 240));
-        draw_rectangle(24.0, 57.0, 154.0 * self.fever.clamp(0.0, 1.0), 7.0, Color::from_rgba(251, 146, 60, 255));
-        draw_text(
-            &format!("FEVER x{:.1}", f_mult),
-            88.0,
-            36.0,
-            15.0,
+        draw_rectangle(22.0, 54.0, 166.0, 7.0, Color::from_rgba(30, 41, 59, 240));
+        draw_rectangle(
+            22.0,
+            54.0,
+            166.0 * self.fever.clamp(0.0, 1.0),
+            7.0,
+            Color::from_rgba(251, 146, 60, 255),
+        );
+        draw_ui_text(
+            font,
+            &format!("FEVER x{:.1} · {}", f_mult, self.biome.title()),
+            22.0,
+            73.0,
+            11.0,
             if self.fever > 0.5 {
                 Color::from_rgba(251, 146, 60, 255)
             } else {
@@ -2314,14 +2954,15 @@ impl Game {
         // Top-Center: Countdown Timer (90s -> 0s)
         let rem = (RUN_DURATION - self.elapsed).max(0.0);
         let timer_str = format!("{:02}:{:02}", (rem as u32) / 60, (rem as u32) % 60);
-        let td = measure_text(&timer_str, None, 32, 1.0);
-        draw_text(&timer_str, sw * 0.5 - td.width * 0.5, 44.0, 32.0, WHITE);
+        let td = measure_ui_text(font, &timer_str, 30);
+        draw_ui_text(font, &timer_str, sw * 0.5 - td.width * 0.5, 42.0, 30.0, WHITE);
 
-        // Top-Right: Mute + Pause buttons & Score/Kills
+        // Top-Right: Mute + Pause buttons & Score/Kills + Minimap Radar
         let pause_rect = Rect::new(sw - 46.0, 16.0, 32.0, 28.0);
         let mute_rect = Rect::new(sw - 84.0, 16.0, 32.0, 28.0);
         if self.phase == Phase::Playing {
             if self.draw_button(
+                font,
                 mute_rect,
                 if self.muted { "X" } else { "S" },
                 Color::from_rgba(15, 23, 42, 210),
@@ -2330,6 +2971,7 @@ impl Game {
                 self.toggle_mute();
             }
             if self.draw_button(
+                font,
                 pause_rect,
                 "||",
                 Color::from_rgba(15, 23, 42, 210),
@@ -2345,51 +2987,103 @@ impl Game {
         }
 
         let score_str = format!("{} PTS", self.score);
-        let sd = measure_text(&score_str, None, 20, 1.0);
-        draw_text(&score_str, sw - sd.width - 16.0, 62.0, 20.0, Color::from_rgba(251, 191, 36, 255));
+        let sd = measure_ui_text(font, &score_str, 18);
+        draw_ui_text(
+            font,
+            &score_str,
+            sw - sd.width - 16.0,
+            60.0,
+            18.0,
+            Color::from_rgba(251, 191, 36, 255),
+        );
         let kill_str = if self.combo > 3 {
             format!("{} KILLS · x{}", self.kills, self.combo)
         } else {
             format!("{} KILLS", self.kills)
         };
-        let kd = measure_text(&kill_str, None, 15, 1.0);
-        draw_text(&kill_str, sw - kd.width - 16.0, 80.0, 15.0, Color::from_rgba(148, 163, 184, 255));
+        let kd = measure_ui_text(font, &kill_str, 13);
+        draw_ui_text(
+            font,
+            &kill_str,
+            sw - kd.width - 16.0,
+            78.0,
+            13.0,
+            Color::from_rgba(148, 163, 184, 255),
+        );
+
+        // Tactical Minimap Radar
+        if matches!(self.phase, Phase::Playing | Phase::Paused | Phase::LevelUp) {
+            self.draw_minimap_radar(sw);
+        }
 
         // Boss HP Bar
         if let Some(boss) = self.enemies.iter().find(|e| e.kind == EnemyKind::Boss) {
-            let bw = (sw - 48.0).min(420.0);
+            let bw = (sw - 190.0).min(380.0).max(160.0);
             let bx = (sw - bw) * 0.5;
-            let by = 86.0;
+            let by = 54.0;
             let pct = (boss.hp / boss.max_hp).clamp(0.0, 1.0);
             draw_rectangle(bx, by, bw, 16.0, Color::from_rgba(15, 23, 42, 220));
-            draw_rectangle(bx, by, bw * pct, 16.0, Color::from_rgba(239, 68, 68, 255));
+            draw_rectangle(
+                bx,
+                by,
+                bw * pct,
+                16.0,
+                if self.boss_enraged {
+                    Color::from_rgba(225, 29, 72, 255)
+                } else {
+                    Color::from_rgba(239, 68, 68, 255)
+                },
+            );
             draw_rectangle_lines(bx, by, bw, 16.0, 2.0, Color::from_rgba(251, 191, 36, 230));
-            let bl = "EMBER LICH OVERLORD";
-            let bld = measure_text(bl, None, 14, 1.0);
-            draw_text(bl, sw * 0.5 - bld.width * 0.5, by + 13.0, 14.0, WHITE);
+            let bl = if self.boss_enraged {
+                "ARCH-LICH OVERLORD (PHASE II)"
+            } else {
+                "ARCH-LICH OVERLORD"
+            };
+            let bld = measure_ui_text(font, bl, 12);
+            draw_ui_text(font, bl, sw * 0.5 - bld.width * 0.5, by + 12.0, 12.0, WHITE);
         }
 
         if self.boss_banner_timer > 0.0 {
             let msg = "DAILY BOSS AWAKENS!";
-            let md = measure_text(msg, None, 36, 1.0);
-            draw_text(msg, sw * 0.5 - md.width * 0.5, sh * 0.34, 36.0, Color::from_rgba(251, 146, 60, 255));
+            let md = measure_ui_text(font, msg, 32);
+            draw_ui_text(
+                font,
+                msg,
+                sw * 0.5 - md.width * 0.5,
+                sh * 0.34,
+                32.0,
+                Color::from_rgba(251, 146, 60, 255),
+            );
         }
 
         if self.evo_banner_timer > 0.0 {
-            let md = measure_text(&self.evo_banner_text, None, 30, 1.0);
-            draw_text(
+            let md = measure_ui_text(font, &self.evo_banner_text, 26);
+            draw_ui_text(
+                font,
                 &self.evo_banner_text,
                 sw * 0.5 - md.width * 0.5,
                 sh * 0.26,
-                30.0,
+                26.0,
                 self.evo_banner_color,
             );
         }
 
         // Virtual Joystick Indicator
         if self.joy_active && self.phase == Phase::Playing {
-            draw_circle_lines(self.joy_origin.x, self.joy_origin.y, 54.0, 2.0, Color::from_rgba(255, 255, 255, 70));
-            draw_circle(self.joy_curr.x, self.joy_curr.y, 20.0, Color::from_rgba(56, 189, 248, 140));
+            draw_circle_lines(
+                self.joy_origin.x,
+                self.joy_origin.y,
+                54.0,
+                2.0,
+                Color::from_rgba(255, 255, 255, 70),
+            );
+            draw_circle(
+                self.joy_curr.x,
+                self.joy_curr.y,
+                20.0,
+                Color::from_rgba(56, 189, 248, 140),
+            );
         }
 
         // Bottom-Right Tactile DASH Button
@@ -2422,25 +3116,43 @@ impl Game {
             } else {
                 format!("{:.1}", self.dash_cd)
             };
-            let ld = measure_text(&lbl, None, 20, 1.0);
-            draw_text(&lbl, dc.x - ld.width * 0.5, dc.y + 7.0, 20.0, WHITE);
+            let ld = measure_ui_text(font, &lbl, 18);
+            draw_ui_text(font, &lbl, dc.x - ld.width * 0.5, dc.y + 6.0, 18.0, WHITE);
         }
 
         // Ultimate SUPERNOVA button
         if self.phase == Phase::Playing {
             let uc = vec2(sw - 150.0, sh - 56.0);
             let ready = self.ult_charge >= 1.0;
-            let pulse = if ready { 1.0 + (get_time() as f32 * 7.0).sin() * 0.08 } else { 1.0 };
-            draw_circle(uc.x, uc.y, 32.0 * pulse, if ready { Color::from_rgba(190, 24, 93, 235) } else { Color::from_rgba(15, 23, 42, 200) });
+            let pulse = if ready {
+                1.0 + (get_time() as f32 * 7.0).sin() * 0.08
+            } else {
+                1.0
+            };
+            draw_circle(
+                uc.x,
+                uc.y,
+                32.0 * pulse,
+                if ready {
+                    Color::from_rgba(190, 24, 93, 235)
+                } else {
+                    Color::from_rgba(15, 23, 42, 200)
+                },
+            );
             let sweep = self.ult_charge.clamp(0.0, 1.0);
             let steps = (sweep * 40.0) as i32;
             for i in 0..steps {
                 let ang = -std::f32::consts::FRAC_PI_2 + (i as f32 / 40.0) * std::f32::consts::TAU;
-                draw_circle(uc.x + ang.cos() * 32.0, uc.y + ang.sin() * 32.0, 3.2, Color::from_rgba(253, 224, 71, 255));
+                draw_circle(
+                    uc.x + ang.cos() * 32.0,
+                    uc.y + ang.sin() * 32.0,
+                    3.2,
+                    Color::from_rgba(253, 224, 71, 255),
+                );
             }
             let lbl = if ready { "NOVA" } else { "ULT" };
-            let ld = measure_text(lbl, None, 18, 1.0);
-            draw_text(lbl, uc.x - ld.width * 0.5, uc.y + 6.0, 18.0, WHITE);
+            let ld = measure_ui_text(font, lbl, 16);
+            draw_ui_text(font, lbl, uc.x - ld.width * 0.5, uc.y + 6.0, 16.0, WHITE);
         }
 
         // PAUSED OVERLAY
@@ -2449,10 +3161,18 @@ impl Game {
             let cx = sw * 0.5;
             let cy = sh * 0.5;
             let hdr = "PAUSED";
-            let hd = measure_text(hdr, None, 40, 1.0);
-            draw_text(hdr, cx - hd.width * 0.5, cy - 110.0, 40.0, Color::from_rgba(250, 204, 21, 255));
+            let hd = measure_ui_text(font, hdr, 36);
+            draw_ui_text(
+                font,
+                hdr,
+                cx - hd.width * 0.5,
+                cy - 110.0,
+                36.0,
+                Color::from_rgba(250, 204, 21, 255),
+            );
 
             if self.draw_button(
+                font,
                 Rect::new(cx - 120.0, cy - 60.0, 240.0, 48.0),
                 "RESUME",
                 Color::from_rgba(234, 88, 12, 235),
@@ -2464,6 +3184,7 @@ impl Game {
                 }
             }
             if self.draw_button(
+                font,
                 Rect::new(cx - 120.0, cy + 2.0, 240.0, 48.0),
                 if self.muted { "UNMUTE AUDIO" } else { "MUTE AUDIO" },
                 Color::from_rgba(30, 41, 59, 235),
@@ -2472,6 +3193,7 @@ impl Game {
                 self.toggle_mute();
             }
             if self.draw_button(
+                font,
                 Rect::new(cx - 120.0, cy + 64.0, 240.0, 48.0),
                 "QUIT TO TITLE",
                 Color::from_rgba(127, 29, 29, 220),
@@ -2489,8 +3211,15 @@ impl Game {
         if self.phase == Phase::LevelUp {
             draw_rectangle(0.0, 0.0, sw, sh, Color::from_rgba(5, 8, 18, 205));
             let hdr = format!("LEVEL {} — CHOOSE POWER", self.level);
-            let hd = measure_text(&hdr, None, 30, 1.0);
-            draw_text(&hdr, sw * 0.5 - hd.width * 0.5, sh * 0.16, 30.0, Color::from_rgba(250, 204, 21, 255));
+            let hd = measure_ui_text(font, &hdr, 28);
+            draw_ui_text(
+                font,
+                &hdr,
+                sw * 0.5 - hd.width * 0.5,
+                sh * 0.16,
+                28.0,
+                Color::from_rgba(250, 204, 21, 255),
+            );
 
             let card_w = (sw - 40.0).min(340.0);
             let card_h = 92.0;
@@ -2521,14 +3250,22 @@ impl Game {
                 draw_rectangle_lines(rect.x, rect.y, rect.w, rect.h, 2.5, up.accent());
 
                 let next_lvl = self.build.level_of(*up) + 1;
-                draw_text(
+                draw_ui_text(
+                    font,
                     &format!("[{}] {}  LV.{}", i + 1, up.name(), next_lvl),
                     rect.x + 16.0,
                     rect.y + 34.0,
-                    21.0,
+                    20.0,
                     up.accent(),
                 );
-                draw_text(up.desc(), rect.x + 16.0, rect.y + 66.0, 16.0, Color::from_rgba(226, 232, 240, 255));
+                draw_ui_text(
+                    font,
+                    up.desc(),
+                    rect.x + 16.0,
+                    rect.y + 66.0,
+                    15.0,
+                    Color::from_rgba(226, 232, 240, 255),
+                );
 
                 let mut picked = is_mouse_button_pressed(MouseButton::Left) && hovered;
                 for t in touches() {
@@ -2552,7 +3289,7 @@ impl Game {
         if self.phase == Phase::Victory || self.phase == Phase::GameOver {
             draw_rectangle(0.0, 0.0, sw, sh, Color::from_rgba(5, 8, 18, 220));
             let cx = sw * 0.5;
-            let top_y = (sh * 0.12).max(40.0);
+            let top_y = (sh * 0.09).max(34.0);
             let rank = compute_rank(self.score, self.boss_slain);
 
             let heading = if self.phase == Phase::Victory {
@@ -2560,12 +3297,13 @@ impl Game {
             } else {
                 "FALLEN IN BATTLE"
             };
-            let hd = measure_text(heading, None, 30, 1.0);
-            draw_text(
+            let hd = measure_ui_text(font, heading, 28);
+            draw_ui_text(
+                font,
                 heading,
                 cx - hd.width * 0.5,
                 top_y,
-                30.0,
+                28.0,
                 if self.phase == Phase::Victory {
                     Color::from_rgba(250, 204, 21, 255)
                 } else {
@@ -2573,9 +3311,16 @@ impl Game {
                 },
             );
 
-            let rank_str = format!("RANK {}", rank);
-            let rd = measure_text(&rank_str, None, 48, 1.0);
-            draw_text(&rank_str, cx - rd.width * 0.5, top_y + 46.0, 48.0, Color::from_rgba(56, 189, 248, 255));
+            let rank_str = format!("RANK {} · {}", rank, self.hero_class.title());
+            let rd = measure_ui_text(font, &rank_str, 34);
+            draw_ui_text(
+                font,
+                &rank_str,
+                cx - rd.width * 0.5,
+                top_y + 38.0,
+                34.0,
+                Color::from_rgba(56, 189, 248, 255),
+            );
 
             let stats = format!(
                 "SCORE: {}  ·  KILLS: {}  ·  BOSS: {}",
@@ -2583,17 +3328,25 @@ impl Game {
                 self.kills,
                 if self.boss_slain { "SLAIN" } else { "SURVIVED" }
             );
-            let std = measure_text(&stats, None, 18, 1.0);
-            draw_text(&stats, cx - std.width * 0.5, top_y + 78.0, 18.0, WHITE);
+            let std = measure_ui_text(font, &stats, 16);
+            draw_ui_text(font, &stats, cx - std.width * 0.5, top_y + 66.0, 16.0, WHITE);
 
             let social_line = format!(
-                "STREAK: {}d  ·  RANK: #{} / {}",
+                "{}  ·  STREAK: {}d  ·  RANK: #{} / {}",
+                self.hero_class.faction_name(),
                 self.social.streak,
                 self.social.my_rank.max(0),
                 self.social.total_players.max(0)
             );
-            let sld = measure_text(&social_line, None, 15, 1.0);
-            draw_text(&social_line, cx - sld.width * 0.5, top_y + 100.0, 15.0, Color::from_rgba(203, 213, 225, 255));
+            let sld = measure_ui_text(font, &social_line, 13);
+            draw_ui_text(
+                font,
+                &social_line,
+                cx - sld.width * 0.5,
+                top_y + 86.0,
+                13.0,
+                Color::from_rgba(203, 213, 225, 255),
+            );
 
             let share_state = unsafe { emberfall_get_share_state() };
             let share_lbl = match share_state {
@@ -2602,8 +3355,9 @@ impl Game {
                 3 => "LOGIN ON REDDIT TO SHARE",
                 _ => "POST SCORE TO REDDIT",
             };
-            let share_rect = Rect::new(cx - 140.0, top_y + 114.0, 280.0, 44.0);
+            let share_rect = Rect::new(cx - 140.0, top_y + 100.0, 280.0, 42.0);
             if self.draw_button(
+                font,
                 share_rect,
                 share_lbl,
                 Color::from_rgba(37, 99, 235, 235),
@@ -2618,14 +3372,16 @@ impl Game {
                         self.kills,
                         if self.boss_slain { 1 } else { 0 },
                         self.level,
+                        self.hero_class.to_index() as u32,
                         bytes.as_ptr(),
                         bytes.len() as u32,
                     );
                 }
             }
 
-            let retry_rect = Rect::new(cx - 140.0, top_y + 166.0, 280.0, 44.0);
+            let retry_rect = Rect::new(cx - 140.0, top_y + 148.0, 280.0, 42.0);
             if self.draw_button(
+                font,
                 retry_rect,
                 "PLAY AGAIN",
                 Color::from_rgba(234, 88, 12, 235),
@@ -2636,19 +3392,27 @@ impl Game {
                 self.start_run();
             }
 
-            let mut panel_y = top_y + 222.0;
+            let mut panel_y = top_y + 200.0;
             if self.social.can_vote_mutator {
                 let vhdr = "TOP-3 BONUS: VOTE TOMORROW'S MUTATOR";
-                let vd = measure_text(vhdr, None, 14, 1.0);
-                draw_text(vhdr, cx - vd.width * 0.5, panel_y + 10.0, 14.0, Color::from_rgba(250, 204, 21, 255));
+                let vd = measure_ui_text(font, vhdr, 13);
+                draw_ui_text(
+                    font,
+                    vhdr,
+                    cx - vd.width * 0.5,
+                    panel_y + 10.0,
+                    13.0,
+                    Color::from_rgba(250, 204, 21, 255),
+                );
                 let labels = ["BLOOD", "ARCANE", "SWARM", "TITAN"];
                 let bw = 74.0;
                 let total_w = bw * 4.0 + 18.0;
                 let sx = cx - total_w * 0.5;
                 for (mi, lbl) in labels.iter().enumerate() {
                     let selected = self.social.voted_mutator == Some(mi);
-                    let r = Rect::new(sx + (mi as f32) * (bw + 6.0), panel_y + 18.0, bw, 30.0);
+                    let r = Rect::new(sx + (mi as f32) * (bw + 6.0), panel_y + 16.0, bw, 28.0);
                     if self.draw_button(
+                        font,
                         r,
                         lbl,
                         if selected {
@@ -2664,11 +3428,11 @@ impl Game {
                         }
                     }
                 }
-                panel_y += 58.0;
+                panel_y += 52.0;
             }
 
-            let panel_w = (sw - 32.0).min(340.0);
-            self.draw_social_panel(cx - panel_w * 0.5, panel_y, panel_w, 5);
+            let panel_w = (sw - 32.0).min(360.0);
+            self.draw_social_panel(font, cx - panel_w * 0.5, panel_y, panel_w, 4);
         }
     }
 }
@@ -2744,8 +3508,13 @@ async fn main() {
             mat.set_uniform("u_shockwave", game.shockwave);
             mat.set_uniform(
                 "u_blood_moon",
-                if game.modifier == DailyModifier::BloodMoon { 1.0f32 } else { 0.0f32 },
+                if game.modifier == DailyModifier::BloodMoon {
+                    1.0f32
+                } else {
+                    0.0f32
+                },
             );
+            mat.set_uniform("u_biome", game.biome.to_index() as f32);
             gl_use_material(mat);
         }
         draw_texture_ex(
@@ -2766,3 +3535,4 @@ async fn main() {
         next_frame().await;
     }
 }
+

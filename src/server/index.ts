@@ -33,6 +33,18 @@ const DAILY_MODIFIERS = [
   "TITAN'S WRATH",
 ] as const;
 
+const DAILY_BIOMES = [
+  'OBSIDIAN SANCTUARY',
+  'VOLCANIC RIFT',
+  'FROST ABYSS',
+] as const;
+
+const HERO_CLASSES = [
+  { title: 'SUN KNIGHT', faction: 'SOLAR ORDER', emoji: '☀️' },
+  { title: 'PYROMANCER', faction: 'ARCANE CONCLAVE', emoji: '🔮' },
+  { title: 'SHADOW ASSASSIN', faction: 'SHADOW GUILD', emoji: '🗡️' },
+] as const;
+
 function getUtcDateString(offsetDays = 0): string {
   const d = new Date(Date.now() + offsetDays * 86400000);
   const y = d.getUTCFullYear();
@@ -41,7 +53,7 @@ function getUtcDateString(offsetDays = 0): string {
   return `${y}-${m}-${day}`;
 }
 
-function defaultMutatorFromSeed(seed: string): number {
+function hashSeedU64(seed: string): bigint {
   const mask = 0xffffffffffffffffn;
   let h = 0xcbf29ce484222325n;
   for (let i = 0; i < seed.length; i++) {
@@ -54,7 +66,16 @@ function defaultMutatorFromSeed(seed: string): number {
   x ^= (x << 25n) & mask;
   x ^= x >> 27n;
   x = (x * 0x2545f4914f6cdd1dn) & mask;
-  return Number(x % 4n);
+  return x;
+}
+
+function defaultMutatorFromSeed(seed: string): number {
+  return Number(hashSeedU64(seed) % 4n);
+}
+
+function defaultBiomeFromSeed(seed: string): { index: number; name: string } {
+  const idx = Number(hashSeedU64(`${seed}-biome`) % 3n);
+  return { index: idx, name: DAILY_BIOMES[idx] };
 }
 
 function computeRank(score: number, bossSlain: boolean): string {
@@ -104,6 +125,7 @@ const lbKey = (sub: string, seed: string) => `ef:lb:${sub}:${seed}`;
 const metaKey = (sub: string, seed: string, user: string) => `ef:meta:${sub}:${seed}:${user}`;
 const streakKey = (sub: string, user: string) => `ef:streak:${sub}:${user}`;
 const bossKillsKey = (sub: string, seed: string) => `ef:bosses:${sub}:${seed}`;
+const factionsKey = (sub: string, seed: string) => `ef:factions:${sub}:${seed}`;
 const shareGuardKey = (postId: string, seed: string, user: string) =>
   `ef:shared:${postId}:${seed}:${user}`;
 const postSharesKey = (postId: string) => `ef:post-shares:${postId}`;
@@ -114,6 +136,34 @@ const runKey = (runId: string) => `ef:run:${runId}`;
 const rateKey = (sub: string, user: string) => `ef:rate:${sub}:${user}`;
 const ghostKey = (sub: string, seed: string) => `ef:ghost:${sub}:${seed}`;
 const mutatorVoteKey = (sub: string, seed: string) => `ef:mutator-vote:${sub}:${seed}`;
+
+async function getFactionScores(sub: string, seed: string): Promise<[number, number, number]> {
+  try {
+    const raw = await redis.hGetAll(factionsKey(sub, seed));
+    return [
+      Math.max(0, Math.floor(Number(raw['0']) || 0)),
+      Math.max(0, Math.floor(Number(raw['1']) || 0)),
+      Math.max(0, Math.floor(Number(raw['2']) || 0)),
+    ];
+  } catch {
+    return [0, 0, 0];
+  }
+}
+
+async function getYesterdayChampion(
+  sub: string
+): Promise<{ username: string; score: number } | null> {
+  try {
+    const yesterday = getUtcDateString(-1);
+    const top = await redis.zRange(lbKey(sub, yesterday), 0, 0, { by: 'rank', reverse: true });
+    if (top.length > 0 && top[0].member) {
+      return { username: top[0].member, score: Math.floor(top[0].score) };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 async function resolveWinningMutator(sub: string, seed: string): Promise<number> {
   try {
@@ -176,9 +226,10 @@ async function createDailyPost(options: { respectLock: boolean }): Promise<{
   }
 
   const mutator = await getEffectiveMutator(subredditName, today);
+  const biome = defaultBiomeFromSeed(today);
   const post = await reddit.submitCustomPost({
     subredditName,
-    title: `EMBERFALL: DAILY HORDE — #${today} [${mutator.name}]`,
+    title: `EMBERFALL: DAILY HORDE — #${today} [${biome.name} · ${mutator.name}]`,
     entry: 'default',
   });
 
@@ -186,6 +237,28 @@ async function createDailyPost(options: { respectLock: boolean }): Promise<{
   await redis.expire(postKey(subredditName, today), THIRTY_DAYS_SEC);
   await redis.set(postIndexKey(post.id), JSON.stringify({ sub: subredditName, seed: today }));
   await redis.expire(postIndexKey(post.id), THIRTY_DAYS_SEC);
+
+  // Automatically crown yesterday's #1 Champion & winning Reddit Faction on the new daily post!
+  try {
+    const yesterday = getUtcDateString(-1);
+    const champ = await getYesterdayChampion(subredditName);
+    const yFactions = await getFactionScores(subredditName, yesterday);
+    if (champ) {
+      let winFactionIdx = 0;
+      if (yFactions[1] > yFactions[winFactionIdx]) winFactionIdx = 1;
+      if (yFactions[2] > yFactions[winFactionIdx]) winFactionIdx = 2;
+      const winFaction = HERO_CLASSES[winFactionIdx];
+      await reddit.submitComment({
+        id: post.id,
+        text: [
+          `🏆 **YESTERDAY'S CROWNED CHAMPION (#${yesterday})**: **u/${champ.username}** with **${champ.score.toLocaleString('en-US')} pts**!`,
+          `${winFaction.emoji} Winning Order: **${winFaction.faction}** — *Choose your Hero Class & Faction above to claim today's crown!*`,
+        ].join('\n\n'),
+      });
+    }
+  } catch {
+    // Non-fatal if comment submission fails in local test environment
+  }
 
   return { id: post.id, url: post.url, skipped: false };
 }
@@ -297,9 +370,12 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
       }
 
       const mutator = await getEffectiveMutator(sub, seed);
+      const biome = defaultBiomeFromSeed(seed);
       const top = await redis.zRange(lbKey(sub, seed), 0, 9, { by: 'rank', reverse: true });
       const bossRaw = await redis.get(bossKillsKey(sub, seed));
       const bossKillsToday = bossRaw ? Math.max(0, Number(bossRaw) || 0) : 0;
+      const factionScores = await getFactionScores(sub, seed);
+      const yesterdayChampion = await getYesterdayChampion(sub);
 
       const { myRank, totalPlayers } = await getMyRankAndTotal(sub, seed, username ?? undefined);
       const streak = await getUserStreak(sub, username ?? undefined);
@@ -342,6 +418,8 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
 
       sendJson(res, 200, {
         seed,
+        biomeIndex: biome.index,
+        biomeName: biome.name,
         mutatorOverride: mutator.override,
         username,
         streak,
@@ -350,6 +428,8 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         totalPlayers,
         bossKillsToday,
         siegeTarget: SIEGE_TARGET,
+        factionScores,
+        yesterdayChampion,
         leaderboard,
         topGhost,
         canVoteMutator: myRank >= 1 && myRank <= 3,
@@ -385,6 +465,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         kills?: number;
         bossSlain?: boolean;
         level?: number;
+        heroClass?: number;
         buildSummary?: string;
         ghostPoints?: unknown;
       }>(req);
@@ -437,9 +518,17 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
       const kills = Math.max(0, Math.min(10000, Math.floor(Number(body.kills) || 0)));
       const bossSlain = Boolean(body.bossSlain);
       const level = Math.max(1, Math.min(99, Math.floor(Number(body.level) || 1)));
+      const heroClassIdx = Math.max(0, Math.min(2, Math.floor(Number(body.heroClass) || 0)));
       const buildSummary =
         typeof body.buildSummary === 'string' ? body.buildSummary.slice(0, 128) : undefined;
       const rank = computeRank(score, bossSlain);
+
+      // Contribute score to the player's chosen Reddit Faction Order!
+      if (score > 0) {
+        await redis.hIncrBy(factionsKey(sub, seed), String(heroClassIdx), score);
+        await redis.expire(factionsKey(sub, seed), THIRTY_DAYS_SEC);
+      }
+      const factionScores = await getFactionScores(sub, seed);
 
       let bossKillsToday = 0;
       if (bossSlain) {
@@ -513,6 +602,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         totalPlayers,
         streak,
         bossKillsToday,
+        factionScores,
         isNewBest,
         canVoteMutator: myRank >= 1 && myRank <= 3,
       });
@@ -560,6 +650,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         kills?: number;
         bossSlain?: boolean;
         level?: number;
+        heroClass?: number;
         streak?: number;
         mutatorName?: string;
         buildEmojis?: string;
@@ -588,6 +679,9 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
       const kills = Math.max(0, Math.floor(Number(body.kills) || 0));
       const bossSlain = Boolean(body.bossSlain);
       const level = Math.max(1, Math.min(99, Math.floor(Number(body.level) || 1)));
+      const heroClassIdx = Math.max(0, Math.min(2, Math.floor(Number(body.heroClass) || 0)));
+      const heroInfo = HERO_CLASSES[heroClassIdx];
+      const biome = defaultBiomeFromSeed(seed);
       const rank =
         typeof body.rank === 'string' && body.rank.length > 0
           ? body.rank.slice(0, 6)
@@ -616,8 +710,8 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
       const streakBadge = streakVal > 0 ? ` · 🔥 ${streakVal}d Streak` : '';
       const text = [
         `**🔥 EMBERFALL: DAILY HORDE #${seed}** — **RANK ${rank}**${rankBadge}`,
-        `${buildEmojis} · Lv.**${level}** · **${score.toLocaleString('en-US')} pts** · **${kills}** Kills · ${bossBadge}${streakBadge}`,
-        `Mutator: **${mutatorName}** — *Can you beat my build? Hit Enter Dungeon above!*`,
+        `${heroInfo.emoji} **${heroInfo.title}** (*${heroInfo.faction}*) · ${buildEmojis} · Lv.**${level}** · **${score.toLocaleString('en-US')} pts** · **${kills}** Kills · ${bossBadge}${streakBadge}`,
+        `Arena: **${biome.name}** · Mutator: **${mutatorName}** — *Can your Faction beat my build? Hit Enter Dungeon above!*`,
       ].join('\n\n');
 
       await reddit.submitComment({
@@ -641,3 +735,4 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
 });
 
 server.listen(getServerPort());
+
