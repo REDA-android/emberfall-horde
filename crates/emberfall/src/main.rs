@@ -325,6 +325,9 @@ struct Game {
     combo_timer: f32,
     fever: f32,
     fever_idle_timer: f32,
+    ult_charge: f32,
+    ult_fx: f32,
+    ult_pos: Vec2,
     boss_spawned: bool,
     boss_slain: bool,
     boss_banner_timer: f32,
@@ -415,6 +418,9 @@ impl Game {
             combo_timer: 0.0,
             fever: 0.0,
             fever_idle_timer: 0.0,
+            ult_charge: 0.0,
+            ult_fx: 0.0,
+            ult_pos: Vec2::ZERO,
             boss_spawned: false,
             boss_slain: false,
             boss_banner_timer: 0.0,
@@ -531,6 +537,8 @@ impl Game {
         self.combo_timer = 0.0;
         self.fever = 0.0;
         self.fever_idle_timer = 0.0;
+        self.ult_charge = 0.0;
+        self.ult_fx = 0.0;
         self.boss_spawned = false;
         self.boss_slain = false;
         self.boss_banner_timer = 0.0;
@@ -727,6 +735,38 @@ impl Game {
         self.damage_enemies_in_radius(self.hero_pos, nova_r, nova_dmg, 240.0);
     }
 
+    fn trigger_ultimate(&mut self) {
+        if self.ult_charge < 1.0 || self.phase != Phase::Playing {
+            return;
+        }
+        self.ult_charge = 0.0;
+        self.ult_fx = 1.0;
+        self.ult_pos = self.hero_pos;
+        self.hero_invuln = self.hero_invuln.max(1.0);
+        self.add_trauma(1.0);
+        self.hitstop = self.hitstop.max(0.12);
+        self.shockwave = 1.0;
+        self.aberration = 0.02;
+        play_sfx(5);
+        for (n, col) in [
+            Color::from_rgba(253, 224, 71, 255),
+            Color::from_rgba(251, 146, 60, 255),
+            Color::from_rgba(244, 63, 94, 255),
+        ]
+        .iter()
+        .enumerate()
+        {
+            self.spawn_burst(self.hero_pos, 40, *col, VfxKind::Flame, 380.0 + n as f32 * 160.0);
+        }
+        let dmg = 160.0 + (self.level as f32) * 14.0;
+        self.damage_enemies_in_radius(self.hero_pos, 460.0, dmg, 520.0);
+        let cx = self.hero_pos;
+        self.gems.iter_mut().for_each(|g| {
+            let _ = cx;
+            let _ = g;
+        });
+    }
+
     fn damage_enemies_in_radius(&mut self, center: Vec2, radius: f32, base_dmg: f32, knockback: f32) -> usize {
         let crit_chance = if self.modifier == DailyModifier::BloodMoon {
             0.35
@@ -814,6 +854,7 @@ impl Game {
                     0.08
                 };
                 self.fever = (self.fever + fever_gain).min(1.0);
+                self.ult_charge = (self.ult_charge + fever_gain * 0.45).min(1.0);
 
                 let combo_bonus = 1.0 + (self.combo.min(50) as f32) * 0.02;
                 let mut pts = (dead.score_value as f32
@@ -916,12 +957,16 @@ impl Game {
         if is_key_pressed(KeyCode::Space) || is_mouse_button_pressed(MouseButton::Right) {
             self.trigger_dash();
         }
+        if is_key_pressed(KeyCode::Q) || is_key_pressed(KeyCode::E) {
+            self.trigger_ultimate();
+        }
 
         // Dash button hitbox (bottom-right) & HUD button hitboxes (top-right)
         let sw = screen_width();
         let sh = screen_height();
         let dash_center = vec2(sw - 68.0, sh - 76.0);
         let dash_r = 44.0;
+        let ult_center = vec2(sw - 150.0, sh - 56.0);
         let pause_rect = Rect::new(sw - 46.0, 16.0, 32.0, 28.0);
         let mute_rect = Rect::new(sw - 84.0, 16.0, 32.0, 28.0);
 
@@ -931,6 +976,10 @@ impl Game {
         if !ts.is_empty() {
             for t in &ts {
                 if !self.joy_active && (mute_rect.contains(t.position) || pause_rect.contains(t.position)) {
+                    continue;
+                }
+                if t.phase == TouchPhase::Started && t.position.distance(ult_center) <= 38.0 {
+                    self.trigger_ultimate();
                     continue;
                 }
                 if t.phase == TouchPhase::Started && t.position.distance(dash_center) <= dash_r + 14.0 {
@@ -947,6 +996,8 @@ impl Game {
             let started = is_mouse_button_pressed(MouseButton::Left);
             if !self.joy_active && (mute_rect.contains(mp) || pause_rect.contains(mp)) {
                 // Ignore HUD Mute/Pause button clicks so joystick does not activate
+            } else if started && mp.distance(ult_center) <= 34.0 {
+                self.trigger_ultimate();
             } else if started && mp.distance(dash_center) <= dash_r + 10.0 {
                 self.trigger_dash();
             } else {
@@ -996,6 +1047,7 @@ impl Game {
         self.trauma = (self.trauma - dt * 1.8).max(0.0);
         self.aberration = (self.aberration - dt * 0.08).max(0.0);
         self.shockwave = (self.shockwave - dt * 1.9).max(0.0);
+        self.ult_fx = (self.ult_fx - dt * 1.4).max(0.0);
         self.hero_squash *= (1.0 - dt * 12.0).max(0.0);
 
         if self.combo_timer > 0.0 {
@@ -1829,6 +1881,18 @@ impl Game {
             },
         );
 
+        if self.ult_fx > 0.0 {
+            let t = 1.0 - self.ult_fx;
+            for k in 0..3 {
+                let tk = (t - k as f32 * 0.08).max(0.0);
+                let r = tk * 520.0;
+                let a = ((1.0 - tk) * 255.0) as u8;
+                if r > 1.0 {
+                    draw_circle_lines(self.ult_pos.x, self.ult_pos.y, r, 10.0 - k as f32 * 3.0, Color::from_rgba(253, 224 - k as u8 * 60, 71 + k as u8 * 40, a));
+                }
+            }
+            draw_circle(self.ult_pos.x, self.ult_pos.y, 120.0 * self.ult_fx, Color::from_rgba(255, 244, 200, (self.ult_fx * 170.0) as u8));
+        }
         for a in &self.afterimages {
             let alpha = (a.life / 0.22).clamp(0.0, 1.0) * 0.55;
             draw_texture_ex(
@@ -2360,6 +2424,23 @@ impl Game {
             };
             let ld = measure_text(&lbl, None, 20, 1.0);
             draw_text(&lbl, dc.x - ld.width * 0.5, dc.y + 7.0, 20.0, WHITE);
+        }
+
+        // Ultimate SUPERNOVA button
+        if self.phase == Phase::Playing {
+            let uc = vec2(sw - 150.0, sh - 56.0);
+            let ready = self.ult_charge >= 1.0;
+            let pulse = if ready { 1.0 + (get_time() as f32 * 7.0).sin() * 0.08 } else { 1.0 };
+            draw_circle(uc.x, uc.y, 32.0 * pulse, if ready { Color::from_rgba(190, 24, 93, 235) } else { Color::from_rgba(15, 23, 42, 200) });
+            let sweep = self.ult_charge.clamp(0.0, 1.0);
+            let steps = (sweep * 40.0) as i32;
+            for i in 0..steps {
+                let ang = -std::f32::consts::FRAC_PI_2 + (i as f32 / 40.0) * std::f32::consts::TAU;
+                draw_circle(uc.x + ang.cos() * 32.0, uc.y + ang.sin() * 32.0, 3.2, Color::from_rgba(253, 224, 71, 255));
+            }
+            let lbl = if ready { "NOVA" } else { "ULT" };
+            let ld = measure_text(lbl, None, 18, 1.0);
+            draw_text(lbl, uc.x - ld.width * 0.5, uc.y + 6.0, 18.0, WHITE);
         }
 
         // PAUSED OVERLAY
