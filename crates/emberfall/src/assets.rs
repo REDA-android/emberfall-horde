@@ -35,6 +35,12 @@ impl GameAssets {
             "../assets/fonts/chakra_petch_bold.ttf"
         ))
         .ok();
+        if let Some(ref f) = ui_font {
+            let ascii = Font::ascii_character_list();
+            for &sz in &[11u16, 12, 13, 14, 15, 16, 18, 19, 20, 22, 26, 28, 30, 32, 34, 36, 40] {
+                f.populate_font_cache(&ascii, sz);
+            }
+        }
         Self {
             hero: load_tex(include_bytes!("../assets/sprites/hero_knight.png")),
             hero_mage: load_tex(include_bytes!("../assets/sprites/hero_mage.png")),
