@@ -5,11 +5,27 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#060914" />
   <title>EMBERFALL: DAILY HORDE</title>
-  <style>html,body,canvas{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#060914;touch-action:none;}</style>
+  <style>
+    html,body,canvas{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#060914;touch-action:none;}
+    #ef-loader{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:#060914;color:#fde68a;font-family:system-ui,-apple-system,sans-serif;font-size:15px;font-weight:700;letter-spacing:0.06em;z-index:20;pointer-events:none;transition:opacity .25s ease;}
+    #ef-loader small{color:#94a3b8;font-weight:500;font-size:12px;letter-spacing:0.02em;max-width:85vw;text-align:center;}
+  </style>
 </head>
 <body>
+  <div id="ef-loader"><div>EMBERFALL: DAILY HORDE</div><small id="ef-status">Loading WebAssembly engine...</small></div>
   <canvas id="glcanvas" tabindex="1"></canvas>
-  <script src="./mq_js_bundle.js"></script>
+  <script>
+    (function () {
+      var st = document.getElementById('ef-status');
+      window.addEventListener('error', function (ev) {
+        if (st) { st.style.color = '#fca5a5'; st.textContent = 'Error: ' + (ev.message || 'Unknown script error'); }
+      });
+      window.addEventListener('unhandledrejection', function (ev) {
+        if (st) { st.style.color = '#fca5a5'; st.textContent = 'WASM Error: ' + (ev.reason && ev.reason.message ? ev.reason.message : String(ev.reason)); }
+      });
+    })();
+  </script>
+  <script src="./mq_js_bundle.js?v=20261121c"></script>
   <script>
     (function () {
       var MODIFIERS = ['BLOOD MOON', 'ARCANE SURGE', 'SWARM RUSH', "TITAN'S WRATH"];
@@ -415,6 +431,8 @@
           };
 
           env.emberfall_poll_init_ready = function () {
+            var ld = document.getElementById('ef-loader');
+            if (ld) ld.remove();
             return initReady;
           };
 
@@ -486,7 +504,7 @@
         name: 'emberfall_bridge'
       });
 
-      load('./emberfall.wasm');
+      load('./emberfall.wasm?v=20261121c');
     })();
   </script>
 </body>
