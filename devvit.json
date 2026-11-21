@@ -1,0 +1,42 @@
+{
+  "$schema": "https://developers.reddit.com/schema/config-file.v1.json",
+  "name": "emberfall-horde",
+  "post": {
+    "dir": "dist/client",
+    "entrypoints": {
+      "default": {
+        "entry": "index.html",
+        "height": "tall"
+      }
+    }
+  },
+  "server": {
+    "dir": "dist/server",
+    "entry": "index.cjs"
+  },
+  "permissions": {
+    "redis": true,
+    "reddit": {
+      "enable": true,
+      "asUser": ["SUBMIT_COMMENT"]
+    }
+  },
+  "triggers": {
+    "onAppInstall": "/internal/on-app-install"
+  },
+  "menu": {
+    "items": [
+      {
+        "label": "Create Emberfall Daily Dungeon",
+        "description": "Publish today's EMBERFALL: DAILY HORDE interactive post",
+        "forUserType": "moderator",
+        "location": "subreddit",
+        "endpoint": "/internal/menu/post-create"
+      }
+    ]
+  },
+  "scripts": {
+    "dev": "npm run build:server",
+    "build": "npm run build:server"
+  }
+}

@@ -1,0 +1,15 @@
+[package]
+name = "emberfall"
+version = "1.0.0"
+edition = "2021"
+description = "EMBERFALL: DAILY HORDE — Pure Rust (macroquad -> WebAssembly) Dark Fantasy Action Horde Survivor ARPG for Reddit's Game of the Day Hackathon 2026"
+
+[dependencies]
+macroquad = "0.4"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

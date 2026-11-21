@@ -1,0 +1,6 @@
+node_modules/
+crates/emberfall/target/
+dist/server/
+.vercel
+.env
+*.log

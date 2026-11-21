@@ -1,0 +1,4 @@
+{
+  "buildCommand": "echo 'Using prebuilt Rust WASM in dist/client'",
+  "outputDirectory": "dist/client"
+}

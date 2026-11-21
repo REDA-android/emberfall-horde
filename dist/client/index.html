@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#060914" />
+  <title>EMBERFALL: DAILY HORDE</title>
+  <style>html,body,canvas{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#060914;touch-action:none;}</style>
+</head>
+<body>
+  <canvas id="glcanvas" tabindex="1"></canvas>
+  <script src="./mq_js_bundle.js"></script>
+  <script>
+    (function () {
+      var audioCtx = null;
+      function tone(f1, f2, dur, type, vol) {
+        try {
+          if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          if (audioCtx.state === 'suspended') audioCtx.resume();
+          var now = audioCtx.currentTime;
+          var osc = audioCtx.createOscillator();
+          var g = audioCtx.createGain();
+          osc.type = type || 'triangle';
+          osc.frequency.setValueAtTime(f1, now);
+          osc.frequency.exponentialRampToValueAtTime(Math.max(25, f2), now + dur);
+          g.gain.setValueAtTime(0.0001, now);
+          g.gain.linearRampToValueAtTime(vol || 0.1, now + 0.01);
+          g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+          osc.connect(g); g.connect(audioCtx.destination);
+          osc.start(now); osc.stop(now + dur + 0.02);
+        } catch (_) {}
+      }
+
+      miniquad_add_plugin({
+        register_plugin: function (importObject) {
+          importObject.env.emberfall_get_day_number = function () {
+            var d = new Date();
+            return d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate();
+          };
+          importObject.env.emberfall_on_run_complete = function (score, kills, bossSlain, level) {
+            fetch('/api/submit-run', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ score: score, kills: kills, bossSlain: bossSlain === 1, level: level })
+            }).catch(function () {});
+          };
+          importObject.env.emberfall_share_comment = function (score, kills, bossSlain) {
+            fetch('/api/share-comment', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ score: score, kills: kills, bossSlain: bossSlain === 1 })
+            }).catch(function () {});
+          };
+          importObject.env.emberfall_play_sfx = function (kind) {
+            if (kind === 0) tone(330, 660, 0.16, 'triangle', 0.11);
+            else if (kind === 1) tone(520, 180, 0.09, 'sawtooth', 0.05);
+            else if (kind === 2) tone(240, 80, 0.08, 'square', 0.05);
+            else if (kind === 3) tone(1180, 420, 0.14, 'sawtooth', 0.07);
+            else if (kind === 4) tone(220, 60, 0.22, 'sawtooth', 0.11);
+            else if (kind === 5) { tone(523, 784, 0.2, 'triangle', 0.12); setTimeout(function(){ tone(784, 1046, 0.25, 'triangle', 0.11); }, 90); }
+            else if (kind === 6) tone(110, 55, 0.45, 'sawtooth', 0.14);
+            else if (kind === 7) tone(160, 65, 0.18, 'sawtooth', 0.12);
+            else if (kind === 8) tone(880, 1320, 0.07, 'sine', 0.06);
+          };
+        },
+        version: 1,
+        name: 'emberfall_bridge'
+      });
+
+      load('./emberfall.wasm');
+    })();
+  </script>
+</body>
+</html>
