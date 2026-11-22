@@ -277,6 +277,16 @@
         'VOLCANIC RIFT',
         'FROST ABYSS'
       ];
+      var BIOME_BOSSES = [
+        'MALAKOR, VOID LICH',
+        'IGNIS REX, MAGMA TITAN',
+        'SKADI, GLACIAL EMPRESS'
+      ];
+      var BLESSINGS = [
+        '☀️ SOLAR AEGIS (+25 HP & +15% Area)',
+        '🔮 ARCANE OVERCHARGE (+18% Atk Spd & +15% XP)',
+        '🗡️ SHADOW VELOCITY (+15% Move Spd & +15% Crit)'
+      ];
 
       function utcSeed() {
         var d = new Date();
@@ -310,8 +320,8 @@
         try { return Number(hashSeed(seed) % 4n); } catch (_) { return 0; }
       }
 
-      function defaultBiome(seed) {
-        try { return BIOMES[Number(hashSeed(seed + '-biome') % 3n)] || BIOMES[0]; } catch (_) { return BIOMES[0]; }
+      function defaultBiomeIdx(seed) {
+        try { return Number(hashSeed(seed + '-biome') % 3n); } catch (_) { return 0; }
       }
 
       function esc(s) {
@@ -356,17 +366,24 @@
         var seed = (data && data.seed) ? String(data.seed) : utcSeed();
         document.getElementById('seed-pill').textContent = 'DUNGEON #' + seed;
 
-        var biomeName = (data && data.biomeName) ? String(data.biomeName) : defaultBiome(seed);
+        var bIdx = (data && typeof data.biomeIndex === 'number') ? (data.biomeIndex % 3) : defaultBiomeIdx(seed);
+        var biomeName = (data && data.biomeName) ? String(data.biomeName) : (BIOMES[bIdx] || BIOMES[0]);
+        var bossName = BIOME_BOSSES[bIdx] || BIOME_BOSSES[0];
         var ov = (data && typeof data.mutatorOverride === 'number') ? data.mutatorOverride : -1;
         var modIdx = (ov >= 0 && ov <= 3) ? ov : defaultMutator(seed);
         var mod = MODIFIERS[modIdx] || MODIFIERS[0];
         document.getElementById('mutator-name').textContent = biomeName + ' · ' + mod.title + (ov >= 0 ? ' ★ VOTED' : '');
-        document.getElementById('mutator-desc').textContent = mod.desc + ' · Destructible Runic Barrels';
+        document.getElementById('mutator-desc').textContent = '💀 Boss: ' + bossName + ' · ' + mod.desc;
+
+        var blessIdx = (data && typeof data.yesterdayWinningFaction === 'number' && data.yesterdayWinningFaction >= 0)
+          ? (data.yesterdayWinningFaction % 3)
+          : bIdx;
+        document.getElementById('bounty-line').textContent = '✨ Blessing: ' + (BLESSINGS[blessIdx] || BLESSINGS[0]);
 
         var kills = (data && Number(data.bossKillsToday)) || 0;
         var target = (data && Number(data.siegeTarget)) || 25;
         var pct = Math.min(100, Math.round((kills / Math.max(1, target)) * 100));
-        document.getElementById('siege-count').textContent = kills + ' / ' + target + ' Arch-Liches Slain';
+        document.getElementById('siege-count').textContent = kills + ' / ' + target + ' Bosses Slain';
         document.getElementById('siege-fill').style.width = pct + '%';
 
         var fs = (data && Array.isArray(data.factionScores)) ? data.factionScores : [0, 0, 0];

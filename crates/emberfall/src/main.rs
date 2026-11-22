@@ -502,6 +502,7 @@ struct Game {
     endless_wave: u32,
     next_endless_boss_time: f32,
     run_medals_mask: u32,
+    revenge_claimed: bool,
 
     // Shrines, Barrels & Ghost
     shrines: Vec<BloodShrine>,
@@ -617,6 +618,7 @@ impl Game {
             endless_wave: 1,
             next_endless_boss_time: BOSS_SPAWN_TIME + 55.0,
             run_medals_mask: 0,
+            revenge_claimed: false,
             shrines: Vec::new(),
             barrels: Vec::new(),
             shrine_score_mult: 1.0,
@@ -768,6 +770,7 @@ impl Game {
         self.endless_wave = 1;
         self.next_endless_boss_time = BOSS_SPAWN_TIME + 55.0;
         self.run_medals_mask = 0;
+        self.revenge_claimed = false;
         self.hero_pos = Vec2::ZERO;
         self.hero_vel = Vec2::ZERO;
         let hp_bonus = if self.active_blessing() == 0 { 25.0 } else { 0.0 };
@@ -1693,6 +1696,34 @@ impl Game {
             self.ghost_sample_timer -= 0.5;
             self.ghost_record.push(self.hero_pos.x as i16);
             self.ghost_record.push(self.hero_pos.y as i16);
+        }
+
+        // Champion's Revenge: Surpass #1 Champion Ghost score for +1500 PTS!
+        if !self.revenge_claimed {
+            let champ_target = self
+                .social
+                .leaderboard
+                .first()
+                .map(|e| e.score)
+                .unwrap_or(0)
+                .max(self.social.yesterday_score.max(0) as u32);
+            if champ_target > 0 && self.score > champ_target {
+                self.revenge_claimed = true;
+                self.score += 1500;
+                self.shockwave = 1.0;
+                self.add_trauma(0.55);
+                let cname = if !self.social.ghost_username.is_empty() {
+                    self.social.ghost_username.clone()
+                } else if !self.social.yesterday_champion.is_empty() {
+                    self.social.yesterday_champion.clone()
+                } else {
+                    "CHAMPION".to_string()
+                };
+                self.evo_banner_text = format!("CHAMPION'S REVENGE vs u/{}! (+1500)", cname);
+                self.evo_banner_color = Color::from_rgba(250, 204, 21, 255);
+                self.evo_banner_timer = 3.0;
+                play_sfx(5);
+            }
         }
 
         // Check 90-second Daily Run completion!
@@ -4286,10 +4317,12 @@ impl Game {
                 Color::from_rgba(125, 211, 252, 255),
             ) && share_state == 0
             {
+                let rev_tag = if self.revenge_claimed { " ⚔️REVENGE" } else { "" };
                 let summary = format!(
-                    "{} 🎯{}/3",
+                    "{} 🎯{}/3{}",
                     self.build.build_summary(),
-                    bounties_done
+                    bounties_done,
+                    rev_tag
                 );
                 let bytes = summary.as_bytes();
                 unsafe {
