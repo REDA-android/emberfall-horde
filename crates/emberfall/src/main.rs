@@ -31,6 +31,9 @@ extern "C" {
         build_len: u32,
         ghost_ptr: *const i16,
         ghost_count: u32,
+        is_endless: i32,
+        endless_wave: u32,
+        medals_mask: u32,
     );
     fn emberfall_share_comment(
         score: u32,
@@ -42,6 +45,7 @@ extern "C" {
         build_len: u32,
     );
     fn emberfall_vote_mutator(mutator_idx: i32);
+    fn emberfall_set_selected_aura(aura_idx: i32);
     fn emberfall_poll_init_ready() -> i32;
     fn emberfall_get_init_field(field_id: i32) -> i32;
     fn emberfall_copy_str_field(
@@ -83,6 +87,9 @@ unsafe fn emberfall_on_run_complete(
     _build_len: u32,
     _ghost_ptr: *const i16,
     _ghost_count: u32,
+    _is_endless: i32,
+    _endless_wave: u32,
+    _medals_mask: u32,
 ) {
 }
 #[cfg(not(target_arch = "wasm32"))]
@@ -98,6 +105,8 @@ unsafe fn emberfall_share_comment(
 }
 #[cfg(not(target_arch = "wasm32"))]
 unsafe fn emberfall_vote_mutator(_mutator_idx: i32) {}
+#[cfg(not(target_arch = "wasm32"))]
+unsafe fn emberfall_set_selected_aura(_aura_idx: i32) {}
 #[cfg(not(target_arch = "wasm32"))]
 unsafe fn emberfall_poll_init_ready() -> i32 {
     0
@@ -195,6 +204,36 @@ const ARENA_HALF: f32 = 1050.0;
 const RUN_DURATION: f32 = 90.0;
 const BOSS_SPAWN_TIME: f32 = 55.0;
 
+const MEDAL_NAMES: [&str; 6] = [
+    "FIRST BLOOD",
+    "LICH BANE",
+    "SYNERGY",
+    "BOUNTY",
+    "COMBO GOD",
+    "ETERNAL",
+];
+const MEDAL_SHORT: [&str; 6] = ["100K", "BOSS", "EVO", "3/3", "100x", "WAVE3"];
+const AURA_NAMES: [&str; 4] = ["EMBER CORE", "SOLAR FLARE", "VOID ECLIPSE", "CELESTIAL"];
+
+fn is_aura_unlocked(aura: usize, medals_mask: u32) -> bool {
+    match aura {
+        0 => true,
+        1 => (medals_mask & ((1 << 0) | (1 << 1))) != 0,
+        2 => (medals_mask & ((1 << 2) | (1 << 4))) != 0,
+        3 => (medals_mask & ((1 << 3) | (1 << 5))) != 0,
+        _ => false,
+    }
+}
+
+fn aura_color(aura: usize) -> Color {
+    match aura {
+        1 => Color::from_rgba(250, 204, 21, 255),
+        2 => Color::from_rgba(192, 132, 252, 255),
+        3 => Color::from_rgba(56, 189, 248, 255),
+        _ => Color::from_rgba(251, 146, 60, 255),
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Phase {
     Title,
@@ -291,6 +330,9 @@ struct SocialState {
     last_status_msg: String,
     last_submit_state: i32,
     voted_mutator: Option<usize>,
+    medals_mask: u32,
+    best_endless_wave: u32,
+    selected_aura: usize,
 }
 
 struct Projectile {
@@ -415,6 +457,10 @@ struct Game {
     evo_banner_color: Color,
     evo_banner_timer: f32,
     reported_run: bool,
+    endless_mode: bool,
+    endless_wave: u32,
+    next_endless_boss_time: f32,
+    run_medals_mask: u32,
 
     // Shrines, Barrels & Ghost
     shrines: Vec<BloodShrine>,
@@ -526,6 +572,10 @@ impl Game {
             evo_banner_color: GOLD,
             evo_banner_timer: 0.0,
             reported_run: false,
+            endless_mode: false,
+            endless_wave: 1,
+            next_endless_boss_time: BOSS_SPAWN_TIME + 55.0,
+            run_medals_mask: 0,
             shrines: Vec::new(),
             barrels: Vec::new(),
             shrine_score_mult: 1.0,
@@ -634,6 +684,19 @@ impl Game {
                 let gy = unsafe { emberfall_get_ghost_y(i as i32) } as f32;
                 self.social.ghost_points.push(vec2(gx, gy));
             }
+
+            let mm = unsafe { emberfall_get_init_field(11) };
+            if mm >= 0 {
+                self.social.medals_mask |= (mm as u32) & 63;
+            }
+            let bw = unsafe { emberfall_get_init_field(12) };
+            if bw > 0 {
+                self.social.best_endless_wave = self.social.best_endless_wave.max(bw as u32);
+            }
+            let sa = unsafe { emberfall_get_init_field(13) };
+            if (0..=3).contains(&sa) && is_aura_unlocked(sa as usize, self.social.medals_mask) {
+                self.social.selected_aura = sa as usize;
+            }
         }
         self.social.last_status_msg = read_ffi_str(3, 0);
     }
@@ -642,10 +705,14 @@ impl Game {
         self.trauma = (self.trauma + amount).clamp(0.0, 1.0);
     }
 
-    fn start_run(&mut self) {
+    fn start_run(&mut self, endless: bool) {
         self.rng = Rng::from_seed_str(&self.day_seed);
         self.biome = DailyBiome::from_seed(&self.day_seed);
         self.phase = Phase::Playing;
+        self.endless_mode = endless;
+        self.endless_wave = 1;
+        self.next_endless_boss_time = BOSS_SPAWN_TIME + 55.0;
+        self.run_medals_mask = 0;
         self.hero_pos = Vec2::ZERO;
         self.hero_vel = Vec2::ZERO;
         let max_hp = self.hero_class.base_max_hp();
@@ -949,6 +1016,64 @@ impl Game {
                 scale: 22.0,
             });
         }
+        self.check_medals();
+    }
+
+    fn check_medals(&mut self) {
+        let mut mask = self.run_medals_mask;
+        if self.kills >= 100 {
+            mask |= 1 << 0;
+        }
+        if self.boss_slain {
+            mask |= 1 << 1;
+        }
+        if !self.build.evolutions().is_empty() {
+            mask |= 1 << 2;
+        }
+        if self.bounties.iter().all(|(_, _, d)| *d) {
+            mask |= 1 << 3;
+        }
+        if self.combo_milestone >= 100 {
+            mask |= 1 << 4;
+        }
+        if (self.endless_mode && self.endless_wave >= 3) || self.score >= 20000 {
+            mask |= 1 << 5;
+        }
+
+        let newly = mask & !self.run_medals_mask;
+        if newly != 0 {
+            self.run_medals_mask = mask;
+            let brand_new = newly & !self.social.medals_mask;
+            self.social.medals_mask |= mask;
+            if brand_new != 0 {
+                for bit in 0..6 {
+                    if (brand_new & (1 << bit)) != 0 {
+                        self.evo_banner_text = format!("MEDAL UNLOCKED: {}!", MEDAL_NAMES[bit]);
+                        self.evo_banner_color = Color::from_rgba(250, 204, 21, 255);
+                        self.evo_banner_timer = 2.8;
+                        play_sfx(5);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    fn ascend_to_endless(&mut self) {
+        self.phase = Phase::Playing;
+        self.endless_mode = true;
+        self.endless_wave = 2;
+        self.next_endless_boss_time = self.elapsed + 55.0;
+        self.reported_run = false;
+        self.hero_hp = (self.hero_hp + self.hero_max_hp * 0.35).min(self.hero_max_hp);
+        self.evo_banner_text = "ASCENDED TO ENDLESS ABYSS · WAVE 2!".to_string();
+        self.evo_banner_color = Color::from_rgba(192, 132, 252, 255);
+        self.evo_banner_timer = 3.0;
+        self.shockwave = 1.0;
+        unsafe {
+            emberfall_toggle_drone(if self.muted { 0 } else { 1 });
+        }
+        play_sfx(5);
     }
 
     fn damage_barrels_in_radius(&mut self, center: Vec2, radius: f32, dmg: f32) {
@@ -2208,6 +2333,10 @@ impl Game {
             return;
         }
         self.reported_run = true;
+        self.check_medals();
+        if self.endless_mode {
+            self.social.best_endless_wave = self.social.best_endless_wave.max(self.endless_wave);
+        }
         let summary = self.build.build_summary();
         let bytes = summary.as_bytes();
         let ghost_count = (self.ghost_record.len() / 2) as u32;
@@ -2222,6 +2351,9 @@ impl Game {
                 bytes.len() as u32,
                 self.ghost_record.as_ptr(),
                 ghost_count,
+                if self.endless_mode { 1 } else { 0 },
+                self.endless_wave,
+                self.run_medals_mask,
             );
         }
     }
@@ -3110,28 +3242,67 @@ impl Game {
             self.title_time += get_frame_time();
             draw_rectangle(0.0, 0.0, sw, sh, Color::from_rgba(6, 9, 20, 205));
 
-            // Top-left user & streak badge
+            // Top-left user, streak, PB & Best Endless Wave badge
             let user_lbl = if self.social.username.is_empty() {
                 "u/Guest".to_string()
             } else {
                 format!("u/{}", self.social.username)
             };
-            let info_lbl = format!(
-                "{}  ·  STREAK {}d  ·  PB {}",
-                user_lbl,
-                self.social.streak,
-                self.social.personal_best.max(0)
-            );
+            let info_lbl = if self.social.best_endless_wave > 0 {
+                format!(
+                    "{} · {}d · PB {} · W{}",
+                    user_lbl,
+                    self.social.streak,
+                    self.social.personal_best.max(0),
+                    self.social.best_endless_wave
+                )
+            } else {
+                format!(
+                    "{} · STREAK {}d · PB {}",
+                    user_lbl,
+                    self.social.streak,
+                    self.social.personal_best.max(0)
+                )
+            };
             draw_ui_text(
                 font,
                 &info_lbl,
                 14.0,
                 26.0,
-                14.0,
+                13.0,
                 Color::from_rgba(203, 213, 225, 255),
             );
 
-            // Top-right Mute button
+            // Top-right Aura selector + Mute button
+            let unlocked_auras = (0..4)
+                .filter(|&a| is_aura_unlocked(a, self.social.medals_mask))
+                .count();
+            let aura_lbl = format!(
+                "AURA: {} ({}/4)",
+                AURA_NAMES[self.social.selected_aura.min(3)],
+                unlocked_auras
+            );
+            let aura_rect = Rect::new(sw - 278.0, 10.0, 164.0, 28.0);
+            if self.draw_button(
+                font,
+                aura_rect,
+                &aura_lbl,
+                Color::from_rgba(15, 23, 42, 220),
+                aura_color(self.social.selected_aura),
+            ) {
+                for step in 1..=4 {
+                    let cand = (self.social.selected_aura + step) % 4;
+                    if is_aura_unlocked(cand, self.social.medals_mask) {
+                        self.social.selected_aura = cand;
+                        unsafe {
+                            emberfall_set_selected_aura(cand as i32);
+                        }
+                        play_sfx(0);
+                        break;
+                    }
+                }
+            }
+
             let mute_rect = Rect::new(sw - 108.0, 10.0, 94.0, 28.0);
             if self.draw_button(
                 font,
@@ -3311,24 +3482,85 @@ impl Game {
                 self.hero_class.accent(),
             );
 
-            let btn = Rect::new(cx - 130.0, cards_y + card_h + 26.0, 260.0, 44.0);
+            // Compact 6-Medal Strip
+            let medal_w = 52.0;
+            let medal_gap = 5.0;
+            let medals_total_w = medal_w * 6.0 + medal_gap * 5.0;
+            let mx0 = cx - medals_total_w * 0.5;
+            let my0 = cards_y + card_h + 24.0;
+            for mi in 0..6 {
+                let unlocked = (self.social.medals_mask & (1 << mi)) != 0;
+                let rx = mx0 + (mi as f32) * (medal_w + medal_gap);
+                draw_rectangle(
+                    rx,
+                    my0,
+                    medal_w,
+                    18.0,
+                    if unlocked {
+                        Color::from_rgba(120, 53, 15, 225)
+                    } else {
+                        Color::from_rgba(15, 23, 42, 185)
+                    },
+                );
+                draw_rectangle_lines(
+                    rx,
+                    my0,
+                    medal_w,
+                    18.0,
+                    1.0,
+                    if unlocked {
+                        Color::from_rgba(250, 204, 21, 240)
+                    } else {
+                        Color::from_rgba(71, 85, 105, 140)
+                    },
+                );
+                let mlbl = MEDAL_SHORT[mi];
+                let mdim = measure_ui_text(font, mlbl, 10);
+                draw_ui_text(
+                    font,
+                    mlbl,
+                    rx + (medal_w - mdim.width) * 0.5,
+                    my0 + 13.0,
+                    10.0,
+                    if unlocked {
+                        Color::from_rgba(253, 224, 71, 255)
+                    } else {
+                        Color::from_rgba(100, 116, 139, 190)
+                    },
+                );
+            }
+
+            let btn_y = my0 + 24.0;
+            let btn_w = ((sw - 36.0).min(380.0) - 10.0) * 0.5;
+            let daily_btn = Rect::new(cx - btn_w - 5.0, btn_y, btn_w, 40.0);
             if self.draw_button(
                 font,
-                btn,
+                daily_btn,
                 "PLAY DAILY (90s)",
                 Color::from_rgba(234, 88, 12, 235),
                 Color::from_rgba(253, 224, 71, 255),
             ) || is_key_pressed(KeyCode::Space)
                 || is_key_pressed(KeyCode::Enter)
             {
-                self.start_run();
+                self.start_run(false);
+            }
+
+            let endless_btn = Rect::new(cx + 5.0, btn_y, btn_w, 40.0);
+            if self.draw_button(
+                font,
+                endless_btn,
+                "ENDLESS ABYSS",
+                Color::from_rgba(109, 40, 217, 235),
+                Color::from_rgba(192, 132, 252, 255),
+            ) {
+                self.start_run(true);
             }
 
             let panel_w = (sw - 28.0).min(380.0);
             self.draw_social_panel(
                 font,
                 cx - panel_w * 0.5,
-                cards_y + card_h + 78.0,
+                btn_y + 48.0,
                 panel_w,
                 4,
             );
@@ -3428,11 +3660,25 @@ impl Game {
             by_off += 14.0;
         }
 
-        // Top-Center: Countdown Timer (90s -> 0s)
-        let rem = (RUN_DURATION - self.elapsed).max(0.0);
-        let timer_str = format!("{:02}:{:02}", (rem as u32) / 60, (rem as u32) % 60);
-        let td = measure_ui_text(font, &timer_str, 30);
-        draw_ui_text(font, &timer_str, sw * 0.5 - td.width * 0.5, 42.0, 30.0, WHITE);
+        // Top-Center: Countdown Timer (90s -> 0s) or Endless Wave Timer
+        if self.endless_mode {
+            let secs = self.elapsed as u32;
+            let timer_str = format!("W{} · {:02}:{:02}", self.endless_wave, secs / 60, secs % 60);
+            let td = measure_ui_text(font, &timer_str, 26);
+            draw_ui_text(
+                font,
+                &timer_str,
+                sw * 0.5 - td.width * 0.5,
+                40.0,
+                26.0,
+                Color::from_rgba(192, 132, 252, 255),
+            );
+        } else {
+            let rem = (RUN_DURATION - self.elapsed).max(0.0);
+            let timer_str = format!("{:02}:{:02}", (rem as u32) / 60, (rem as u32) % 60);
+            let td = measure_ui_text(font, &timer_str, 30);
+            draw_ui_text(font, &timer_str, sw * 0.5 - td.width * 0.5, 42.0, 30.0, WHITE);
+        }
 
         // Top-Right: Mute + Pause buttons & Score/Kills + Minimap Radar
         let pause_rect = Rect::new(sw - 46.0, 16.0, 32.0, 28.0);
@@ -3945,17 +4191,44 @@ impl Game {
                 }
             }
 
-            let retry_rect = Rect::new(cx - 140.0, top_y + 152.0, 280.0, 40.0);
-            if self.draw_button(
-                font,
-                retry_rect,
-                "PLAY AGAIN",
-                Color::from_rgba(234, 88, 12, 235),
-                Color::from_rgba(253, 224, 71, 255),
-            ) || is_key_pressed(KeyCode::Space)
-                || is_key_pressed(KeyCode::R)
-            {
-                self.start_run();
+            if self.phase == Phase::Victory {
+                let bw = 136.0;
+                let retry_rect = Rect::new(cx - bw - 4.0, top_y + 152.0, bw, 40.0);
+                if self.draw_button(
+                    font,
+                    retry_rect,
+                    "PLAY AGAIN",
+                    Color::from_rgba(234, 88, 12, 235),
+                    Color::from_rgba(253, 224, 71, 255),
+                ) || is_key_pressed(KeyCode::Space)
+                    || is_key_pressed(KeyCode::R)
+                {
+                    self.start_run(false);
+                }
+
+                let ascend_rect = Rect::new(cx + 4.0, top_y + 152.0, bw, 40.0);
+                if self.draw_button(
+                    font,
+                    ascend_rect,
+                    "ASCEND ENDLESS",
+                    Color::from_rgba(109, 40, 217, 235),
+                    Color::from_rgba(192, 132, 252, 255),
+                ) {
+                    self.ascend_to_endless();
+                }
+            } else {
+                let retry_rect = Rect::new(cx - 140.0, top_y + 152.0, 280.0, 40.0);
+                if self.draw_button(
+                    font,
+                    retry_rect,
+                    if self.endless_mode { "RETRY ENDLESS" } else { "PLAY AGAIN" },
+                    Color::from_rgba(234, 88, 12, 235),
+                    Color::from_rgba(253, 224, 71, 255),
+                ) || is_key_pressed(KeyCode::Space)
+                    || is_key_pressed(KeyCode::R)
+                {
+                    self.start_run(self.endless_mode);
+                }
             }
 
             let mut panel_y = top_y + 200.0;

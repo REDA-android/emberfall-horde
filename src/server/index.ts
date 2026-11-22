@@ -24,6 +24,13 @@ interface StoredRunSession {
   seed: string;
 }
 
+interface StoredProfile {
+  medalsMask: number;
+  bestEndlessWave: number;
+  lifetimeKills: number;
+  lifetimeBosses: number;
+}
+
 const THIRTY_DAYS_SEC = 30 * 86400;
 const SIEGE_TARGET = 25;
 const DAILY_MODIFIERS = [
@@ -136,6 +143,30 @@ const runKey = (runId: string) => `ef:run:${runId}`;
 const rateKey = (sub: string, user: string) => `ef:rate:${sub}:${user}`;
 const ghostKey = (sub: string, seed: string) => `ef:ghost:${sub}:${seed}`;
 const mutatorVoteKey = (sub: string, seed: string) => `ef:mutator-vote:${sub}:${seed}`;
+const profileKey = (sub: string, user: string) => `ef:profile:${sub}:${user}`;
+
+async function getUserProfile(sub: string, username: string | undefined): Promise<StoredProfile> {
+  const empty: StoredProfile = {
+    medalsMask: 0,
+    bestEndlessWave: 0,
+    lifetimeKills: 0,
+    lifetimeBosses: 0,
+  };
+  if (!username) return empty;
+  try {
+    const raw = await redis.get(profileKey(sub, username));
+    if (!raw) return empty;
+    const p = JSON.parse(raw) as Partial<StoredProfile>;
+    return {
+      medalsMask: Math.max(0, Math.floor(Number(p.medalsMask) || 0)) & 63,
+      bestEndlessWave: Math.max(0, Math.floor(Number(p.bestEndlessWave) || 0)),
+      lifetimeKills: Math.max(0, Math.floor(Number(p.lifetimeKills) || 0)),
+      lifetimeBosses: Math.max(0, Math.floor(Number(p.lifetimeBosses) || 0)),
+    };
+  } catch {
+    return empty;
+  }
+}
 
 async function getFactionScores(sub: string, seed: string): Promise<[number, number, number]> {
   try {
@@ -379,6 +410,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
 
       const { myRank, totalPlayers } = await getMyRankAndTotal(sub, seed, username ?? undefined);
       const streak = await getUserStreak(sub, username ?? undefined);
+      const profile = await getUserProfile(sub, username ?? undefined);
 
       let personalBest = 0;
       if (username) {
@@ -433,6 +465,10 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         leaderboard,
         topGhost,
         canVoteMutator: myRank >= 1 && myRank <= 3,
+        medalsMask: profile.medalsMask,
+        bestEndlessWave: profile.bestEndlessWave,
+        lifetimeKills: profile.lifetimeKills,
+        lifetimeBosses: profile.lifetimeBosses,
       });
       return;
     }
@@ -468,6 +504,9 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         heroClass?: number;
         buildSummary?: string;
         ghostPoints?: unknown;
+        isEndless?: boolean;
+        endlessWave?: number;
+        medalsMask?: number;
       }>(req);
       if (!body) {
         sendJson(res, 400, { ok: false, error: 'Invalid payload' });
@@ -484,6 +523,9 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         username = undefined;
       }
 
+      const isEndless = Boolean(body.isEndless);
+      const maxRunMs = isEndless ? 1800_000 : 180_000;
+
       if (typeof body.runId === 'string' && body.runId.length > 0) {
         const sessionRaw = await redis.get(runKey(body.runId));
         if (!sessionRaw) {
@@ -493,7 +535,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         try {
           const session = JSON.parse(sessionRaw) as StoredRunSession;
           const elapsedMs = Date.now() - Number(session.startedAt);
-          if (!Number.isFinite(elapsedMs) || elapsedMs < 10_000 || elapsedMs > 180_000) {
+          if (!Number.isFinite(elapsedMs) || elapsedMs < 10_000 || elapsedMs > maxRunMs) {
             sendJson(res, 400, { ok: false, error: 'Run duration out of bounds' });
             return;
           }
@@ -594,6 +636,27 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         await redis.expire(streakKey(sub, username), THIRTY_DAYS_SEC);
       }
 
+      const incomingMedals = Math.max(0, Math.floor(Number(body.medalsMask) || 0)) & 63;
+      const endlessWave = isEndless ? Math.max(1, Math.floor(Number(body.endlessWave) || 1)) : 0;
+      let medalsMask = incomingMedals;
+      let newlyUnlockedMask = 0;
+      let bestEndlessWave = endlessWave;
+
+      if (username) {
+        const prevProfile = await getUserProfile(sub, username);
+        newlyUnlockedMask = incomingMedals & ~prevProfile.medalsMask;
+        medalsMask = (prevProfile.medalsMask | incomingMedals) & 63;
+        bestEndlessWave = Math.max(prevProfile.bestEndlessWave, endlessWave);
+        const updatedProfile: StoredProfile = {
+          medalsMask,
+          bestEndlessWave,
+          lifetimeKills: prevProfile.lifetimeKills + kills,
+          lifetimeBosses: prevProfile.lifetimeBosses + (bossSlain ? 1 : 0),
+        };
+        await redis.set(profileKey(sub, username), JSON.stringify(updatedProfile));
+        await redis.expire(profileKey(sub, username), THIRTY_DAYS_SEC * 3);
+      }
+
       const { myRank, totalPlayers } = await getMyRankAndTotal(sub, seed, username);
       sendJson(res, 200, {
         ok: true,
@@ -605,6 +668,9 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         factionScores,
         isNewBest,
         canVoteMutator: myRank >= 1 && myRank <= 3,
+        medalsMask,
+        newlyUnlockedMask,
+        bestEndlessWave,
       });
       return;
     }

@@ -187,8 +187,36 @@
         yesterdayChampion: null,
         leaderboard: [],
         topGhost: null,
-        canVoteMutator: false
+        canVoteMutator: false,
+        medalsMask: 0,
+        bestEndlessWave: 0,
+        selectedAura: 0
       };
+
+      function loadLocalProfile() {
+        try {
+          var raw = localStorage.getItem('ef_profile_v1');
+          if (!raw) return;
+          var p = JSON.parse(raw);
+          if (p && typeof p === 'object') {
+            initData.medalsMask = (initData.medalsMask | (Number(p.medalsMask) || 0)) & 63;
+            initData.bestEndlessWave = Math.max(initData.bestEndlessWave, Number(p.bestEndlessWave) || 0);
+            initData.selectedAura = Math.max(0, Math.min(3, Number(p.selectedAura) || 0));
+          }
+        } catch (_) {}
+      }
+
+      function saveLocalProfile() {
+        try {
+          localStorage.setItem('ef_profile_v1', JSON.stringify({
+            medalsMask: initData.medalsMask & 63,
+            bestEndlessWave: initData.bestEndlessWave,
+            selectedAura: initData.selectedAura
+          }));
+        } catch (_) {}
+      }
+
+      loadLocalProfile();
 
       function applyInitPayload(d) {
         if (!d || typeof d !== 'object') return;
@@ -214,6 +242,9 @@
         initData.leaderboard = Array.isArray(d.leaderboard) ? d.leaderboard : [];
         initData.topGhost = d.topGhost && Array.isArray(d.topGhost.points) ? d.topGhost : null;
         initData.canVoteMutator = Boolean(d.canVoteMutator);
+        initData.medalsMask = (initData.medalsMask | (Number(d.medalsMask) || 0)) & 63;
+        initData.bestEndlessWave = Math.max(initData.bestEndlessWave, Number(d.bestEndlessWave) || 0);
+        saveLocalProfile();
       }
 
       function fetchInit() {
@@ -338,9 +369,19 @@
               .catch(function () {});
           };
 
-          env.emberfall_on_run_complete = function (score, kills, bossSlain, level, heroClass, buildPtr, buildLen, ghostPtr, ghostCount) {
+          env.emberfall_on_run_complete = function (score, kills, bossSlain, level, heroClass, buildPtr, buildLen, ghostPtr, ghostCount, isEndless, endlessWave, medalsMask) {
             var buildSummary = readUtf8(buildPtr, buildLen);
             var ghostPoints = readGhostPoints(ghostPtr, ghostCount);
+            var endlessFlag = isEndless === 1;
+            var waveVal = Math.max(0, endlessWave | 0);
+            var maskVal = (medalsMask | 0) & 63;
+
+            initData.medalsMask = (initData.medalsMask | maskVal) & 63;
+            if (endlessFlag && waveVal > initData.bestEndlessWave) {
+              initData.bestEndlessWave = waveVal;
+            }
+            saveLocalProfile();
+
             submitState = 1;
             lastStatusMsg = 'Submitting run...';
 
@@ -355,7 +396,10 @@
                 level: level,
                 heroClass: heroClass | 0,
                 buildSummary: buildSummary,
-                ghostPoints: ghostPoints
+                ghostPoints: ghostPoints,
+                isEndless: endlessFlag,
+                endlessWave: waveVal,
+                medalsMask: maskVal
               })
             })
               .then(function (r) {
@@ -378,6 +422,9 @@
                     ];
                   }
                   initData.canVoteMutator = Boolean(res.json.canVoteMutator);
+                  initData.medalsMask = (initData.medalsMask | (Number(res.json.medalsMask) || 0)) & 63;
+                  initData.bestEndlessWave = Math.max(initData.bestEndlessWave, Number(res.json.bestEndlessWave) || 0);
+                  saveLocalProfile();
                   if (score > initData.personalBest) initData.personalBest = score;
                   lastStatusMsg = res.json.isNewBest ? 'New Daily Best!' : 'Score Submitted!';
                   fetchInit();
@@ -459,6 +506,11 @@
               });
           };
 
+          env.emberfall_set_selected_aura = function (auraIdx) {
+            initData.selectedAura = Math.max(0, Math.min(3, auraIdx | 0));
+            saveLocalProfile();
+          };
+
           env.emberfall_poll_init_ready = function () {
             var ld = document.getElementById('ef-loader');
             if (ld) ld.remove();
@@ -478,6 +530,9 @@
               case 8: return initData.leaderboard.length | 0;
               case 9: return (initData.topGhost && initData.topGhost.points) ? initData.topGhost.points.length : 0;
               case 10: return (initData.yesterdayChampion && initData.yesterdayChampion.score) ? (initData.yesterdayChampion.score | 0) : 0;
+              case 11: return initData.medalsMask | 0;
+              case 12: return initData.bestEndlessWave | 0;
+              case 13: return initData.selectedAura | 0;
               default: return 0;
             }
           };
