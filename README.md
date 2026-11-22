@@ -37,11 +37,14 @@
 - **Arch-Lich Phase II Enrage & SUPERNOVA Ultimate**:
   - At `<50% HP`, the Daily Boss enters **Phase II Enrage** with double telegraphed slams and 12-way crimson spiral barrages.
   - Slaying enemies charges the **SUPERNOVA (`NOVA`)** ultimate ability for a screen-clearing triple shockwave.
-- **Tactical Minimap Radar & Embedded TTF Typography**:
-  - Real-time top-right radar tracking the Hero, Blood Shrines, Runic Barrels, `#1 Champion Ghost`, and Boss.
+- **Tactical Minimap Radar, Off-Screen Pointers & Embedded TTF Typography**:
+  - Real-time top-right radar tracking the Hero, Blood Shrines, Runic Barrels, `#1 Champion Ghost`, and Boss, plus edge-of-screen directional arrows for off-screen Shrines, Runic Chests, and Bosses.
   - Embedded `ChakraPetch-Bold.ttf` (SIL Open Font License 1.1) rendered via `load_ttf_font_from_bytes` with drop shadows.
-- **GLSL100 Shaders (`crates/emberfall/src/shaders.rs`)**: `#version 100` hit-flash sprite material and `render_target` post-processing (biome-tinted vignette, low-HP pulse, chromatic aberration, and shockwave distortion).
-- **3 Weapon Evolutions (`crates/emberfall/src/weapons.rs`)**: Max-level weapon + passive synergies unlock *Meteor Barrage*, *Crimson Reaper*, and *Inferno Vortex*.
+- **GLSL100 Shaders (`crates/emberfall/src/shaders.rs`)**: `#version 100` hit-flash sprite material and `render_target` post-processing with **5-tap real-time Bloom/Glow**, **Fever Overdrive golden aura**, biome-tinted vignette, low-HP pulse, chromatic aberration, and shockwave distortion.
+- **4 Weapon Evolutions (`crates/emberfall/src/weapons.rs`)**: Max-level weapon + passive synergies unlock *Meteor Barrage*, *Crimson Reaper*, *Inferno Vortex*, and *Celestial Tempest* (`Chain Lightning Lv.3 + Soul Magnet Lv.3`).
+- **Runic Chests, Relics, Scorch Marks & Ambient Biome Weather**:
+  - Elites & Bosses drop illustrated `Runic Chests` (`runic_chest.png`) that grant passive Relics (*Vampiric Fang*, *Cryo Core*, *Crit Prism*, *Magnet Orb*) and trigger a global XP gem magnet pull.
+  - Explosive barrels and Boss slams leave persistent scorch marks on the arena floor; each Daily Biome emits ambient weather particles (Volcanic embers, Frost snowflakes, Obsidian wisps).
 - **Blood Shrines & Kill-Streak Fever Meter**: 1–2 deterministic Blood Shrines per daily seed (2s channel spawns an elite for `+0.5x` score multiplier) + Fever Meter (`x1.0` to `x2.5` multiplier).
 
 ---

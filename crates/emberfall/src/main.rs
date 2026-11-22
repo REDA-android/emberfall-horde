@@ -10,7 +10,7 @@ use rng::{
     DailyBiome, DailyModifier, Rng,
 };
 use shaders::GameShaders;
-use weapons::{HeroBuild, HeroClass, UpgradeId};
+use weapons::{HeroBuild, HeroClass, RelicId, UpgradeId};
 
 #[cfg(target_arch = "wasm32")]
 #[link(wasm_import_module = "env")]
@@ -243,6 +243,18 @@ struct RunicBarrel {
     exploded: bool,
 }
 
+struct RunicChest {
+    pos: Vec2,
+    relic: RelicId,
+    bob_phase: f32,
+}
+
+struct ScorchMark {
+    pos: Vec2,
+    radius: f32,
+    life: f32,
+}
+
 struct LeaderboardEntry {
     username: String,
     score: u32,
@@ -416,9 +428,13 @@ struct Game {
     lightnings: Vec<LightningArc>,
     telegraphs: Vec<TelegraphRing>,
     gems: Vec<XpGem>,
+    chests: Vec<RunicChest>,
+    scorches: Vec<ScorchMark>,
+    relics: Vec<RelicId>,
     particles: Vec<Particle>,
     float_texts: Vec<FloatText>,
     afterimages: Vec<Afterimage>,
+    weather_timer: f32,
 
     // Camera, Juice, Audio & Social
     cam_pos: Vec2,
@@ -509,9 +525,13 @@ impl Game {
             lightnings: Vec::new(),
             telegraphs: Vec::new(),
             gems: Vec::new(),
+            chests: Vec::new(),
+            scorches: Vec::new(),
+            relics: Vec::new(),
             particles: Vec::new(),
             float_texts: Vec::new(),
             afterimages: Vec::new(),
+            weather_timer: 0.0,
             cam_pos: Vec2::ZERO,
             trauma: 0.0,
             hitstop: 0.0,
@@ -658,9 +678,13 @@ impl Game {
         self.lightnings.clear();
         self.telegraphs.clear();
         self.gems.clear();
+        self.chests.clear();
+        self.scorches.clear();
+        self.relics.clear();
         self.particles.clear();
         self.float_texts.clear();
         self.afterimages.clear();
+        self.weather_timer = 0.0;
         self.cam_pos = Vec2::ZERO;
         self.trauma = 0.0;
         self.hitstop = 0.0;
@@ -907,6 +931,11 @@ impl Game {
 
         self.spawn_burst(bpos, 28, col, VfxKind::Flame, 310.0);
         self.spawn_burst(bpos, 16, Color::from_rgba(253, 224, 71, 255), VfxKind::Spark, 250.0);
+        self.scorches.push(ScorchMark {
+            pos: bpos,
+            radius: rad * 0.72,
+            life: 14.0,
+        });
         self.float_texts.push(FloatText {
             pos: bpos + vec2(0.0, -32.0),
             text: label.to_string(),
@@ -947,11 +976,14 @@ impl Game {
 
     fn damage_enemies_in_radius(&mut self, center: Vec2, radius: f32, base_dmg: f32, knockback: f32) -> usize {
         self.damage_barrels_in_radius(center, radius, base_dmg);
-        let crit_chance = if self.modifier == DailyModifier::BloodMoon {
+        let mut crit_chance = if self.modifier == DailyModifier::BloodMoon {
             0.35
         } else {
             0.14
         };
+        if self.relics.contains(&RelicId::CritPrism) {
+            crit_chance += 0.15;
+        }
         let mut hits: Vec<(usize, f32, bool, Vec2)> = Vec::new();
         for (i, e) in self.enemies.iter().enumerate() {
             let delta = e.pos - center;
@@ -970,15 +1002,19 @@ impl Game {
         hit_count
     }
 
-    fn apply_enemy_damage(&mut self, idx: usize, dmg: f32, is_crit: bool, knock: Vec2) {
+    fn apply_enemy_damage(&mut self, idx: usize, mut dmg: f32, is_crit: bool, knock: Vec2) {
         if idx >= self.enemies.len() {
             return;
         }
+        let has_cryo_core = self.relics.contains(&RelicId::CryoCore);
         let pos;
         let is_boss;
         let mut trigger_enrage = false;
         {
             let e = &mut self.enemies[idx];
+            if has_cryo_core && e.chill_timer > 0.0 {
+                dmg *= 1.25;
+            }
             e.hp -= dmg;
             e.hit_flash = 0.12;
             e.squash = -0.22;
@@ -1114,6 +1150,19 @@ impl Game {
                         value: xp_val,
                         magnetized: dead.is_elite,
                         gold: dead.is_elite || dead.kind == EnemyKind::Golem,
+                    });
+                }
+                if self.relics.contains(&RelicId::VampiricFang)
+                    && (dead.is_elite || dead.kind == EnemyKind::Boss || self.kills % 10 == 0)
+                {
+                    self.hero_hp = (self.hero_hp + 4.0).min(self.hero_max_hp);
+                }
+                if dead.is_elite || dead.kind == EnemyKind::Boss {
+                    let relic = RelicId::from_index(self.rng.range_usize(0, 4));
+                    self.chests.push(RunicChest {
+                        pos: dead.pos,
+                        relic,
+                        bob_phase: self.elapsed,
                     });
                 }
                 self.score += pts;
@@ -1257,6 +1306,35 @@ impl Game {
             self.fever_idle_timer -= dt;
         } else {
             self.fever = (self.fever - dt * 0.14).max(0.0);
+        }
+
+        // Ambient biome weather particles
+        self.weather_timer -= dt;
+        if self.weather_timer <= 0.0 {
+            self.weather_timer = 0.09;
+            let wx = self.cam_pos.x + self.rng.range_f32(-640.0, 640.0);
+            let wy = self.cam_pos.y + self.rng.range_f32(-420.0, 420.0);
+            let (wcol, wvel, wkind, wsize) = match self.biome {
+                DailyBiome::VolcanicRift => (
+                    Color::from_rgba(251, 146, 60, 145),
+                    vec2(self.rng.range_f32(-18.0, 18.0), -58.0),
+                    VfxKind::Flame,
+                    self.rng.range_f32(12.0, 22.0),
+                ),
+                DailyBiome::FrostAbyss => (
+                    Color::from_rgba(186, 230, 253, 155),
+                    vec2(self.rng.range_f32(-22.0, 22.0), 46.0),
+                    VfxKind::Star,
+                    self.rng.range_f32(10.0, 18.0),
+                ),
+                DailyBiome::ObsidianSanctuary => (
+                    Color::from_rgba(192, 132, 252, 140),
+                    vec2(self.rng.range_f32(-16.0, 16.0), -34.0),
+                    VfxKind::Light,
+                    self.rng.range_f32(14.0, 24.0),
+                ),
+            };
+            self.spawn_particle(vec2(wx, wy), wvel, wsize, 1.45, wcol, wkind);
         }
 
         // Record #1 Champion Ghost path every 0.5s (max 200 samples = 400 i16s)
@@ -1481,12 +1559,13 @@ impl Game {
             }
         }
 
-        // 3. Chain Lightning
+        // 3. Chain Lightning (or Evolved: Celestial Tempest)
         self.lightning_cd -= dt * haste;
         if self.lightning_cd <= 0.0 && self.build.lightning_lvl > 0 {
             if let Some(first_idx) = self.nearest_enemy_index(self.hero_pos, 460.0) {
-                let jumps = 2 + (self.build.lightning_lvl as usize) * 2;
-                let dmg = 28.0 + (self.build.lightning_lvl as f32) * 14.0;
+                let tempest = self.build.has_celestial_tempest();
+                let jumps = 2 + (self.build.lightning_lvl as usize) * 2 + if tempest { 4 } else { 0 };
+                let dmg = (28.0 + (self.build.lightning_lvl as f32) * 14.0) * if tempest { 1.35 } else { 1.0 };
                 let mut visited = vec![first_idx];
                 let mut pts = vec![self.hero_pos, self.enemies[first_idx].pos];
                 let mut curr_pos = self.enemies[first_idx].pos;
@@ -1673,6 +1752,11 @@ impl Game {
                     VfxKind::Flame,
                     240.0,
                 );
+                self.scorches.push(ScorchMark {
+                    pos: ring.pos,
+                    radius: ring.max_radius * 0.72,
+                    life: 14.0,
+                });
                 play_sfx(4);
                 if self.hero_pos.distance(ring.pos) <= ring.max_radius && self.hero_invuln <= 0.0 {
                     hero_hit_dmg = hero_hit_dmg.max(ring.damage);
@@ -1783,8 +1867,46 @@ impl Game {
         // Collect dead enemies
         self.collect_dead_enemies();
 
+        // Collect Runic Chests
+        let mut c_i = 0;
+        while c_i < self.chests.len() {
+            if self.hero_pos.distance(self.chests[c_i].pos) < 42.0 {
+                let chest = self.chests.swap_remove(c_i);
+                let relic = chest.relic;
+                if !self.relics.contains(&relic) {
+                    self.relics.push(relic);
+                }
+                self.score += 350;
+                self.shockwave = self.shockwave.max(0.85);
+                self.add_trauma(0.45);
+                play_sfx(5);
+                self.spawn_burst(chest.pos, 24, relic.accent(), VfxKind::Star, 260.0);
+                self.float_texts.push(FloatText {
+                    pos: chest.pos + vec2(0.0, -34.0),
+                    text: relic.title().to_string(),
+                    color: relic.accent(),
+                    life: 1.5,
+                    scale: 24.0,
+                });
+                // Global XP gem magnet pull on chest open (and especially MagnetOrb!)
+                for g in &mut self.gems {
+                    g.magnetized = true;
+                }
+                if relic == RelicId::MagnetOrb {
+                    self.hero_hp = (self.hero_hp + 15.0).min(self.hero_max_hp);
+                }
+            } else {
+                c_i += 1;
+            }
+        }
+
         // Update XP Gems (magnetic pull + combo pitch escalation)
-        let pickup_r = self.build.pickup_radius();
+        let pickup_r = self.build.pickup_radius()
+            + if self.relics.contains(&RelicId::MagnetOrb) {
+                70.0
+            } else {
+                0.0
+            };
         let xp_mult = (1.0 + (self.build.magnet_lvl as f32) * 0.2) * fever_multiplier(self.fever);
         let mut g_i = 0;
         while g_i < self.gems.len() {
@@ -1820,6 +1942,10 @@ impl Game {
         }
 
         // Update visual effects
+        self.scorches.retain_mut(|s| {
+            s.life -= dt;
+            s.life > 0.0
+        });
         self.slashes.retain_mut(|s| {
             s.life -= dt;
             s.life > 0.0
@@ -1973,6 +2099,23 @@ impl Game {
             border_col,
         );
 
+        // 1a. Persistent Scorch Marks
+        for sc in &self.scorches {
+            let alpha = ((sc.life / 14.0).clamp(0.0, 1.0) * 115.0) as u8;
+            draw_circle(
+                sc.pos.x,
+                sc.pos.y,
+                sc.radius,
+                Color::from_rgba(12, 10, 18, alpha),
+            );
+            draw_circle(
+                sc.pos.x,
+                sc.pos.y,
+                sc.radius * 0.52,
+                Color::from_rgba(30, 20, 15, (alpha as f32 * 0.75) as u8),
+            );
+        }
+
         // 1b. Blood Shrines
         for shrine in &self.shrines {
             let p = (shrine.progress / 2.0).clamp(0.0, 1.0);
@@ -2058,6 +2201,40 @@ impl Game {
             if barrel.hit_flash > 0.0 {
                 gl_use_default_material();
             }
+        }
+
+        // 1d. Runic Treasure Chests (Elite/Boss Drops)
+        for chest in &self.chests {
+            let bob = ((self.elapsed - chest.bob_phase) * 4.5).sin() * 4.0;
+            let glow_sz = 92.0 + ((self.elapsed * 6.0).sin() * 8.0);
+            draw_texture_ex(
+                &assets.vfx_light,
+                chest.pos.x - glow_sz * 0.5,
+                chest.pos.y - glow_sz * 0.5 + bob,
+                Color::from_rgba(250, 204, 21, 145),
+                DrawTextureParams {
+                    dest_size: Some(vec2(glow_sz, glow_sz)),
+                    ..Default::default()
+                },
+            );
+            draw_ellipse(
+                chest.pos.x,
+                chest.pos.y + 20.0,
+                22.0,
+                8.0,
+                0.0,
+                Color::from_rgba(0, 0, 0, 130),
+            );
+            draw_texture_ex(
+                &assets.chest,
+                chest.pos.x - 27.0,
+                chest.pos.y - 27.0 + bob,
+                WHITE,
+                DrawTextureParams {
+                    dest_size: Some(vec2(54.0, 54.0)),
+                    ..Default::default()
+                },
+            );
         }
 
         // 2. Telegraphed Boss Rings (outer warning + inner filling progress circle)
@@ -2950,6 +3127,17 @@ impl Game {
                 Color::from_rgba(148, 163, 184, 255)
             },
         );
+        if !self.relics.is_empty() {
+            let rel_txt = format!("RELICS: {}", self.relics.len());
+            draw_ui_text(
+                font,
+                &rel_txt,
+                16.0,
+                93.0,
+                12.0,
+                Color::from_rgba(250, 204, 21, 240),
+            );
+        }
 
         // Top-Center: Countdown Timer (90s -> 0s)
         let rem = (RUN_DURATION - self.elapsed).max(0.0);
@@ -3014,6 +3202,38 @@ impl Game {
         // Tactical Minimap Radar
         if matches!(self.phase, Phase::Playing | Phase::Paused | Phase::LevelUp) {
             self.draw_minimap_radar(sw);
+        }
+
+        // Off-screen directional edge arrows (Shrines, Chests, Boss)
+        if self.phase == Phase::Playing {
+            let draw_edge_arrow = |target: Vec2, col: Color| {
+                let delta = target - self.cam_pos;
+                if delta.x.abs() > sw * 0.46 || delta.y.abs() > sh * 0.46 {
+                    let ang = delta.y.atan2(delta.x);
+                    let margin = 28.0;
+                    let sx = (sw * 0.5 + delta.x).clamp(margin, sw - margin);
+                    let sy = (sh * 0.5 + delta.y).clamp(margin + 50.0, sh - margin);
+                    let dir = Vec2::from_angle(ang);
+                    let perp = vec2(-dir.y, dir.x);
+                    let tip = vec2(sx, sy) + dir * 10.0;
+                    let left = vec2(sx, sy) - dir * 6.0 + perp * 7.0;
+                    let right = vec2(sx, sy) - dir * 6.0 - perp * 7.0;
+                    draw_triangle(tip, left, right, col);
+                }
+            };
+            for s in &self.shrines {
+                if !s.completed {
+                    draw_edge_arrow(s.pos, Color::from_rgba(244, 63, 94, 235));
+                }
+            }
+            for c in &self.chests {
+                draw_edge_arrow(c.pos, Color::from_rgba(250, 204, 21, 245));
+            }
+            for e in &self.enemies {
+                if e.kind == EnemyKind::Boss {
+                    draw_edge_arrow(e.pos, Color::from_rgba(232, 121, 249, 245));
+                }
+            }
         }
 
         // Boss HP Bar
@@ -3515,6 +3735,7 @@ async fn main() {
                 },
             );
             mat.set_uniform("u_biome", game.biome.to_index() as f32);
+            mat.set_uniform("u_fever", game.fever);
             gl_use_material(mat);
         }
         draw_texture_ex(

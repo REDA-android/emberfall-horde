@@ -70,6 +70,7 @@ pub enum EvolutionId {
     MeteorBarrage,
     CrimsonReaper,
     InfernoVortex,
+    CelestialTempest,
 }
 
 impl EvolutionId {
@@ -78,6 +79,7 @@ impl EvolutionId {
             Self::MeteorBarrage => "METEOR BARRAGE",
             Self::CrimsonReaper => "CRIMSON REAPER",
             Self::InfernoVortex => "INFERNO VORTEX",
+            Self::CelestialTempest => "CELESTIAL TEMPEST",
         }
     }
 
@@ -86,6 +88,7 @@ impl EvolutionId {
             Self::MeteorBarrage => "☄️",
             Self::CrimsonReaper => "🩸",
             Self::InfernoVortex => "🌀",
+            Self::CelestialTempest => "🌩️",
         }
     }
 
@@ -94,6 +97,44 @@ impl EvolutionId {
             Self::MeteorBarrage => Color::from_rgba(251, 146, 60, 255),
             Self::CrimsonReaper => Color::from_rgba(244, 63, 94, 255),
             Self::InfernoVortex => Color::from_rgba(232, 121, 249, 255),
+            Self::CelestialTempest => Color::from_rgba(56, 189, 248, 255),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RelicId {
+    VampiricFang,
+    CryoCore,
+    CritPrism,
+    MagnetOrb,
+}
+
+impl RelicId {
+    pub fn from_index(idx: usize) -> Self {
+        match idx % 4 {
+            0 => Self::VampiricFang,
+            1 => Self::CryoCore,
+            2 => Self::CritPrism,
+            _ => Self::MagnetOrb,
+        }
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::VampiricFang => "RELIC: VAMPIRIC FANG (+HP)",
+            Self::CryoCore => "RELIC: CRYO CORE (+25% CHILL DMG)",
+            Self::CritPrism => "RELIC: CRIT PRISM (+15% CRIT)",
+            Self::MagnetOrb => "RELIC: MAGNET ORB (GLOBAL PULL)",
+        }
+    }
+
+    pub fn accent(self) -> Color {
+        match self {
+            Self::VampiricFang => Color::from_rgba(244, 63, 94, 255),
+            Self::CryoCore => Color::from_rgba(56, 189, 248, 255),
+            Self::CritPrism => Color::from_rgba(250, 204, 21, 255),
+            Self::MagnetOrb => Color::from_rgba(192, 132, 252, 255),
         }
     }
 }
@@ -256,6 +297,10 @@ impl HeroBuild {
         self.orbit_lvl >= 3 && self.dash_lvl >= 3
     }
 
+    pub fn has_celestial_tempest(&self) -> bool {
+        self.lightning_lvl >= 3 && self.magnet_lvl >= 3
+    }
+
     pub fn evolutions(&self) -> Vec<EvolutionId> {
         let mut out = Vec::new();
         if self.has_meteor_barrage() {
@@ -267,6 +312,9 @@ impl HeroBuild {
         if self.has_inferno_vortex() {
             out.push(EvolutionId::InfernoVortex);
         }
+        if self.has_celestial_tempest() {
+            out.push(EvolutionId::CelestialTempest);
+        }
         out
     }
 
@@ -277,6 +325,8 @@ impl HeroBuild {
             Some(EvolutionId::CrimsonReaper)
         } else if self.has_inferno_vortex() && !prev.has_inferno_vortex() {
             Some(EvolutionId::InfernoVortex)
+        } else if self.has_celestial_tempest() && !prev.has_celestial_tempest() {
+            Some(EvolutionId::CelestialTempest)
         } else {
             None
         }
@@ -401,7 +451,23 @@ mod tests {
             b.newly_unlocked_evolution(&prev3),
             Some(EvolutionId::InfernoVortex)
         );
-        assert_eq!(b.evolutions().len(), 3);
+
+        // Celestial Tempest: ChainLightning Lv3 + SoulMagnet Lv3
+        b.lightning_lvl = 3;
+        b.magnet_lvl = 2;
+        assert!(!b.has_celestial_tempest());
+        let prev4 = b.clone();
+        b.apply(UpgradeId::SoulMagnet);
+        assert!(b.has_celestial_tempest());
+        assert_eq!(
+            b.newly_unlocked_evolution(&prev4),
+            Some(EvolutionId::CelestialTempest)
+        );
+        assert_eq!(b.evolutions().len(), 4);
+
+        for i in 0..4 {
+            assert!(!RelicId::from_index(i).title().is_empty());
+        }
     }
 
     #[test]

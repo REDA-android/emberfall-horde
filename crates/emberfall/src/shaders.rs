@@ -47,6 +47,21 @@ uniform float u_aberration;
 uniform float u_shockwave;
 uniform float u_blood_moon;
 uniform float u_biome;
+uniform float u_fever;
+
+vec3 sample_bloom(vec2 suv) {
+    vec2 off = vec2(0.0045, 0.0045);
+    vec3 b = vec3(0.0);
+    vec3 c1 = texture2D(Texture, clamp(suv + vec2(off.x, 0.0), 0.0, 1.0)).rgb;
+    vec3 c2 = texture2D(Texture, clamp(suv - vec2(off.x, 0.0), 0.0, 1.0)).rgb;
+    vec3 c3 = texture2D(Texture, clamp(suv + vec2(0.0, off.y), 0.0, 1.0)).rgb;
+    vec3 c4 = texture2D(Texture, clamp(suv - vec2(0.0, off.y), 0.0, 1.0)).rgb;
+    b += max(c1 - vec3(0.55), vec3(0.0));
+    b += max(c2 - vec3(0.55), vec3(0.0));
+    b += max(c3 - vec3(0.55), vec3(0.0));
+    b += max(c4 - vec3(0.55), vec3(0.0));
+    return b * 0.22;
+}
 
 void main() {
     vec2 center = vec2(0.5, 0.5);
@@ -73,9 +88,12 @@ void main() {
         col = texture2D(Texture, clamp(sample_uv, 0.0, 1.0)).rgb;
     }
 
+    // 5-tap additive Bloom/Glow on bright spells, embers, lightning, and explosions
+    col += sample_bloom(sample_uv);
+
     // Dark fantasy radial vignette
     float vig = smoothstep(0.34, 0.94, dist);
-    col *= 1.0 - vig * 0.42;
+    col *= 1.0 - vig * 0.40;
 
     // Daily Biome edge atmosphere (0 = Obsidian, 1 = Volcanic Rift, 2 = Frost Abyss)
     if (u_biome > 1.5) {
@@ -84,6 +102,13 @@ void main() {
         col += vec3(0.14, 0.04, 0.01) * vig;
     } else {
         col += vec3(0.07, 0.02, 0.13) * vig;
+    }
+
+    // Fever Overdrive golden edge shimmer
+    if (u_fever > 0.72) {
+        float fp = (u_fever - 0.72) / 0.28;
+        float shimmer = 0.55 + 0.45 * sin(u_time * 7.5);
+        col += vec3(0.26, 0.14, 0.02) * vig * fp * shimmer;
     }
 
     // Subtle Blood Moon tint on edges
@@ -134,6 +159,7 @@ impl GameShaders {
                     UniformDesc::new("u_shockwave", UniformType::Float1),
                     UniformDesc::new("u_blood_moon", UniformType::Float1),
                     UniformDesc::new("u_biome", UniformType::Float1),
+                    UniformDesc::new("u_fever", UniformType::Float1),
                 ],
                 ..Default::default()
             },
@@ -146,4 +172,5 @@ impl GameShaders {
         }
     }
 }
+
 
