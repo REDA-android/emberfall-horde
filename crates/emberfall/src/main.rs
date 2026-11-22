@@ -461,6 +461,9 @@ struct Game {
     endless_wave: u32,
     next_endless_boss_time: f32,
     run_medals_mask: u32,
+    // Short, diegetic onboarding shown at the start of every daily run. It gives
+    // a new player a readable first objective without interrupting combat.
+    onboarding_timer: f32,
 
     // Shrines, Barrels & Ghost
     shrines: Vec<BloodShrine>,
@@ -576,6 +579,7 @@ impl Game {
             endless_wave: 1,
             next_endless_boss_time: BOSS_SPAWN_TIME + 55.0,
             run_medals_mask: 0,
+            onboarding_timer: 0.0,
             shrines: Vec::new(),
             barrels: Vec::new(),
             shrine_score_mult: 1.0,
@@ -713,6 +717,7 @@ impl Game {
         self.endless_wave = 1;
         self.next_endless_boss_time = BOSS_SPAWN_TIME + 55.0;
         self.run_medals_mask = 0;
+        self.onboarding_timer = 13.0;
         self.hero_pos = Vec2::ZERO;
         self.hero_vel = Vec2::ZERO;
         let max_hp = self.hero_class.base_max_hp();
@@ -1574,6 +1579,7 @@ impl Game {
 
     fn update_playing(&mut self, dt: f32) {
         self.elapsed += dt;
+        self.onboarding_timer = (self.onboarding_timer - dt).max(0.0);
         self.hero_invuln = (self.hero_invuln - dt).max(0.0);
         self.dash_cd = (self.dash_cd - dt).max(0.0);
         self.boss_banner_timer = (self.boss_banner_timer - dt).max(0.0);
@@ -3317,14 +3323,28 @@ impl Game {
             let cx = sw * 0.5;
             let top_y = (sh * 0.07).max(38.0);
 
+            // A living ember halo makes the daily challenge feel like an event,
+            // while keeping the play buttons and hero cards as the focus.
+            let pulse = 0.5 + 0.5 * (self.title_time * 1.8).sin();
+            for ring in 0..3 {
+                let radius = 116.0 + ring as f32 * 24.0 + pulse * 9.0;
+                draw_circle_lines(
+                    cx,
+                    top_y + 8.0,
+                    radius,
+                    1.0,
+                    Color::from_rgba(251, 146, 60, 28 - ring as u8 * 6),
+                );
+            }
             let title = "EMBERFALL";
-            let td = measure_ui_text(font, title, 40);
+            let title_size = if sw < 410.0 { 34 } else { 40 };
+            let td = measure_ui_text(font, title, title_size);
             draw_ui_text(
                 font,
                 title,
                 cx - td.width * 0.5,
                 top_y + 24.0,
-                40.0,
+                title_size as f32,
                 Color::from_rgba(251, 191, 36, 255),
             );
 
@@ -3355,8 +3375,40 @@ impl Game {
                 Color::from_rgba(203, 213, 225, 255),
             );
 
+            // The daily challenge is explicit before the player presses Play.
+            // This strengthens the recurring-content promise without adding a
+            // second end screen or hiding the core game behind menus.
+            let prophecy = format!(
+                "TODAY'S PROPHECY · SURVIVE 90s · DEFEAT THE {}",
+                if self.biome == DailyBiome::FrostAbyss { "FROST LICH" } else { "ASHEN LICH" }
+            );
+            let pd = measure_ui_text(font, &prophecy, 11);
+            draw_rectangle(
+                cx - pd.width * 0.5 - 10.0,
+                top_y + 69.0,
+                pd.width + 20.0,
+                18.0,
+                Color::from_rgba(15, 23, 42, 205),
+            );
+            draw_rectangle_lines(
+                cx - pd.width * 0.5 - 10.0,
+                top_y + 69.0,
+                pd.width + 20.0,
+                18.0,
+                1.0,
+                Color::from_rgba(251, 146, 60, 165),
+            );
+            draw_ui_text(
+                font,
+                &prophecy,
+                cx - pd.width * 0.5,
+                top_y + 82.0,
+                11.0,
+                Color::from_rgba(253, 224, 71, 255),
+            );
+
             // 3 Playable Hero Class & Reddit Faction Cards (with real illustrated sprites!)
-            let cards_y = top_y + 76.0;
+            let cards_y = top_y + 94.0;
             let total_w = (sw - 24.0).min(430.0);
             let gap = 8.0;
             let card_w = (total_w - gap * 2.0) / 3.0;
@@ -3658,6 +3710,40 @@ impl Game {
                 },
             );
             by_off += 14.0;
+        }
+
+        // First-run guidance is staged and fades by itself: players learn the
+        // verb, the reward, then the survival tool while already playing.
+        if self.phase == Phase::Playing && self.onboarding_timer > 0.0 {
+            let (headline, detail, accent) = if self.onboarding_timer > 9.0 {
+                (
+                    "THE HORDE HAS FOUND YOU",
+                    "DRAG ANYWHERE TO MOVE · YOUR WEAPONS FIRE AUTOMATICALLY",
+                    Color::from_rgba(251, 146, 60, 255),
+                )
+            } else if self.onboarding_timer > 5.0 {
+                (
+                    "GATHER SOULS. LEVEL UP. EVOLVE.",
+                    "CHOOSE AN UPGRADE WHEN TIME STOPS",
+                    Color::from_rgba(56, 189, 248, 255),
+                )
+            } else {
+                (
+                    "DASH THROUGH DANGER",
+                    "TAP THE LIGHTNING BUTTON OR PRESS SPACE",
+                    Color::from_rgba(250, 204, 21, 255),
+                )
+            };
+            let fade = self.onboarding_timer.min(1.0);
+            let hd = measure_ui_text(font, headline, 15);
+            let dd = measure_ui_text(font, detail, 10);
+            let box_w = (hd.width.max(dd.width) + 30.0).min(sw - 32.0);
+            let box_x = (sw - box_w) * 0.5;
+            let box_y = 92.0;
+            draw_rectangle(box_x, box_y, box_w, 42.0, Color::from_rgba(8, 13, 28, (220.0 * fade) as u8));
+            draw_rectangle_lines(box_x, box_y, box_w, 42.0, 1.5, Color::new(accent.r, accent.g, accent.b, fade));
+            draw_ui_text(font, headline, sw * 0.5 - hd.width * 0.5, box_y + 17.0, 15.0, Color::new(accent.r, accent.g, accent.b, fade));
+            draw_ui_text(font, detail, sw * 0.5 - dd.width * 0.5, box_y + 33.0, 10.0, Color::from_rgba(226, 232, 240, (245.0 * fade) as u8));
         }
 
         // Top-Center: Countdown Timer (90s -> 0s) or Endless Wave Timer
