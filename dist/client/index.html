@@ -190,7 +190,8 @@
         canVoteMutator: false,
         medalsMask: 0,
         bestEndlessWave: 0,
-        selectedAura: 0
+        selectedAura: 0,
+        yesterdayWinningFaction: -1
       };
 
       function loadLocalProfile() {
@@ -533,6 +534,7 @@
               case 11: return initData.medalsMask | 0;
               case 12: return initData.bestEndlessWave | 0;
               case 13: return initData.selectedAura | 0;
+              case 14: return initData.yesterdayWinningFaction | 0;
               default: return 0;
             }
           };

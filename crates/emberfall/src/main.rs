@@ -234,6 +234,46 @@ fn aura_color(aura: usize) -> Color {
     }
 }
 
+fn blessing_name(idx: usize) -> &'static str {
+    match idx {
+        0 => "SOLAR AEGIS",
+        1 => "ARCANE OVERCHARGE",
+        _ => "SHADOW VELOCITY",
+    }
+}
+
+fn blessing_effect(idx: usize) -> &'static str {
+    match idx {
+        0 => "+25 MAX HP & +15% AREA",
+        1 => "+18% ATK SPD & +15% XP",
+        _ => "+15% MOVE SPD & +15% CRIT",
+    }
+}
+
+fn biome_boss_name(b: DailyBiome) -> &'static str {
+    match b {
+        DailyBiome::ObsidianSanctuary => "MALAKOR, VOID LICH",
+        DailyBiome::VolcanicRift => "IGNIS REX, MAGMA TITAN",
+        DailyBiome::FrostAbyss => "SKADI, GLACIAL EMPRESS",
+    }
+}
+
+fn biome_boss_intro(b: DailyBiome) -> &'static str {
+    match b {
+        DailyBiome::ObsidianSanctuary => "THE VOID AWAKENS!",
+        DailyBiome::VolcanicRift => "THE RIFT ERUPTS!",
+        DailyBiome::FrostAbyss => "ETERNAL WINTER FALLS!",
+    }
+}
+
+fn biome_boss_color(b: DailyBiome) -> Color {
+    match b {
+        DailyBiome::ObsidianSanctuary => Color::from_rgba(192, 132, 252, 255),
+        DailyBiome::VolcanicRift => Color::from_rgba(251, 146, 60, 255),
+        DailyBiome::FrostAbyss => Color::from_rgba(56, 189, 248, 255),
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Phase {
     Title,
@@ -333,6 +373,7 @@ struct SocialState {
     medals_mask: u32,
     best_endless_wave: u32,
     selected_aura: usize,
+    blessing_faction: i32,
 }
 
 struct Projectile {
@@ -697,8 +738,22 @@ impl Game {
             if (0..=3).contains(&sa) && is_aura_unlocked(sa as usize, self.social.medals_mask) {
                 self.social.selected_aura = sa as usize;
             }
+            let bf = unsafe { emberfall_get_init_field(14) };
+            if (0..=2).contains(&bf) {
+                self.social.blessing_faction = bf;
+            } else {
+                self.social.blessing_faction = self.biome.to_index() as i32;
+            }
         }
         self.social.last_status_msg = read_ffi_str(3, 0);
+    }
+
+    fn active_blessing(&self) -> usize {
+        if (0..=2).contains(&self.social.blessing_faction) {
+            self.social.blessing_faction as usize
+        } else {
+            self.biome.to_index()
+        }
     }
 
     fn add_trauma(&mut self, amount: f32) {
@@ -715,7 +770,8 @@ impl Game {
         self.run_medals_mask = 0;
         self.hero_pos = Vec2::ZERO;
         self.hero_vel = Vec2::ZERO;
-        let max_hp = self.hero_class.base_max_hp();
+        let hp_bonus = if self.active_blessing() == 0 { 25.0 } else { 0.0 };
+        let max_hp = self.hero_class.base_max_hp() + hp_bonus;
         self.hero_max_hp = max_hp;
         self.hero_hp = max_hp;
         self.hero_invuln = 0.6;
@@ -1671,7 +1727,8 @@ impl Game {
                 VfxKind::Flame,
             );
         } else {
-            let target_vel = input_dir * self.build.move_speed();
+            let spd_bless = if self.active_blessing() == 2 { 1.15 } else { 1.0 };
+            let target_vel = input_dir * self.build.move_speed() * spd_bless;
             self.hero_vel = self.hero_vel.lerp(target_vel, (dt * 14.0).min(1.0));
         }
 
@@ -1967,41 +2024,79 @@ impl Game {
                     e.phase_timer += dt;
                     if e.attack_cd <= 0.0 {
                         e.attack_cd = if boss_enraged { 1.85 } else { 2.5 };
-                        // Telegraph fiery slam at hero's position (+ second offset slam in Phase 2!)
-                        new_telegraphs.push(TelegraphRing {
-                            pos: hero_p,
-                            max_radius: if boss_enraged { 138.0 } else { 125.0 },
-                            elapsed: 0.0,
-                            duration: if boss_enraged { 0.92 } else { 1.05 },
-                            damage: if boss_enraged { 30.0 } else { 26.0 },
-                        });
-                        if boss_enraged {
-                            new_telegraphs.push(TelegraphRing {
-                                pos: hero_p + dir * 135.0,
-                                max_radius: 115.0,
-                                elapsed: 0.0,
-                                duration: 0.95,
-                                damage: 28.0,
-                            });
+                        match self.biome {
+                            DailyBiome::VolcanicRift => {
+                                // IGNIS REX: Meteor Barrage (3 staggered magma rings!)
+                                for m in 0..3 {
+                                    let off = if m == 0 {
+                                        Vec2::ZERO
+                                    } else {
+                                        Vec2::from_angle(e.phase_timer * 2.1 + (m as f32) * 2.2) * 125.0
+                                    };
+                                    new_telegraphs.push(TelegraphRing {
+                                        pos: hero_p + off,
+                                        max_radius: if boss_enraged { 132.0 } else { 116.0 },
+                                        elapsed: 0.0,
+                                        duration: 0.88 + (m as f32) * 0.14,
+                                        damage: if boss_enraged { 30.0 } else { 25.0 },
+                                    });
+                                }
+                            }
+                            DailyBiome::FrostAbyss => {
+                                // SKADI: Glacial Shatter Ring
+                                new_telegraphs.push(TelegraphRing {
+                                    pos: hero_p,
+                                    max_radius: if boss_enraged { 155.0 } else { 135.0 },
+                                    elapsed: 0.0,
+                                    duration: 0.95,
+                                    damage: if boss_enraged { 28.0 } else { 24.0 },
+                                });
+                            }
+                            DailyBiome::ObsidianSanctuary => {
+                                // MALAKOR: Void Slam + Phase 2 Echo Slam
+                                new_telegraphs.push(TelegraphRing {
+                                    pos: hero_p,
+                                    max_radius: if boss_enraged { 138.0 } else { 125.0 },
+                                    elapsed: 0.0,
+                                    duration: if boss_enraged { 0.92 } else { 1.05 },
+                                    damage: if boss_enraged { 30.0 } else { 26.0 },
+                                });
+                                if boss_enraged {
+                                    new_telegraphs.push(TelegraphRing {
+                                        pos: hero_p + dir * 135.0,
+                                        max_radius: 115.0,
+                                        elapsed: 0.0,
+                                        duration: 0.95,
+                                        damage: 28.0,
+                                    });
+                                }
+                            }
                         }
-                        // Spiral ember nova (12-way in Phase 2, 8-way in Phase 1)
-                        let spokes = if boss_enraged { 12 } else { 8 };
+                        let spokes = match self.biome {
+                            DailyBiome::FrostAbyss => if boss_enraged { 14 } else { 10 },
+                            _ => if boss_enraged { 12 } else { 8 },
+                        };
+                        let shot_spd = match self.biome {
+                            DailyBiome::FrostAbyss => if boss_enraged { 295.0 } else { 260.0 },
+                            _ => if boss_enraged { 265.0 } else { 235.0 },
+                        };
+                        let shot_col = if boss_enraged {
+                            Color::from_rgba(244, 63, 94, 255)
+                        } else {
+                            biome_boss_color(self.biome)
+                        };
                         let base_a = e.phase_timer * 1.4;
                         for k in 0..spokes {
                             let a = base_a + (k as f32) * (std::f32::consts::TAU / (spokes as f32));
                             enemy_shots.push(Projectile {
                                 pos: e.pos,
-                                vel: Vec2::from_angle(a) * if boss_enraged { 265.0 } else { 235.0 },
+                                vel: Vec2::from_angle(a) * shot_spd,
                                 damage: 16.0,
                                 radius: 10.0,
                                 life: 2.8,
                                 pierce: 1,
                                 from_enemy: true,
-                                color: if boss_enraged {
-                                    Color::from_rgba(244, 63, 94, 255)
-                                } else {
-                                    Color::from_rgba(251, 146, 60, 255)
-                                },
+                                color: shot_col,
                             });
                         }
                     }
@@ -3344,7 +3439,12 @@ impl Game {
                 Color::from_rgba(56, 189, 248, 255),
             );
 
-            let bdesc = format!("{}  |  {}", self.biome.subtitle(), self.modifier.subtitle());
+            let bless_idx = self.active_blessing();
+            let bdesc = format!(
+                "COMMUNITY BLESSING: {} ({})",
+                blessing_name(bless_idx),
+                blessing_effect(bless_idx)
+            );
             let bdd = measure_ui_text(font, &bdesc, 12);
             draw_ui_text(
                 font,
@@ -3352,7 +3452,7 @@ impl Game {
                 cx - bdd.width * 0.5,
                 top_y + 64.0,
                 12.0,
-                Color::from_rgba(203, 213, 225, 255),
+                Color::from_rgba(250, 204, 21, 250),
             );
 
             // 3 Playable Hero Class & Reddit Faction Cards (with real illustrated sprites!)
@@ -3659,6 +3759,16 @@ impl Game {
             );
             by_off += 14.0;
         }
+        let bless_idx = self.active_blessing();
+        let bless_txt = format!("+ BLESSING: {}", blessing_name(bless_idx));
+        draw_ui_text(
+            font,
+            &bless_txt,
+            16.0,
+            by_off + 2.0,
+            11.0,
+            Color::from_rgba(250, 204, 21, 240),
+        );
 
         // Top-Center: Countdown Timer (90s -> 0s) or Endless Wave Timer
         if self.endless_mode {
@@ -3791,24 +3901,25 @@ impl Game {
             );
             draw_rectangle_lines(bx, by, bw, 16.0, 2.0, Color::from_rgba(251, 191, 36, 230));
             let bl = if self.boss_enraged {
-                "ARCH-LICH OVERLORD (PHASE II)"
+                format!("{} (PHASE II)", biome_boss_name(self.biome))
             } else {
-                "ARCH-LICH OVERLORD"
+                biome_boss_name(self.biome).to_string()
             };
-            let bld = measure_ui_text(font, bl, 12);
-            draw_ui_text(font, bl, sw * 0.5 - bld.width * 0.5, by + 12.0, 12.0, WHITE);
+            let bld = measure_ui_text(font, &bl, 12);
+            draw_ui_text(font, &bl, sw * 0.5 - bld.width * 0.5, by + 12.0, 12.0, WHITE);
         }
 
         if self.boss_banner_timer > 0.0 {
-            let msg = "DAILY BOSS AWAKENS!";
-            let md = measure_ui_text(font, msg, 32);
+            let bcol = biome_boss_color(self.biome);
+            let msg = format!("{}: {}", biome_boss_name(self.biome), biome_boss_intro(self.biome));
+            let md = measure_ui_text(font, &msg, 26);
             draw_ui_text(
                 font,
-                msg,
+                &msg,
                 sw * 0.5 - md.width * 0.5,
                 sh * 0.34,
-                32.0,
-                Color::from_rgba(251, 146, 60, 255),
+                26.0,
+                bcol,
             );
         }
 
@@ -4120,13 +4231,15 @@ impl Game {
             draw_ui_text(font, &stats, cx - std.width * 0.5, top_y + 66.0, 16.0, WHITE);
 
             let bounties_done = self.bounties.iter().filter(|(_, _, d)| *d).count();
+            let siege_now = self.social.boss_kills_today.max(if self.boss_slain { 1 } else { 0 });
             let social_line = format!(
-                "{} · STREAK: {}d · BOUNTIES: {}/3 · #{} / {}",
+                "#{} / {} · SIEGE {}/{} · +{} PTS -> {}",
+                self.social.my_rank.max(1),
+                self.social.total_players.max(1),
+                siege_now,
+                self.social.siege_target.max(1),
+                self.score,
                 self.hero_class.faction_name(),
-                self.social.streak,
-                bounties_done,
-                self.social.my_rank.max(0),
-                self.social.total_players.max(0)
             );
             let sld = measure_ui_text(font, &social_line, 12);
             draw_ui_text(
@@ -4138,9 +4251,10 @@ impl Game {
                 Color::from_rgba(203, 213, 225, 255),
             );
 
-            // Compact Weapon DPS Breakdown Strip
+            // Build Used + Weapon DPS Breakdown Strip
             let dps_line = format!(
-                "DMG  SLASH:{}k  BOLTS:{}k  LIGHTNING:{}k  ORBIT:{}k",
+                "BUILD: {}  |  SLASH:{}k BOLT:{}k ZAP:{}k ORB:{}k",
+                self.build.build_summary(),
                 (self.dmg_by_weapon[0] / 1000.0).round() as u32,
                 (self.dmg_by_weapon[1] / 1000.0).round() as u32,
                 (self.dmg_by_weapon[2] / 1000.0).round() as u32,
@@ -4151,9 +4265,9 @@ impl Game {
                 font,
                 &dps_line,
                 cx - dld.width * 0.5,
-                top_y + 98.0,
+                top_y + 99.0,
                 11.0,
-                Color::from_rgba(250, 204, 21, 230),
+                Color::from_rgba(250, 204, 21, 235),
             );
 
             let share_state = unsafe { emberfall_get_share_state() };
@@ -4161,7 +4275,7 @@ impl Game {
                 1 => "SHARING...",
                 2 => "SHARED TO REDDIT ✓",
                 3 => "LOGIN ON REDDIT TO SHARE",
-                _ => "POST SCORE TO REDDIT",
+                _ => "POST BUILD CARD TO REDDIT",
             };
             let share_rect = Rect::new(cx - 140.0, top_y + 106.0, 280.0, 40.0);
             if self.draw_button(

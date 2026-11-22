@@ -448,6 +448,16 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         topGhost = null;
       }
 
+      const yesterday = getUtcDateString(-1);
+      const yFactions = await getFactionScores(sub, yesterday);
+      const yTotal = yFactions[0] + yFactions[1] + yFactions[2];
+      let yesterdayWinningFaction = Number(hashSeedU64(`${seed}-blessing`) % 3n);
+      if (yTotal > 0) {
+        yesterdayWinningFaction = 0;
+        if (yFactions[1] > yFactions[yesterdayWinningFaction]) yesterdayWinningFaction = 1;
+        if (yFactions[2] > yFactions[yesterdayWinningFaction]) yesterdayWinningFaction = 2;
+      }
+
       sendJson(res, 200, {
         seed,
         biomeIndex: biome.index,
@@ -462,6 +472,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         siegeTarget: SIEGE_TARGET,
         factionScores,
         yesterdayChampion,
+        yesterdayWinningFaction,
         leaderboard,
         topGhost,
         canVoteMutator: myRank >= 1 && myRank <= 3,
