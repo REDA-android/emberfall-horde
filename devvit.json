@@ -21,7 +21,9 @@
     "redis": true,
     "reddit": {
       "enable": true,
-      "asUser": ["SUBMIT_COMMENT"]
+      "asUser": [
+        "SUBMIT_COMMENT"
+      ]
     }
   },
   "triggers": {
@@ -50,5 +52,8 @@
   "scripts": {
     "dev": "npm run build:server",
     "build": "npm run build:server"
+  },
+  "dev": {
+    "subreddit": "emberfall_horde_dev"
   }
 }

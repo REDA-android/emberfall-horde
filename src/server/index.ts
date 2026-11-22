@@ -97,11 +97,13 @@ function computeRank(score: number, bossSlain: boolean): string {
 }
 
 function sendJson(res: ServerResponse, status: number, payload: unknown): void {
+  const body = JSON.stringify(payload);
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
+    'Content-Length': String(Buffer.byteLength(body, 'utf8')),
     'Cache-Control': 'no-store',
   });
-  res.end(JSON.stringify(payload));
+  res.end(body);
 }
 
 function readJsonBody<T>(req: IncomingMessage, maxBytes = 64 * 1024): Promise<T | null> {
