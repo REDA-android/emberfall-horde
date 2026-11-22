@@ -333,7 +333,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
 
   try {
     if (pathname === '/internal/on-app-install' && method === 'POST') {
-      const post = await createDailyPost({ respectLock: true });
+      const post = await createDailyPost({ respectLock: false });
       sendJson(res, 200, { status: 'success', postId: post.id, skipped: Boolean(post.skipped) });
       return;
     }

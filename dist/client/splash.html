@@ -344,6 +344,14 @@
             if (url.pathname.indexOf('/api/') === 0 && d.token) {
               url.searchParams.set('devvit-token', d.token);
             }
+            var clickPayload = { event: 'click', definition: 'strict', elemTrackId: 'enter-btn' };
+            parent.postMessage({
+              type: 'devvit-internal',
+              scope: 0,
+              effect: { type: 12, telemetry: { event: 'click', click: clickPayload }, analytics: clickPayload },
+              telemetry: { event: 'click', click: clickPayload },
+              analytics: clickPayload
+            }, '*');
             parent.postMessage({
               type: 'devvit-internal',
               scope: 0,
