@@ -274,6 +274,97 @@ fn biome_boss_color(b: DailyBiome) -> Color {
     }
 }
 
+/// Renders a character or monster texture as a real 2D Skeletal Deformable Mesh (3x3 = 8 triangles)
+/// so the actual illustrated head, torso/arms, and left/right legs move independently!
+#[allow(clippy::too_many_arguments)]
+fn draw_articulated_sprite(
+    tex: &Texture2D,
+    center: Vec2,
+    size: Vec2,
+    flip_x: bool,
+    tint: Color,
+    stride_phase: f32,
+    move_ratio: f32,
+    lean_x: f32,
+    attack_lunge: Vec2,
+    breath: f32,
+) {
+    let hw = size.x * 0.5;
+    let hh = size.y * 0.5;
+    let s = stride_phase.sin() * move_ratio;
+    let c = stride_phase.cos() * move_ratio;
+    let bob = if move_ratio > 0.05 {
+        s.abs() * -5.0 * move_ratio
+    } else {
+        breath * 2.5
+    };
+
+    // Row 0: Head & Shoulders (tilts into movement direction + breathes)
+    let head_lean = lean_x * 9.0 + attack_lunge.x * 0.55;
+    let head_y = -hh + bob - breath * 2.2 + attack_lunge.y * 0.35;
+
+    // Row 1: Torso, Waist & Weapon Arms (lunges & twists during attacks/strides)
+    let waist_lean = lean_x * 4.5 + attack_lunge.x * 0.9 + c * 2.2;
+    let waist_y = bob * 0.65 + attack_lunge.y * 0.65;
+
+    // Row 2: Left & Right Legs (actual texture legs scissor and lift alternately!)
+    let stride_px = size.x * 0.13;
+    let lift_px = size.y * 0.085;
+    let l_leg_dx = s * stride_px;
+    let l_leg_dy = -c.max(0.0) * lift_px;
+    let r_leg_dx = -s * stride_px;
+    let r_leg_dy = -(-c).max(0.0) * lift_px;
+
+    let p = [
+        // Row 0 (top: y = -hh)
+        center + vec2(-hw + head_lean, head_y),
+        center + vec2(head_lean, head_y),
+        center + vec2(hw + head_lean, head_y),
+        // Row 1 (middle: y = 0)
+        center + vec2(-hw * (1.0 + breath * 0.04) + waist_lean, waist_y),
+        center + vec2(waist_lean, waist_y),
+        center + vec2(hw * (1.0 + breath * 0.04) + waist_lean, waist_y),
+        // Row 2 (bottom: y = +hh, split into Left Foot, Pelvis/Center, Right Foot)
+        center + vec2(-hw + l_leg_dx, hh + l_leg_dy),
+        center + vec2((l_leg_dx + r_leg_dx) * 0.35, hh + (l_leg_dy + r_leg_dy) * 0.35),
+        center + vec2(hw + r_leg_dx, hh + r_leg_dy),
+    ];
+
+    let u0 = if flip_x { 1.0 } else { 0.0 };
+    let u1 = 0.5;
+    let u2 = if flip_x { 0.0 } else { 1.0 };
+    let us = [u0, u1, u2];
+    let vs = [0.0, 0.52, 1.0];
+
+    let c_bytes: [u8; 4] = tint.into();
+    let mut vertices = Vec::with_capacity(9);
+    for row in 0..3 {
+        for col in 0..3 {
+            let pt = p[row * 3 + col];
+            vertices.push(Vertex {
+                position: vec3(pt.x, pt.y, 0.0),
+                uv: vec2(us[col], vs[row]),
+                color: c_bytes,
+                normal: vec4(0.0, 0.0, 1.0, 0.0),
+            });
+        }
+    }
+
+    let indices: Vec<u16> = vec![
+        0, 1, 3, 1, 4, 3, // Top-Left quad
+        1, 2, 4, 2, 5, 4, // Top-Right quad
+        3, 4, 6, 4, 7, 6, // Bottom-Left leg quad
+        4, 5, 7, 5, 8, 7, // Bottom-Right leg quad
+    ];
+
+    let mesh = Mesh {
+        vertices,
+        indices,
+        texture: Some(tex.clone()),
+    };
+    draw_mesh(&mesh);
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Phase {
     Title,
@@ -3049,7 +3140,7 @@ impl Game {
             );
         }
 
-        // 3b. #1 Champion Ghost Replay (articulated golden phantom + Crown + Live Duel Delta)
+        // 3b. #1 Champion Ghost Replay (Skeletal Deformable Phantom + Crown + Live Duel Delta)
         if !self.social.ghost_points.is_empty()
             && matches!(self.phase, Phase::Playing | Phase::Paused | Phase::LevelUp)
         {
@@ -3061,9 +3152,9 @@ impl Game {
             let gpos = pts[i0].lerp(pts[i1], frac);
             let gvel = (pts[i1] - pts[i0]) * 2.0;
             let gflip = gvel.x < -2.0;
-            let gtilt = (gvel.x / 240.0).clamp(-1.0, 1.0) * 0.16;
+            let glean = (gvel.x / 220.0).clamp(-1.0, 1.0);
+            let gmove = (gvel.length() / 180.0).clamp(0.15, 1.0);
             let gstride = self.elapsed * 13.0;
-            let gbob = gstride.sin().abs() * -4.5;
 
             draw_texture_ex(
                 &assets.vfx_light,
@@ -3075,26 +3166,21 @@ impl Game {
                     ..Default::default()
                 },
             );
-            // Articulated Ghost Boots
-            let gl_foot = vec2(-9.0 + gstride.sin() * 7.0, 31.0 - gstride.cos().max(0.0) * 4.5);
-            let gr_foot = vec2(9.0 - gstride.sin() * 7.0, 31.0 - (-gstride.cos()).max(0.0) * 4.5);
-            draw_ellipse(gpos.x + gl_foot.x, gpos.y + gl_foot.y, 7.0, 4.0, 0.0, Color::new(1.0, 0.84, 0.25, 0.55));
-            draw_ellipse(gpos.x + gr_foot.x, gpos.y + gr_foot.y, 7.0, 4.0, 0.0, Color::new(1.0, 0.84, 0.25, 0.55));
-
-            draw_texture_ex(
+            draw_articulated_sprite(
                 &assets.hero,
-                gpos.x - 42.0,
-                gpos.y - 42.0 + gbob,
+                gpos,
+                vec2(84.0, 84.0),
+                gflip,
                 Color::new(1.0, 0.86, 0.28, 0.48),
-                DrawTextureParams {
-                    dest_size: Some(vec2(84.0, 84.0)),
-                    flip_x: gflip,
-                    rotation: gtilt,
-                    ..Default::default()
-                },
+                gstride,
+                gmove,
+                glean,
+                Vec2::ZERO,
+                (self.elapsed * 3.5).sin(),
             );
+
             // Floating Golden Crown above #1 Ghost
-            let cy = gpos.y - 48.0 + gbob;
+            let cy = gpos.y - 48.0;
             draw_triangle(
                 vec2(gpos.x - 10.0, cy),
                 vec2(gpos.x - 6.0, cy - 9.0),
@@ -3218,7 +3304,7 @@ impl Game {
             );
         }
 
-        // 5. Enemies (Articulated Multi-Part Locomotion: 8-way banking, stride feet, attack lunge & Phase II Sigil!)
+        // 5. Enemies (Real 2D Skeletal Mesh Deformation: actual legs walk, torso leans & lunges!)
         for e in &self.enemies {
             let (tex, base_sz) = match e.kind {
                 EnemyKind::Imp => (&assets.imp, 64.0),
@@ -3227,49 +3313,17 @@ impl Game {
                 EnemyKind::Boss => (&assets.boss, 186.0),
             };
             let draw_sz = if e.is_elite { base_sz * 1.24 } else { base_sz };
-            let gait_s = e.anim_phase.sin();
-            let gait_c = e.anim_phase.cos();
-
-            // Distinct per-archetype procedural locomotion
-            let (bob, rot_tilt, breath_x, breath_y) = match e.kind {
-                EnemyKind::Imp => (
-                    gait_s.abs() * -6.5,
-                    gait_s * 0.16 + (e.vel.x / 210.0).clamp(-1.0, 1.0) * 0.10,
-                    1.0 + gait_c * 0.06,
-                    1.0 - gait_c * 0.06,
-                ),
-                EnemyKind::Golem => (
-                    gait_s.abs() * -4.0,
-                    gait_s * 0.09,
-                    1.0 + gait_s.abs() * 0.08,
-                    1.0 - gait_s.abs() * 0.06,
-                ),
-                EnemyKind::Wraith => (
-                    gait_s * 6.0,
-                    (e.vel.x / 180.0).clamp(-1.0, 1.0) * 0.18 + gait_c * 0.07,
-                    1.0 + gait_c * 0.05,
-                    1.0 - gait_c * 0.05,
-                ),
-                EnemyKind::Boss => (
-                    (e.anim_phase * 0.65).sin() * 8.0,
-                    (e.vel.x / 180.0).clamp(-1.0, 1.0) * 0.11 + (e.anim_phase * 0.5).cos() * 0.05,
-                    1.0 + (e.anim_phase * 0.8).sin() * 0.05,
-                    1.0 - (e.anim_phase * 0.8).sin() * 0.05,
-                ),
-            };
-
-            let sx = ((1.0 + e.squash) * breath_x).clamp(0.65, 1.48);
-            let sy = ((1.0 - e.squash) * breath_y).clamp(0.65, 1.48);
+            let sx = (1.0 + e.squash).clamp(0.68, 1.42);
+            let sy = (1.0 - e.squash).clamp(0.68, 1.42);
             let dw = draw_sz * sx;
             let dh = draw_sz * sy;
             let to_h = (self.hero_pos - e.pos).normalize_or_zero();
-            let lunge_off = to_h * (e.lunge_timer * 14.0);
-            let draw_p = e.pos + lunge_off;
+            let lunge_vec = to_h * (e.lunge_timer * 18.0);
 
             // Ground shadow
             draw_ellipse(
-                draw_p.x,
-                draw_p.y + draw_sz * 0.34,
+                e.pos.x,
+                e.pos.y + draw_sz * 0.34,
                 dw * 0.33,
                 draw_sz * 0.12,
                 0.0,
@@ -3284,8 +3338,8 @@ impl Game {
                     biome_boss_color(self.biome)
                 };
                 draw_poly_lines(
-                    draw_p.x,
-                    draw_p.y + 18.0,
+                    e.pos.x,
+                    e.pos.y + 18.0,
                     8,
                     draw_sz * 0.54,
                     self.elapsed * 28.0,
@@ -3294,8 +3348,8 @@ impl Game {
                 );
                 if self.boss_enraged {
                     draw_poly_lines(
-                        draw_p.x,
-                        draw_p.y + 18.0,
+                        e.pos.x,
+                        e.pos.y + 18.0,
                         6,
                         draw_sz * 0.66,
                         -self.elapsed * 42.0,
@@ -3305,43 +3359,12 @@ impl Game {
                 }
             } else if e.is_elite {
                 draw_circle_lines(
-                    draw_p.x,
-                    draw_p.y + draw_sz * 0.15,
+                    e.pos.x,
+                    e.pos.y + draw_sz * 0.15,
                     draw_sz * 0.44,
                     2.5,
                     Color::from_rgba(250, 204, 21, 190),
                 );
-            }
-
-            // Articulated Footpads / Trailing Wraith Wisps beneath enemy body
-            match e.kind {
-                EnemyKind::Imp | EnemyKind::Golem => {
-                    let f_spread = draw_sz * 0.18;
-                    let f_stride = draw_sz * 0.13;
-                    let f_sz = if e.kind == EnemyKind::Golem { 9.5 } else { 5.8 };
-                    let f_col = if e.kind == EnemyKind::Golem {
-                        Color::from_rgba(120, 53, 15, 235)
-                    } else {
-                        Color::from_rgba(185, 28, 28, 235)
-                    };
-                    let lf = vec2(-f_spread + gait_s * f_stride, draw_sz * 0.33 - gait_c.max(0.0) * 5.5);
-                    let rf = vec2(f_spread - gait_s * f_stride, draw_sz * 0.33 - (-gait_c).max(0.0) * 5.5);
-                    draw_ellipse(draw_p.x + lf.x, draw_p.y + lf.y, f_sz, f_sz * 0.65, 0.0, f_col);
-                    draw_ellipse(draw_p.x + rf.x, draw_p.y + rf.y, f_sz, f_sz * 0.65, 0.0, f_col);
-                }
-                EnemyKind::Wraith => {
-                    for k in 1..=2 {
-                        let trail_p = draw_p - e.vel.normalize_or_zero() * (k as f32 * 13.0)
-                            + vec2((e.anim_phase + k as f32).sin() * 5.0, k as f32 * 6.0);
-                        draw_circle(
-                            trail_p.x,
-                            trail_p.y,
-                            11.0 - k as f32 * 2.5,
-                            Color::from_rgba(192, 132, 252, (110 - k * 35) as u8),
-                        );
-                    }
-                }
-                EnemyKind::Boss => {}
             }
 
             let tint = if e.chill_timer > 0.0 {
@@ -3354,23 +3377,26 @@ impl Game {
                 Color::from_rgba(242, 242, 248, 255)
             };
 
+            let e_lean = (e.vel.x / 180.0).clamp(-1.0, 1.0);
+            let e_move = (e.vel.length() / 110.0).clamp(0.25, 1.15);
+
             if e.hit_flash > 0.0 {
                 if let Some(mat) = &shaders.hit_flash {
                     mat.set_uniform("u_flash", (e.hit_flash / 0.12).clamp(0.0, 1.0));
                     gl_use_material(mat);
                 }
             }
-            draw_texture_ex(
+            draw_articulated_sprite(
                 tex,
-                draw_p.x - dw * 0.5,
-                draw_p.y - dh * 0.5 + bob,
+                e.pos,
+                vec2(dw, dh),
+                e.facing_left,
                 tint,
-                DrawTextureParams {
-                    dest_size: Some(vec2(dw, dh)),
-                    flip_x: e.facing_left,
-                    rotation: rot_tilt,
-                    ..Default::default()
-                },
+                e.anim_phase,
+                e_move,
+                e_lean,
+                lunge_vec,
+                (e.anim_phase * 0.5).sin(),
             );
             if e.hit_flash > 0.0 {
                 gl_use_default_material();
@@ -3383,15 +3409,15 @@ impl Game {
                 let bw = draw_sz * 0.65;
                 let pct = (e.hp / e.max_hp).clamp(0.0, 1.0);
                 draw_rectangle(
-                    draw_p.x - bw * 0.5,
-                    draw_p.y - draw_sz * 0.56,
+                    e.pos.x - bw * 0.5,
+                    e.pos.y - draw_sz * 0.56,
                     bw,
                     5.0,
                     Color::from_rgba(0, 0, 0, 180),
                 );
                 draw_rectangle(
-                    draw_p.x - bw * 0.5,
-                    draw_p.y - draw_sz * 0.56,
+                    e.pos.x - bw * 0.5,
+                    e.pos.y - draw_sz * 0.56,
                     bw * pct,
                     5.0,
                     Color::from_rgba(244, 63, 94, 240),
@@ -3399,23 +3425,14 @@ impl Game {
             }
         }
 
-        // 6. Hero Sprite (Articulated 8-Way Locomotion: Stride Boots, Flowing Cloak, Dynamic Tilt & Aimed Weapon Swing!)
-        let moving_ratio = (self.hero_vel.length() / 240.0).clamp(0.0, 1.0);
-        let hero_bob = if moving_ratio > 0.08 {
-            self.hero_stride.sin().abs() * -6.2 * moving_ratio
-        } else {
-            (self.elapsed * 3.6).sin() * 2.2
-        };
-        let hero_tilt = (self.hero_vel.x / 260.0).clamp(-1.0, 1.0) * 0.15
-            + (self.hero_vel.y / 280.0).clamp(-1.0, 1.0) * if self.hero_facing_left { -0.05 } else { 0.05 }
-            + (self.hero_stride.cos() * 0.05 * moving_ratio);
-        let breath = if moving_ratio < 0.1 { (self.elapsed * 3.6).cos() * 0.03 } else { 0.0 };
-        let hsx = (1.0 + self.hero_squash + breath).clamp(0.7, 1.42);
-        let hsy = (1.0 - self.hero_squash - breath).clamp(0.7, 1.42);
+        // 6. Hero Sprite (Real 2D Skeletal Mesh Deformation: actual legs walk, torso leans & weapon arm lunges!)
+        let moving_ratio = (self.hero_vel.length() / 230.0).clamp(0.0, 1.0);
+        let hsx = (1.0 + self.hero_squash).clamp(0.72, 1.38);
+        let hsy = (1.0 - self.hero_squash).clamp(0.72, 1.38);
         let hw = 92.0 * hsx;
         let hh = 92.0 * hsy;
-        let attack_lunge = Vec2::from_angle(self.hero_aim_angle) * (self.hero_attack_swing * 10.0);
-        let h_draw = self.hero_pos + attack_lunge;
+        let hero_lean = (self.hero_vel.x / 240.0).clamp(-1.0, 1.0);
+        let attack_lunge = Vec2::from_angle(self.hero_aim_angle) * (self.hero_attack_swing * 15.0);
 
         draw_ellipse(
             self.hero_pos.x,
@@ -3426,94 +3443,23 @@ impl Game {
             Color::from_rgba(0, 0, 0, 130),
         );
 
-        // Flowing Cloak / Scarf Trail behind Hero when moving
-        if moving_ratio > 0.12 {
-            let back_dir = -self.hero_vel.normalize_or_zero();
-            for k in 1..=3 {
-                let kf = k as f32;
-                let wave = (self.hero_stride - kf * 0.8).sin() * 5.5;
-                let perp = vec2(-back_dir.y, back_dir.x);
-                let cp = h_draw + vec2(0.0, 4.0) + back_dir * (kf * 11.0) + perp * wave;
-                draw_circle(
-                    cp.x,
-                    cp.y,
-                    11.5 - kf * 2.2,
-                    Color::new(aura_col.r, aura_col.g, aura_col.b, 0.34 - kf * 0.08),
-                );
-            }
-        }
-
-        // Articulated Hero Greaves / Boots (alternating left/right stride!)
-        let stride_s = self.hero_stride.sin() * moving_ratio;
-        let stride_c = self.hero_stride.cos() * moving_ratio;
-        let l_boot = vec2(-10.0 + stride_s * 11.0, 31.0 - stride_c.max(0.0) * 6.5);
-        let r_boot = vec2(10.0 - stride_s * 11.0, 31.0 - (-stride_c).max(0.0) * 6.5);
-        draw_ellipse(
-            h_draw.x + l_boot.x,
-            h_draw.y + l_boot.y,
-            7.5,
-            4.5,
-            0.0,
-            Color::from_rgba(30, 41, 59, 240),
-        );
-        draw_ellipse(
-            h_draw.x + l_boot.x,
-            h_draw.y + l_boot.y - 1.0,
-            5.5,
-            3.0,
-            0.0,
-            aura_col,
-        );
-        draw_ellipse(
-            h_draw.x + r_boot.x,
-            h_draw.y + r_boot.y,
-            7.5,
-            4.5,
-            0.0,
-            Color::from_rgba(30, 41, 59, 240),
-        );
-        draw_ellipse(
-            h_draw.x + r_boot.x,
-            h_draw.y + r_boot.y - 1.0,
-            5.5,
-            3.0,
-            0.0,
-            aura_col,
-        );
-
         let hero_tint = if self.hero_invuln > 0.0 && ((self.elapsed * 24.0) as i32) % 2 == 0 {
             Color::from_rgba(255, 160, 175, 240)
         } else {
             WHITE
         };
-        draw_texture_ex(
+        draw_articulated_sprite(
             hero_tex,
-            h_draw.x - hw * 0.5,
-            h_draw.y - hh * 0.5 + hero_bob,
+            self.hero_pos,
+            vec2(hw, hh),
+            self.hero_facing_left,
             hero_tint,
-            DrawTextureParams {
-                dest_size: Some(vec2(hw, hh)),
-                flip_x: self.hero_facing_left,
-                rotation: hero_tilt,
-                ..Default::default()
-            },
+            self.hero_stride,
+            moving_ratio,
+            hero_lean,
+            attack_lunge,
+            (self.elapsed * 3.8).sin(),
         );
-
-        // Articulated Directional Class Weapon / Arcane Focus that aims & swings toward target!
-        let swing_arc = (self.hero_attack_swing * std::f32::consts::PI).sin() * 0.85;
-        let w_ang = self.hero_aim_angle + swing_arc * if self.hero_facing_left { -1.0 } else { 1.0 };
-        let w_dir = Vec2::from_angle(w_ang);
-        let w_hand = h_draw + vec2(0.0, 2.0 + hero_bob * 0.5) + w_dir * 24.0;
-        let w_tip = w_hand + w_dir * (22.0 + self.hero_attack_swing * 12.0);
-        draw_line(
-            w_hand.x,
-            w_hand.y,
-            w_tip.x,
-            w_tip.y,
-            4.5,
-            aura_col,
-        );
-        draw_circle(w_tip.x, w_tip.y, 5.0 + self.hero_attack_swing * 3.0, WHITE);
 
         // 7. Runic Orbit Blades (or Evolved Inferno Vortex)
         if self.build.orbit_lvl > 0 {
