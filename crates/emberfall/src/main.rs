@@ -46,6 +46,8 @@ extern "C" {
     );
     fn emberfall_vote_mutator(mutator_idx: i32);
     fn emberfall_set_selected_aura(aura_idx: i32);
+    fn emberfall_get_gamepad_axis(axis_idx: i32) -> i32;
+    fn emberfall_get_gamepad_btn(btn_idx: i32) -> i32;
     fn emberfall_poll_init_ready() -> i32;
     fn emberfall_get_init_field(field_id: i32) -> i32;
     fn emberfall_copy_str_field(
@@ -107,6 +109,14 @@ unsafe fn emberfall_share_comment(
 unsafe fn emberfall_vote_mutator(_mutator_idx: i32) {}
 #[cfg(not(target_arch = "wasm32"))]
 unsafe fn emberfall_set_selected_aura(_aura_idx: i32) {}
+#[cfg(not(target_arch = "wasm32"))]
+unsafe fn emberfall_get_gamepad_axis(_axis_idx: i32) -> i32 {
+    0
+}
+#[cfg(not(target_arch = "wasm32"))]
+unsafe fn emberfall_get_gamepad_btn(_btn_idx: i32) -> i32 {
+    0
+}
 #[cfg(not(target_arch = "wasm32"))]
 unsafe fn emberfall_poll_init_ready() -> i32 {
     0
@@ -274,8 +284,8 @@ fn biome_boss_color(b: DailyBiome) -> Color {
     }
 }
 
-/// Renders a character or monster texture as a real 2D Skeletal Deformable Mesh (4 cols x 3 rows = 12 triangles)
-/// where `split_u` is the exact UV horizontal split between the Left Boot and Right Boot in the source texture!
+/// Renders a character or monster with a 100% RIGID upper body (head, torso, arms, cape, and sword
+/// never shear or peck like a chicken!) while the Left and Right lower boots step smoothly below the knees.
 #[allow(clippy::too_many_arguments)]
 fn draw_articulated_sprite(
     tex: &Texture2D,
@@ -294,90 +304,83 @@ fn draw_articulated_sprite(
     let hh = size.y * 0.5;
     let s = stride_phase.sin() * move_ratio;
     let c = stride_phase.cos() * move_ratio;
-    let bob = if move_ratio > 0.05 {
-        s.abs() * -5.2 * move_ratio
+
+    // Gentle human vertical stride bounce (no head-pecking!)
+    let body_bob = if move_ratio > 0.05 {
+        (stride_phase * 2.0).cos() * -2.2 * move_ratio
     } else {
-        breath * 2.4
+        breath * 1.4
     };
+    let body_center = center + attack_lunge * 0.65 + vec2(lean_x * 2.0, body_bob);
 
-    // Row 0: Head & Shoulders (tilts into movement direction + breathes)
-    let head_lean = lean_x * 8.5 + attack_lunge.x * 0.55;
-    let head_y = -hh + bob - breath * 2.2 + attack_lunge.y * 0.35;
+    // Knee split line is at 72% down the sprite (v = 0.72):
+    // Above v = 0.72 (Head, Torso, Cape, Sword) is rendered as ONE 100% rigid quad so it never distorts!
+    let knee_v = 0.72;
+    let knee_y = -hh + size.y * knee_v;
 
-    // Row 1: Torso, Hip & Weapon Arms (lunges & twists during attacks/strides)
-    let waist_lean = lean_x * 4.2 + attack_lunge.x * 0.85 + c * 2.0;
-    let waist_y = bob * 0.6 + attack_lunge.y * 0.6;
-    let bw = 1.0 + breath * 0.04;
+    // Subtle human boot step: mostly vertical knee/foot lift + tiny 2.5px horizontal step
+    let step_dx = size.x * 0.028;
+    let step_lift = size.y * 0.065;
+    let l_dx = s * step_dx;
+    let l_dy = -c.max(0.0) * step_lift;
+    let r_dx = -s * step_dx;
+    let r_dy = -(-c).max(0.0) * step_lift;
 
-    // Row 2: Dedicated Left Leg [cols 0 & 1] and Right Leg [cols 2 & 3]
-    // Each foot has TWO vertices moving together as a solid boot/leg quad!
-    let stride_px = size.x * 0.14;
-    let lift_px = size.y * 0.12;
-    let l_leg_dx = s * stride_px;
-    let l_leg_dy = -c.max(0.0) * lift_px;
-    let r_leg_dx = -s * stride_px;
-    let r_leg_dy = -(-c).max(0.0) * lift_px;
-
-    let u_l = (split_u - 0.03).clamp(0.2, 0.8);
-    let u_r = (split_u + 0.03).clamp(0.2, 0.8);
-    let (u1, u2, x1, x2) = if flip_x {
-        let f_l = 1.0 - u_r;
-        let f_r = 1.0 - u_l;
-        (u_r, u_l, (f_l * 2.0 - 1.0) * hw, (f_r * 2.0 - 1.0) * hw)
-    } else {
-        (u_l, u_r, (u_l * 2.0 - 1.0) * hw, (u_r * 2.0 - 1.0) * hw)
-    };
-    let x_cols = [-hw, x1, x2, hw];
-
-    let p = [
-        // Row 0 (top: y = -hh)
-        center + vec2(x_cols[0] + head_lean, head_y),
-        center + vec2(x_cols[1] + head_lean, head_y),
-        center + vec2(x_cols[2] + head_lean, head_y),
-        center + vec2(x_cols[3] + head_lean, head_y),
-        // Row 1 (hips/waist: y = +0.06*hh)
-        center + vec2(x_cols[0] * bw + waist_lean, waist_y),
-        center + vec2(x_cols[1] * bw + waist_lean, waist_y),
-        center + vec2(x_cols[2] * bw + waist_lean, waist_y),
-        center + vec2(x_cols[3] * bw + waist_lean, waist_y),
-        // Row 2 (feet: y = +hh) — Cols 0 & 1 move rigidly as Left Foot; Cols 2 & 3 move rigidly as Right Foot!
-        center + vec2(x_cols[0] + l_leg_dx, hh + l_leg_dy),
-        center + vec2(x_cols[1] + l_leg_dx, hh + l_leg_dy),
-        center + vec2(x_cols[2] + r_leg_dx, hh + r_leg_dy),
-        center + vec2(x_cols[3] + r_leg_dx, hh + r_leg_dy),
-    ];
-
-    let us = if flip_x {
-        [1.0, u1, u2, 0.0]
-    } else {
-        [0.0, u1, u2, 1.0]
-    };
-    let vs = [0.0, 0.56, 1.0];
+    let split_screen_u = if flip_x { 1.0 - split_u } else { split_u };
+    let split_x = -hw + size.x * split_screen_u;
+    let u_left_edge = if flip_x { 1.0 } else { 0.0 };
+    let u_right_edge = if flip_x { 0.0 } else { 1.0 };
+    let u_mid = split_u;
 
     let c_bytes: [u8; 4] = tint.into();
-    let mut vertices = Vec::with_capacity(12);
-    for row in 0..3 {
-        for col in 0..4 {
-            let pt = p[row * 4 + col];
-            vertices.push(Vertex {
-                position: vec3(pt.x, pt.y, 0.0),
-                uv: vec2(us[col], vs[row]),
-                color: c_bytes,
-                normal: vec4(0.0, 0.0, 1.0, 0.0),
-            });
-        }
-    }
+    let vtx = |pos: Vec2, u: f32, v: f32| Vertex {
+        position: vec3(pos.x, pos.y, 0.0),
+        uv: vec2(u, v),
+        color: c_bytes,
+        normal: vec4(0.0, 0.0, 1.0, 0.0),
+    };
 
-    let mut indices: Vec<u16> = Vec::with_capacity(36);
-    for row in 0..2u16 {
-        for col in 0..3u16 {
-            let tl = row * 4 + col;
-            let tr = tl + 1;
-            let bl = (row + 1) * 4 + col;
-            let br = bl + 1;
-            indices.extend_from_slice(&[tl, tr, bl, tr, br, bl]);
-        }
-    }
+    // 1) Upper Body Quad (v = 0.0 .. 0.72): 100% rigid!
+    let u_tl = body_center + vec2(-hw, -hh);
+    let u_tr = body_center + vec2(hw, -hh);
+    let u_bl = body_center + vec2(-hw, knee_y);
+    let u_br = body_center + vec2(hw, knee_y);
+
+    // 2) Left Boot Quad (x = -hw .. split_x, v = 0.72 .. 1.0): steps smoothly
+    let lb_tl = body_center + vec2(-hw, knee_y);
+    let lb_tr = body_center + vec2(split_x, knee_y);
+    let lb_bl = body_center + vec2(-hw + l_dx, hh + l_dy);
+    let lb_br = body_center + vec2(split_x + l_dx, hh + l_dy);
+
+    // 3) Right Boot Quad (x = split_x .. +hw, v = 0.72 .. 1.0): steps in opposite phase
+    let rb_tl = body_center + vec2(split_x, knee_y);
+    let rb_tr = body_center + vec2(hw, knee_y);
+    let rb_bl = body_center + vec2(split_x + r_dx, hh + r_dy);
+    let rb_br = body_center + vec2(hw + r_dx, hh + r_dy);
+
+    let vertices = vec![
+        // Upper rigid quad (0..3)
+        vtx(u_tl, u_left_edge, 0.0),
+        vtx(u_tr, u_right_edge, 0.0),
+        vtx(u_bl, u_left_edge, knee_v),
+        vtx(u_br, u_right_edge, knee_v),
+        // Left boot quad (4..7)
+        vtx(lb_tl, u_left_edge, knee_v),
+        vtx(lb_tr, u_mid, knee_v),
+        vtx(lb_bl, u_left_edge, 1.0),
+        vtx(lb_br, u_mid, 1.0),
+        // Right boot quad (8..11)
+        vtx(rb_tl, u_mid, knee_v),
+        vtx(rb_tr, u_right_edge, knee_v),
+        vtx(rb_bl, u_mid, 1.0),
+        vtx(rb_br, u_right_edge, 1.0),
+    ];
+
+    let indices: Vec<u16> = vec![
+        0, 1, 2, 1, 3, 2, // Upper body
+        4, 5, 6, 5, 7, 6, // Left boot
+        8, 9, 10, 9, 11, 10, // Right boot
+    ];
 
     let mesh = Mesh {
         vertices,
@@ -1710,6 +1713,20 @@ impl Game {
             self.trigger_dash();
         }
         if is_key_pressed(KeyCode::Q) || is_key_pressed(KeyCode::E) {
+            self.trigger_ultimate();
+        }
+
+        // Web Gamepad API support (inspired by fornwall/gamepads): Left Stick + A/B/RT
+        let gp_x = (unsafe { emberfall_get_gamepad_axis(0) } as f32) / 1000.0;
+        let gp_y = (unsafe { emberfall_get_gamepad_axis(1) } as f32) / 1000.0;
+        if gp_x.abs() > 0.15 || gp_y.abs() > 0.15 {
+            mv.x += gp_x;
+            mv.y += gp_y;
+        }
+        if unsafe { emberfall_get_gamepad_btn(0) } == 1 || unsafe { emberfall_get_gamepad_btn(7) } == 1 {
+            self.trigger_dash();
+        }
+        if unsafe { emberfall_get_gamepad_btn(1) } == 1 || unsafe { emberfall_get_gamepad_btn(5) } == 1 {
             self.trigger_ultimate();
         }
 

@@ -512,6 +512,36 @@
             saveLocalProfile();
           };
 
+          env.emberfall_get_gamepad_axis = function (axisIdx) {
+            try {
+              var gps = navigator.getGamepads ? navigator.getGamepads() : null;
+              if (!gps) return 0;
+              for (var i = 0; i < gps.length; i++) {
+                var gp = gps[i];
+                if (gp && gp.connected && gp.axes && gp.axes.length > axisIdx) {
+                  var v = gp.axes[axisIdx] || 0;
+                  if (Math.abs(v) > 0.16) return Math.round(v * 1000);
+                }
+              }
+            } catch (_) {}
+            return 0;
+          };
+
+          env.emberfall_get_gamepad_btn = function (btnIdx) {
+            try {
+              var gps = navigator.getGamepads ? navigator.getGamepads() : null;
+              if (!gps) return 0;
+              for (var i = 0; i < gps.length; i++) {
+                var gp = gps[i];
+                if (gp && gp.connected && gp.buttons && gp.buttons.length > btnIdx) {
+                  var b = gp.buttons[btnIdx];
+                  if (b && (b.pressed || b.value > 0.5)) return 1;
+                }
+              }
+            } catch (_) {}
+            return 0;
+          };
+
           env.emberfall_poll_init_ready = function () {
             var ld = document.getElementById('ef-loader');
             if (ld) ld.remove();
