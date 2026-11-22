@@ -274,8 +274,8 @@ fn biome_boss_color(b: DailyBiome) -> Color {
     }
 }
 
-/// Renders a character or monster texture as a real 2D Skeletal Deformable Mesh (3x3 = 8 triangles)
-/// so the actual illustrated head, torso/arms, and left/right legs move independently!
+/// Renders a character or monster texture as a real 2D Skeletal Deformable Mesh (4 cols x 3 rows = 12 triangles)
+/// where `split_u` is the exact UV horizontal split between the Left Boot and Right Boot in the source texture!
 #[allow(clippy::too_many_arguments)]
 fn draw_articulated_sprite(
     tex: &Texture2D,
@@ -288,59 +288,77 @@ fn draw_articulated_sprite(
     lean_x: f32,
     attack_lunge: Vec2,
     breath: f32,
+    split_u: f32,
 ) {
     let hw = size.x * 0.5;
     let hh = size.y * 0.5;
     let s = stride_phase.sin() * move_ratio;
     let c = stride_phase.cos() * move_ratio;
     let bob = if move_ratio > 0.05 {
-        s.abs() * -5.0 * move_ratio
+        s.abs() * -5.2 * move_ratio
     } else {
-        breath * 2.5
+        breath * 2.4
     };
 
     // Row 0: Head & Shoulders (tilts into movement direction + breathes)
-    let head_lean = lean_x * 9.0 + attack_lunge.x * 0.55;
+    let head_lean = lean_x * 8.5 + attack_lunge.x * 0.55;
     let head_y = -hh + bob - breath * 2.2 + attack_lunge.y * 0.35;
 
-    // Row 1: Torso, Waist & Weapon Arms (lunges & twists during attacks/strides)
-    let waist_lean = lean_x * 4.5 + attack_lunge.x * 0.9 + c * 2.2;
-    let waist_y = bob * 0.65 + attack_lunge.y * 0.65;
+    // Row 1: Torso, Hip & Weapon Arms (lunges & twists during attacks/strides)
+    let waist_lean = lean_x * 4.2 + attack_lunge.x * 0.85 + c * 2.0;
+    let waist_y = bob * 0.6 + attack_lunge.y * 0.6;
+    let bw = 1.0 + breath * 0.04;
 
-    // Row 2: Left & Right Legs (actual texture legs scissor and lift alternately!)
-    let stride_px = size.x * 0.13;
-    let lift_px = size.y * 0.085;
+    // Row 2: Dedicated Left Leg [cols 0 & 1] and Right Leg [cols 2 & 3]
+    // Each foot has TWO vertices moving together as a solid boot/leg quad!
+    let stride_px = size.x * 0.14;
+    let lift_px = size.y * 0.12;
     let l_leg_dx = s * stride_px;
     let l_leg_dy = -c.max(0.0) * lift_px;
     let r_leg_dx = -s * stride_px;
     let r_leg_dy = -(-c).max(0.0) * lift_px;
 
+    let u_l = (split_u - 0.03).clamp(0.2, 0.8);
+    let u_r = (split_u + 0.03).clamp(0.2, 0.8);
+    let (u1, u2, x1, x2) = if flip_x {
+        let f_l = 1.0 - u_r;
+        let f_r = 1.0 - u_l;
+        (u_r, u_l, (f_l * 2.0 - 1.0) * hw, (f_r * 2.0 - 1.0) * hw)
+    } else {
+        (u_l, u_r, (u_l * 2.0 - 1.0) * hw, (u_r * 2.0 - 1.0) * hw)
+    };
+    let x_cols = [-hw, x1, x2, hw];
+
     let p = [
         // Row 0 (top: y = -hh)
-        center + vec2(-hw + head_lean, head_y),
-        center + vec2(head_lean, head_y),
-        center + vec2(hw + head_lean, head_y),
-        // Row 1 (middle: y = 0)
-        center + vec2(-hw * (1.0 + breath * 0.04) + waist_lean, waist_y),
-        center + vec2(waist_lean, waist_y),
-        center + vec2(hw * (1.0 + breath * 0.04) + waist_lean, waist_y),
-        // Row 2 (bottom: y = +hh, split into Left Foot, Pelvis/Center, Right Foot)
-        center + vec2(-hw + l_leg_dx, hh + l_leg_dy),
-        center + vec2((l_leg_dx + r_leg_dx) * 0.35, hh + (l_leg_dy + r_leg_dy) * 0.35),
-        center + vec2(hw + r_leg_dx, hh + r_leg_dy),
+        center + vec2(x_cols[0] + head_lean, head_y),
+        center + vec2(x_cols[1] + head_lean, head_y),
+        center + vec2(x_cols[2] + head_lean, head_y),
+        center + vec2(x_cols[3] + head_lean, head_y),
+        // Row 1 (hips/waist: y = +0.06*hh)
+        center + vec2(x_cols[0] * bw + waist_lean, waist_y),
+        center + vec2(x_cols[1] * bw + waist_lean, waist_y),
+        center + vec2(x_cols[2] * bw + waist_lean, waist_y),
+        center + vec2(x_cols[3] * bw + waist_lean, waist_y),
+        // Row 2 (feet: y = +hh) — Cols 0 & 1 move rigidly as Left Foot; Cols 2 & 3 move rigidly as Right Foot!
+        center + vec2(x_cols[0] + l_leg_dx, hh + l_leg_dy),
+        center + vec2(x_cols[1] + l_leg_dx, hh + l_leg_dy),
+        center + vec2(x_cols[2] + r_leg_dx, hh + r_leg_dy),
+        center + vec2(x_cols[3] + r_leg_dx, hh + r_leg_dy),
     ];
 
-    let u0 = if flip_x { 1.0 } else { 0.0 };
-    let u1 = 0.5;
-    let u2 = if flip_x { 0.0 } else { 1.0 };
-    let us = [u0, u1, u2];
-    let vs = [0.0, 0.52, 1.0];
+    let us = if flip_x {
+        [1.0, u1, u2, 0.0]
+    } else {
+        [0.0, u1, u2, 1.0]
+    };
+    let vs = [0.0, 0.56, 1.0];
 
     let c_bytes: [u8; 4] = tint.into();
-    let mut vertices = Vec::with_capacity(9);
+    let mut vertices = Vec::with_capacity(12);
     for row in 0..3 {
-        for col in 0..3 {
-            let pt = p[row * 3 + col];
+        for col in 0..4 {
+            let pt = p[row * 4 + col];
             vertices.push(Vertex {
                 position: vec3(pt.x, pt.y, 0.0),
                 uv: vec2(us[col], vs[row]),
@@ -350,12 +368,16 @@ fn draw_articulated_sprite(
         }
     }
 
-    let indices: Vec<u16> = vec![
-        0, 1, 3, 1, 4, 3, // Top-Left quad
-        1, 2, 4, 2, 5, 4, // Top-Right quad
-        3, 4, 6, 4, 7, 6, // Bottom-Left leg quad
-        4, 5, 7, 5, 8, 7, // Bottom-Right leg quad
-    ];
+    let mut indices: Vec<u16> = Vec::with_capacity(36);
+    for row in 0..2u16 {
+        for col in 0..3u16 {
+            let tl = row * 4 + col;
+            let tr = tl + 1;
+            let bl = (row + 1) * 4 + col;
+            let br = bl + 1;
+            indices.extend_from_slice(&[tl, tr, bl, tr, br, bl]);
+        }
+    }
 
     let mesh = Mesh {
         vertices,
@@ -3177,6 +3199,7 @@ impl Game {
                 glean,
                 Vec2::ZERO,
                 (self.elapsed * 3.5).sin(),
+                0.68,
             );
 
             // Floating Golden Crown above #1 Ghost
@@ -3386,6 +3409,12 @@ impl Game {
                     gl_use_material(mat);
                 }
             }
+            let e_split_u = match e.kind {
+                EnemyKind::Imp => 0.48,
+                EnemyKind::Golem => 0.52,
+                EnemyKind::Wraith => 0.50,
+                EnemyKind::Boss => 0.50,
+            };
             draw_articulated_sprite(
                 tex,
                 e.pos,
@@ -3397,6 +3426,7 @@ impl Game {
                 e_lean,
                 lunge_vec,
                 (e.anim_phase * 0.5).sin(),
+                e_split_u,
             );
             if e.hit_flash > 0.0 {
                 gl_use_default_material();
@@ -3425,7 +3455,7 @@ impl Game {
             }
         }
 
-        // 6. Hero Sprite (Real 2D Skeletal Mesh Deformation: actual legs walk, torso leans & weapon arm lunges!)
+        // 6. Hero Sprite (Real 2D Skeletal Mesh Deformation: BOTH legs walk symmetrically, torso leans & weapon arm lunges!)
         let moving_ratio = (self.hero_vel.length() / 230.0).clamp(0.0, 1.0);
         let hsx = (1.0 + self.hero_squash).clamp(0.72, 1.38);
         let hsy = (1.0 - self.hero_squash).clamp(0.72, 1.38);
@@ -3448,6 +3478,11 @@ impl Game {
         } else {
             WHITE
         };
+        let hero_split_u = match self.hero_class {
+            HeroClass::SunKnight => 0.68,
+            HeroClass::ArcanePyromancer => 0.42,
+            HeroClass::ShadowAssassin => 0.52,
+        };
         draw_articulated_sprite(
             hero_tex,
             self.hero_pos,
@@ -3459,6 +3494,7 @@ impl Game {
             hero_lean,
             attack_lunge,
             (self.elapsed * 3.8).sin(),
+            hero_split_u,
         );
 
         // 7. Runic Orbit Blades (or Evolved Inferno Vortex)
