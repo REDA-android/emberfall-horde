@@ -782,15 +782,27 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         return;
       }
 
+      const BIOME_BOSSES = [
+        'MALAKOR, VOID LICH',
+        'IGNIS REX, MAGMA TITAN',
+        'SKADI, GLACIAL EMPRESS',
+      ] as const;
+      const bossName = BIOME_BOSSES[biome.index] ?? BIOME_BOSSES[0];
       const bossRaw = await redis.get(bossKillsKey(sub, seed));
       const bossKillsToday = bossRaw ? Math.max(0, Number(bossRaw) || 0) : 0;
-      const bossBadge = bossSlain ? '💀 Boss SLAIN' : '🛡️ Survived';
+      const filledBlocks = Math.max(0, Math.min(10, Math.round((bossKillsToday / SIEGE_TARGET) * 10)));
+      const siegeBar = '█'.repeat(filledBlocks) + '░'.repeat(10 - filledBlocks);
+      const bossBadge = bossSlain ? `💀 ${bossName} SLAIN` : '🛡️ Survived';
       const rankBadge = myRankVal > 0 ? ` · #${myRankVal} Today` : '';
       const streakBadge = streakVal > 0 ? ` · 🔥 ${streakVal}d Streak` : '';
       const text = [
-        `**🔥 EMBERFALL: DAILY HORDE #${seed}** — **RANK ${rank}**${rankBadge}`,
-        `${heroInfo.emoji} **${heroInfo.title}** (*${heroInfo.faction}*) · ${buildEmojis} · Lv.**${level}** · **${score.toLocaleString('en-US')} pts** · **${kills}** Kills · ${bossBadge}${streakBadge}`,
-        `Arena: **${biome.name}** · Mutator: **${mutatorName}** · Subreddit Siege: **${bossKillsToday}/${SIEGE_TARGET}** — *Can your Faction beat my build? Hit Enter Dungeon above!*`,
+        `**╔══ 🔥 EMBERFALL: DAILY HORDE #${seed} ══╗**`,
+        `🏆 **RANK ${rank}**${rankBadge}${streakBadge}`,
+        `${heroInfo.emoji} **${heroInfo.title}** (*${heroInfo.faction}*) · Lv.**${level}** · **${score.toLocaleString('en-US')} PTS** · **${kills}** Kills`,
+        `⚔️ Build: ${buildEmojis}`,
+        `🌍 Arena: **${biome.name}** (*${mutatorName}*) · ${bossBadge}`,
+        `🏰 Subreddit Siege: \`[${siegeBar}]\` **${bossKillsToday}/${SIEGE_TARGET}**`,
+        `**╚══** *Can your Faction beat my build? Hit Enter Dungeon above!* **══╝**`,
       ].join('\n\n');
 
       await reddit.submitComment({
