@@ -6,8 +6,8 @@ mod weapons;
 use assets::GameAssets;
 use macroquad::prelude::*;
 use rng::{
-    compute_rank, fever_multiplier, generate_barrel_positions, generate_shrine_positions,
-    DailyBiome, DailyModifier, Rng,
+    compute_rank, fever_multiplier, generate_barrel_positions, generate_daily_bounties,
+    generate_shrine_positions, BountyKind, DailyBiome, DailyBounty, DailyModifier, Rng,
 };
 use shaders::GameShaders;
 use weapons::{HeroBuild, HeroClass, RelicId, UpgradeId};
@@ -19,6 +19,7 @@ extern "C" {
     fn emberfall_play_sfx_pitched(kind: i32, pitch_mul: f32);
     fn emberfall_set_muted(muted: i32);
     fn emberfall_toggle_drone(active: i32);
+    fn emberfall_set_boss_music(active: i32);
     fn emberfall_on_run_start();
     fn emberfall_on_run_complete(
         score: u32,
@@ -67,6 +68,8 @@ unsafe fn emberfall_play_sfx_pitched(_kind: i32, _pitch_mul: f32) {}
 unsafe fn emberfall_set_muted(_muted: i32) {}
 #[cfg(not(target_arch = "wasm32"))]
 unsafe fn emberfall_toggle_drone(_active: i32) {}
+#[cfg(not(target_arch = "wasm32"))]
+unsafe fn emberfall_set_boss_music(_active: i32) {}
 #[cfg(not(target_arch = "wasm32"))]
 unsafe fn emberfall_on_run_start() {}
 #[cfg(not(target_arch = "wasm32"))]
@@ -255,6 +258,13 @@ struct ScorchMark {
     life: f32,
 }
 
+struct SoulObelisk {
+    pos: Vec2,
+    hp: f32,
+    max_hp: f32,
+    hit_flash: f32,
+}
+
 struct LeaderboardEntry {
     username: String,
     score: u32,
@@ -430,7 +440,14 @@ struct Game {
     gems: Vec<XpGem>,
     chests: Vec<RunicChest>,
     scorches: Vec<ScorchMark>,
+    obelisks: Vec<SoulObelisk>,
     relics: Vec<RelicId>,
+    bounties: [(DailyBounty, u32, bool); 3],
+    barrel_detonations: u32,
+    shrines_claimed: u32,
+    chests_opened: u32,
+    combo_milestone: u32,
+    dmg_by_weapon: [f32; 4],
     particles: Vec<Particle>,
     float_texts: Vec<FloatText>,
     afterimages: Vec<Afterimage>,
@@ -462,6 +479,7 @@ impl Game {
         let biome = DailyBiome::from_seed(&day_seed);
         let rng = Rng::from_seed_str(&day_seed);
         let hero_class = HeroClass::SunKnight;
+        let b_arr = generate_daily_bounties(&day_seed);
 
         Self {
             phase: Phase::Title,
@@ -527,7 +545,18 @@ impl Game {
             gems: Vec::new(),
             chests: Vec::new(),
             scorches: Vec::new(),
+            obelisks: Vec::new(),
             relics: Vec::new(),
+            bounties: [
+                (b_arr[0], 0, false),
+                (b_arr[1], 0, false),
+                (b_arr[2], 0, false),
+            ],
+            barrel_detonations: 0,
+            shrines_claimed: 0,
+            chests_opened: 0,
+            combo_milestone: 0,
+            dmg_by_weapon: [0.0; 4],
             particles: Vec::new(),
             float_texts: Vec::new(),
             afterimages: Vec::new(),
@@ -680,7 +709,19 @@ impl Game {
         self.gems.clear();
         self.chests.clear();
         self.scorches.clear();
+        self.obelisks.clear();
         self.relics.clear();
+        let b_arr = generate_daily_bounties(&self.day_seed);
+        self.bounties = [
+            (b_arr[0], 0, false),
+            (b_arr[1], 0, false),
+            (b_arr[2], 0, false),
+        ];
+        self.barrel_detonations = 0;
+        self.shrines_claimed = 0;
+        self.chests_opened = 0;
+        self.combo_milestone = 0;
+        self.dmg_by_weapon = [0.0; 4];
         self.particles.clear();
         self.float_texts.clear();
         self.afterimages.clear();
@@ -695,6 +736,7 @@ impl Game {
 
         unsafe {
             emberfall_on_run_start();
+            emberfall_set_boss_music(0);
             emberfall_toggle_drone(if self.muted { 0 } else { 1 });
         }
 
@@ -878,6 +920,37 @@ impl Game {
         self.damage_enemies_in_radius(self.hero_pos, 460.0, dmg, 520.0);
     }
 
+    fn check_bounties(&mut self) {
+        let mut newly_done: Vec<String> = Vec::new();
+        for i in 0..3 {
+            let (bounty, ref mut prog, ref mut done) = self.bounties[i];
+            let new_p = match bounty.kind {
+                BountyKind::DetonateBarrels => self.barrel_detonations,
+                BountyKind::ClaimShrines => self.shrines_claimed,
+                BountyKind::ReachCombo => (*prog).max(self.combo),
+                BountyKind::OpenChests => self.chests_opened,
+                BountyKind::SlayHorde => self.kills,
+            };
+            *prog = new_p;
+            if !*done && *prog >= bounty.target {
+                *done = true;
+                newly_done.push(bounty.label(*prog));
+            }
+        }
+        for lbl in newly_done {
+            self.score += 750;
+            self.shockwave = self.shockwave.max(0.85);
+            play_sfx(5);
+            self.float_texts.push(FloatText {
+                pos: self.hero_pos + vec2(0.0, -44.0),
+                text: format!("BOUNTY COMPLETE: {} (+750)!", lbl),
+                color: Color::from_rgba(250, 204, 21, 255),
+                life: 1.6,
+                scale: 22.0,
+            });
+        }
+    }
+
     fn damage_barrels_in_radius(&mut self, center: Vec2, radius: f32, dmg: f32) {
         let mut to_detonate: Vec<usize> = Vec::new();
         for (bi, b) in self.barrels.iter_mut().enumerate() {
@@ -895,6 +968,32 @@ impl Game {
         for bi in to_detonate {
             self.detonate_barrel(bi);
         }
+
+        // Also damage active Boss Soul Obelisks
+        let mut ob_i = 0;
+        while ob_i < self.obelisks.len() {
+            if self.obelisks[ob_i].pos.distance(center) <= radius + 34.0 {
+                self.obelisks[ob_i].hp -= dmg;
+                self.obelisks[ob_i].hit_flash = 0.14;
+                if self.obelisks[ob_i].hp <= 0.0 {
+                    let ob = self.obelisks.swap_remove(ob_i);
+                    self.score += 600;
+                    self.shockwave = self.shockwave.max(0.9);
+                    self.add_trauma(0.55);
+                    play_sfx(4);
+                    self.spawn_burst(ob.pos, 26, Color::from_rgba(192, 132, 252, 255), VfxKind::Star, 260.0);
+                    self.float_texts.push(FloatText {
+                        pos: ob.pos + vec2(0.0, -32.0),
+                        text: "SOUL OBELISK SHATTERED (+600)!".to_string(),
+                        color: Color::from_rgba(192, 132, 252, 255),
+                        life: 1.4,
+                        scale: 22.0,
+                    });
+                    continue;
+                }
+            }
+            ob_i += 1;
+        }
     }
 
     fn detonate_barrel(&mut self, idx: usize) {
@@ -902,6 +1001,7 @@ impl Game {
             return;
         }
         self.barrels[idx].exploded = true;
+        self.barrel_detonations += 1;
         let bpos = self.barrels[idx].pos;
         self.shockwave = self.shockwave.max(0.85);
         self.add_trauma(0.55);
@@ -972,6 +1072,7 @@ impl Game {
         for bi in chain {
             self.detonate_barrel(bi);
         }
+        self.check_bounties();
     }
 
     fn damage_enemies_in_radius(&mut self, center: Vec2, radius: f32, base_dmg: f32, knockback: f32) -> usize {
@@ -1007,6 +1108,7 @@ impl Game {
             return;
         }
         let has_cryo_core = self.relics.contains(&RelicId::CryoCore);
+        let has_obelisk_shield = !self.obelisks.is_empty();
         let pos;
         let is_boss;
         let mut trigger_enrage = false;
@@ -1015,10 +1117,13 @@ impl Game {
             if has_cryo_core && e.chill_timer > 0.0 {
                 dmg *= 1.25;
             }
+            is_boss = e.kind == EnemyKind::Boss;
+            if is_boss && has_obelisk_shield {
+                dmg *= 0.55;
+            }
             e.hp -= dmg;
             e.hit_flash = 0.12;
             e.squash = -0.22;
-            is_boss = e.kind == EnemyKind::Boss;
             if is_boss && !self.boss_enraged && e.hp > 0.0 && e.hp <= e.max_hp * 0.5 {
                 trigger_enrage = true;
             }
@@ -1032,13 +1137,26 @@ impl Game {
 
         if trigger_enrage {
             self.boss_enraged = true;
-            self.evo_banner_text = "ARCH-LICH ENRAGED — PHASE II!".to_string();
+            self.evo_banner_text = "ARCH-LICH PHASE II — SHATTER SOUL OBELISKS!".to_string();
             self.evo_banner_color = Color::from_rgba(244, 63, 94, 255);
-            self.evo_banner_timer = 3.2;
+            self.evo_banner_timer = 3.4;
             self.shockwave = 1.0;
             self.add_trauma(0.85);
             play_sfx(6);
             self.spawn_burst(pos, 32, Color::from_rgba(244, 63, 94, 255), VfxKind::Flame, 320.0);
+            for side in [-1.0f32, 1.0f32] {
+                let ob_pos = vec2(
+                    (pos.x + side * 210.0).clamp(-ARENA_HALF + 110.0, ARENA_HALF - 110.0),
+                    (pos.y - 120.0).clamp(-ARENA_HALF + 110.0, ARENA_HALF - 110.0),
+                );
+                self.obelisks.push(SoulObelisk {
+                    pos: ob_pos,
+                    hp: 240.0,
+                    max_hp: 240.0,
+                    hit_flash: 0.0,
+                });
+                self.spawn_burst(ob_pos, 18, Color::from_rgba(192, 132, 252, 255), VfxKind::Magic, 210.0);
+            }
         }
 
         self.float_texts.push(FloatText {
@@ -1070,10 +1188,13 @@ impl Game {
         };
         let fever_mult = fever_multiplier(self.fever);
         let shrine_mult = self.shrine_score_mult;
+        let has_soul_harvester = self.build.has_soul_harvester();
+        let mut killed_any = false;
         let mut i = 0;
         while i < self.enemies.len() {
             if self.enemies[i].hp <= 0.0 {
                 let dead = self.enemies.swap_remove(i);
+                killed_any = true;
                 self.kills += 1;
                 self.combo += 1;
                 self.combo_timer = 2.6;
@@ -1086,6 +1207,44 @@ impl Game {
                 self.fever = (self.fever + fever_gain).min(1.0);
                 self.ult_charge = (self.ult_charge + fever_gain * 0.45).min(1.0);
 
+                // Kill-Streak Announcer Milestones
+                let milestone = if self.combo >= 100 && self.combo_milestone < 100 {
+                    Some((100, "100x GODLIKE! (+1000 PTS)", 1000))
+                } else if self.combo >= 50 && self.combo_milestone < 50 {
+                    Some((50, "50x UNSTOPPABLE! (+500 PTS)", 500))
+                } else if self.combo >= 25 && self.combo_milestone < 25 {
+                    Some((25, "25x RAMPAGE! (+250 PTS)", 250))
+                } else {
+                    None
+                };
+                if let Some((m_val, m_txt, m_pts)) = milestone {
+                    self.combo_milestone = m_val;
+                    self.score += m_pts;
+                    self.evo_banner_text = m_txt.to_string();
+                    self.evo_banner_color = Color::from_rgba(250, 204, 21, 255);
+                    self.evo_banner_timer = 2.4;
+                    play_sfx(5);
+                }
+
+                // 5th Evolution: Soul Harvester (fires homing crimson Soul Bolt & heals +2 HP every 3rd kill)
+                if has_soul_harvester && self.kills % 3 == 0 {
+                    self.hero_hp = (self.hero_hp + 2.0).min(self.hero_max_hp);
+                    for k in 0..2 {
+                        let ang = (k as f32) * std::f32::consts::PI + self.elapsed * 3.0;
+                        let dir = Vec2::from_angle(ang);
+                        self.projectiles.push(Projectile {
+                            pos: dead.pos,
+                            vel: dir * 540.0,
+                            damage: 48.0 + (self.level as f32) * 4.0,
+                            radius: 13.0,
+                            life: 1.25,
+                            pierce: 3,
+                            from_enemy: false,
+                            color: Color::from_rgba(192, 132, 252, 255),
+                        });
+                    }
+                }
+
                 let combo_bonus = 1.0 + (self.combo.min(50) as f32) * 0.02;
                 let mut pts = (dead.score_value as f32
                     * score_mult
@@ -1097,6 +1256,10 @@ impl Game {
                         pts = (pts as f32 * 1.5) as u32;
                     }
                     self.boss_slain = true;
+                    self.obelisks.clear();
+                    unsafe {
+                        emberfall_set_boss_music(0);
+                    }
                     self.add_trauma(0.95);
                     self.hitstop = self.hitstop.max(0.08);
                     self.shockwave = 1.0;
@@ -1169,6 +1332,9 @@ impl Game {
             } else {
                 i += 1;
             }
+        }
+        if killed_any {
+            self.check_bounties();
         }
     }
 
@@ -1295,6 +1461,9 @@ impl Game {
         for b in &mut self.barrels {
             b.hit_flash = (b.hit_flash - dt).max(0.0);
         }
+        for ob in &mut self.obelisks {
+            ob.hit_flash = (ob.hit_flash - dt).max(0.0);
+        }
 
         if self.combo_timer > 0.0 {
             self.combo_timer -= dt;
@@ -1350,6 +1519,7 @@ impl Game {
             self.phase = Phase::Victory;
             self.score += 1500;
             unsafe {
+                emberfall_set_boss_music(0);
                 emberfall_toggle_drone(0);
             }
             self.report_run_once();
@@ -1413,6 +1583,7 @@ impl Game {
         }
         if let Some(idx) = shrine_reward_idx {
             let spos = self.shrines[idx].pos;
+            self.shrines_claimed += 1;
             self.shrine_score_mult += 0.5;
             self.shockwave = 1.0;
             self.add_trauma(0.65);
@@ -1424,6 +1595,7 @@ impl Game {
                 life: 1.4,
                 scale: 24.0,
             });
+            self.check_bounties();
             let elite_kind = if self.rng.next_f32() < 0.5 {
                 EnemyKind::Golem
             } else {
@@ -1446,6 +1618,9 @@ impl Game {
             self.hitstop = self.hitstop.max(0.075);
             self.shockwave = 1.0;
             self.spawn_enemy(EnemyKind::Boss, false);
+            unsafe {
+                emberfall_set_boss_music(1);
+            }
             play_sfx(6);
         }
 
@@ -1508,6 +1683,7 @@ impl Game {
                     color: col,
                 });
                 let hits = self.damage_enemies_in_radius(slash_pos, radius * 0.85, dmg, 190.0);
+                self.dmg_by_weapon[0] += (hits as f32) * dmg;
                 if evolved && hits > 0 {
                     self.hero_hp = (self.hero_hp + 2.5).min(self.hero_max_hp);
                 }
@@ -1588,6 +1764,7 @@ impl Game {
                         break;
                     }
                 }
+                self.dmg_by_weapon[2] += (visited.len() as f32) * dmg;
                 for idx in visited {
                     let p = self.enemies[idx].pos;
                     self.apply_enemy_damage(idx, dmg, true, Vec2::ZERO);
@@ -1615,7 +1792,8 @@ impl Game {
                 for k in 0..orb_count {
                     let ang = self.orbit_angle + (k as f32) * (std::f32::consts::TAU / orb_count as f32);
                     let orb_pos = self.hero_pos + Vec2::from_angle(ang) * orb_r;
-                    self.damage_enemies_in_radius(orb_pos, if evolved { 34.0 } else { 26.0 }, orb_dmg, 120.0);
+                    let hits = self.damage_enemies_in_radius(orb_pos, if evolved { 34.0 } else { 26.0 }, orb_dmg, 120.0);
+                    self.dmg_by_weapon[3] += (hits as f32) * orb_dmg;
                 }
             }
         }
@@ -1812,11 +1990,38 @@ impl Game {
                     if let Some(bi) = hit_barrel {
                         self.detonate_barrel(bi);
                     }
+                    // Check projectile hit against Boss Soul Obelisks
+                    if !remove {
+                        for oi in 0..self.obelisks.len() {
+                            if self.obelisks[oi].pos.distance(p_pos) < 34.0 + p_rad {
+                                self.obelisks[oi].hp -= p_dmg;
+                                self.obelisks[oi].hit_flash = 0.14;
+                                remove = true;
+                                if self.obelisks[oi].hp <= 0.0 {
+                                    let ob = self.obelisks.swap_remove(oi);
+                                    self.score += 600;
+                                    self.shockwave = self.shockwave.max(0.9);
+                                    self.add_trauma(0.55);
+                                    play_sfx(4);
+                                    self.spawn_burst(ob.pos, 26, Color::from_rgba(192, 132, 252, 255), VfxKind::Star, 260.0);
+                                    self.float_texts.push(FloatText {
+                                        pos: ob.pos + vec2(0.0, -32.0),
+                                        text: "SOUL OBELISK SHATTERED (+600)!".to_string(),
+                                        color: Color::from_rgba(192, 132, 252, 255),
+                                        life: 1.4,
+                                        scale: 22.0,
+                                    });
+                                }
+                                break;
+                            }
+                        }
+                    }
                     if !remove {
                         for ei in 0..self.enemies.len() {
                             if self.enemies[ei].pos.distance(p_pos) < self.enemies[ei].radius + p_rad {
                                 let is_crit = self.rng.next_f32() < 0.16;
                                 let dmg = if is_crit { p_dmg * 1.75 } else { p_dmg };
+                                self.dmg_by_weapon[1] += dmg;
                                 self.apply_enemy_damage(ei, dmg, is_crit, p_vel.normalize_or_zero() * 95.0);
                                 self.spawn_burst(p_pos, 4, Color::from_rgba(251, 146, 60, 255), VfxKind::Spark, 120.0);
                                 self.projectiles[p_i].pierce -= 1;
@@ -1857,6 +2062,7 @@ impl Game {
                 self.hero_hp = 0.0;
                 self.phase = Phase::GameOver;
                 unsafe {
+                    emberfall_set_boss_music(0);
                     emberfall_toggle_drone(0);
                 }
                 self.report_run_once();
@@ -1872,6 +2078,7 @@ impl Game {
         while c_i < self.chests.len() {
             if self.hero_pos.distance(self.chests[c_i].pos) < 42.0 {
                 let chest = self.chests.swap_remove(c_i);
+                self.chests_opened += 1;
                 let relic = chest.relic;
                 if !self.relics.contains(&relic) {
                     self.relics.push(relic);
@@ -1895,6 +2102,7 @@ impl Game {
                 if relic == RelicId::MagnetOrb {
                     self.hero_hp = (self.hero_hp + 15.0).min(self.hero_max_hp);
                 }
+                self.check_bounties();
             } else {
                 c_i += 1;
             }
@@ -2234,6 +2442,65 @@ impl Game {
                     dest_size: Some(vec2(54.0, 54.0)),
                     ..Default::default()
                 },
+            );
+        }
+
+        // 1e. Arch-Lich Phase II Soul Obelisks + Shield Tether Beams
+        let boss_pos_opt = self
+            .enemies
+            .iter()
+            .find(|e| e.kind == EnemyKind::Boss)
+            .map(|e| e.pos);
+        for ob in &self.obelisks {
+            if let Some(bp) = boss_pos_opt {
+                draw_line(
+                    ob.pos.x,
+                    ob.pos.y,
+                    bp.x,
+                    bp.y,
+                    4.0,
+                    Color::from_rgba(192, 132, 252, 190),
+                );
+                draw_line(
+                    ob.pos.x,
+                    ob.pos.y,
+                    bp.x,
+                    bp.y,
+                    1.8,
+                    Color::from_rgba(250, 204, 21, 220),
+                );
+            }
+            let pulse = 32.0 + (self.elapsed * 6.0).sin() * 4.0;
+            draw_circle(ob.pos.x, ob.pos.y, pulse, Color::from_rgba(192, 132, 252, 70));
+            draw_poly(
+                ob.pos.x,
+                ob.pos.y,
+                6,
+                26.0,
+                self.elapsed * 35.0,
+                if ob.hit_flash > 0.0 {
+                    WHITE
+                } else {
+                    Color::from_rgba(147, 51, 234, 240)
+                },
+            );
+            draw_poly_lines(
+                ob.pos.x,
+                ob.pos.y,
+                6,
+                28.0,
+                self.elapsed * 35.0,
+                2.5,
+                Color::from_rgba(250, 204, 21, 240),
+            );
+            let pct = (ob.hp / ob.max_hp.max(1.0)).clamp(0.0, 1.0);
+            draw_rectangle(ob.pos.x - 24.0, ob.pos.y - 38.0, 48.0, 5.0, Color::from_rgba(15, 23, 42, 220));
+            draw_rectangle(
+                ob.pos.x - 24.0,
+                ob.pos.y - 38.0,
+                48.0 * pct,
+                5.0,
+                Color::from_rgba(192, 132, 252, 255),
             );
         }
 
@@ -3138,6 +3405,28 @@ impl Game {
                 Color::from_rgba(250, 204, 21, 240),
             );
         }
+        // Compact 3 Daily Bounties Checklist (Top-Left under HUD)
+        let mut by_off = if self.relics.is_empty() { 92.0 } else { 108.0 };
+        for (bounty, prog, done) in &self.bounties {
+            let b_str = if *done {
+                format!("✓ {}", bounty.label(*prog))
+            } else {
+                format!("• {}", bounty.label(*prog))
+            };
+            draw_ui_text(
+                font,
+                &b_str,
+                16.0,
+                by_off,
+                11.0,
+                if *done {
+                    Color::from_rgba(74, 222, 128, 245)
+                } else {
+                    Color::from_rgba(203, 213, 225, 215)
+                },
+            );
+            by_off += 14.0;
+        }
 
         // Top-Center: Countdown Timer (90s -> 0s)
         let rem = (RUN_DURATION - self.elapsed).max(0.0);
@@ -3421,8 +3710,41 @@ impl Game {
             ) {
                 self.phase = Phase::Title;
                 unsafe {
+                    emberfall_set_boss_music(0);
                     emberfall_toggle_drone(0);
                 }
+            }
+
+            // Evolution Synergy Codex (below Pause buttons)
+            let codex_y = cy + 128.0;
+            let chdr = "EVOLUTION SYNERGY CODEX (LV.3 + LV.3)";
+            let cd = measure_ui_text(font, chdr, 13);
+            draw_ui_text(
+                font,
+                chdr,
+                cx - cd.width * 0.5,
+                codex_y,
+                13.0,
+                Color::from_rgba(250, 204, 21, 240),
+            );
+            let recipes = [
+                ("METEOR BARRAGE", "Ember Bolts + Arcane Haste"),
+                ("CRIMSON REAPER", "Arcane Slash + Vampiric Ward"),
+                ("INFERNO VORTEX", "Runic Orbit + Inferno Dash"),
+                ("CELESTIAL TEMPEST", "Chain Lightning + Soul Magnet"),
+                ("SOUL HARVESTER", "Vampiric Ward + Soul Magnet"),
+            ];
+            for (ri, (rname, rreq)) in recipes.iter().enumerate() {
+                let txt = format!("{} = {}", rname, rreq);
+                let td = measure_ui_text(font, &txt, 11);
+                draw_ui_text(
+                    font,
+                    &txt,
+                    cx - td.width * 0.5,
+                    codex_y + 18.0 + (ri as f32) * 14.0,
+                    11.0,
+                    Color::from_rgba(203, 213, 225, 220),
+                );
             }
             return;
         }
@@ -3551,21 +3873,41 @@ impl Game {
             let std = measure_ui_text(font, &stats, 16);
             draw_ui_text(font, &stats, cx - std.width * 0.5, top_y + 66.0, 16.0, WHITE);
 
+            let bounties_done = self.bounties.iter().filter(|(_, _, d)| *d).count();
             let social_line = format!(
-                "{}  ·  STREAK: {}d  ·  RANK: #{} / {}",
+                "{} · STREAK: {}d · BOUNTIES: {}/3 · #{} / {}",
                 self.hero_class.faction_name(),
                 self.social.streak,
+                bounties_done,
                 self.social.my_rank.max(0),
                 self.social.total_players.max(0)
             );
-            let sld = measure_ui_text(font, &social_line, 13);
+            let sld = measure_ui_text(font, &social_line, 12);
             draw_ui_text(
                 font,
                 &social_line,
                 cx - sld.width * 0.5,
-                top_y + 86.0,
-                13.0,
+                top_y + 84.0,
+                12.0,
                 Color::from_rgba(203, 213, 225, 255),
+            );
+
+            // Compact Weapon DPS Breakdown Strip
+            let dps_line = format!(
+                "DMG  SLASH:{}k  BOLTS:{}k  LIGHTNING:{}k  ORBIT:{}k",
+                (self.dmg_by_weapon[0] / 1000.0).round() as u32,
+                (self.dmg_by_weapon[1] / 1000.0).round() as u32,
+                (self.dmg_by_weapon[2] / 1000.0).round() as u32,
+                (self.dmg_by_weapon[3] / 1000.0).round() as u32,
+            );
+            let dld = measure_ui_text(font, &dps_line, 11);
+            draw_ui_text(
+                font,
+                &dps_line,
+                cx - dld.width * 0.5,
+                top_y + 98.0,
+                11.0,
+                Color::from_rgba(250, 204, 21, 230),
             );
 
             let share_state = unsafe { emberfall_get_share_state() };
@@ -3575,7 +3917,7 @@ impl Game {
                 3 => "LOGIN ON REDDIT TO SHARE",
                 _ => "POST SCORE TO REDDIT",
             };
-            let share_rect = Rect::new(cx - 140.0, top_y + 100.0, 280.0, 42.0);
+            let share_rect = Rect::new(cx - 140.0, top_y + 106.0, 280.0, 40.0);
             if self.draw_button(
                 font,
                 share_rect,
@@ -3584,7 +3926,11 @@ impl Game {
                 Color::from_rgba(125, 211, 252, 255),
             ) && share_state == 0
             {
-                let summary = self.build.build_summary();
+                let summary = format!(
+                    "{} 🎯{}/3",
+                    self.build.build_summary(),
+                    bounties_done
+                );
                 let bytes = summary.as_bytes();
                 unsafe {
                     emberfall_share_comment(
@@ -3599,7 +3945,7 @@ impl Game {
                 }
             }
 
-            let retry_rect = Rect::new(cx - 140.0, top_y + 148.0, 280.0, 42.0);
+            let retry_rect = Rect::new(cx - 140.0, top_y + 152.0, 280.0, 40.0);
             if self.draw_button(
                 font,
                 retry_rect,

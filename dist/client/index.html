@@ -33,6 +33,28 @@
       var isMuted = false;
       var droneNodes = null;
       var droneWanted = false;
+      var bossMusicTimer = null;
+      var bossStep = 0;
+      var BOSS_NOTES = [110, 130.81, 146.83, 164.81, 155.56, 146.83, 130.81, 98.0];
+
+      function setBossMusic(active) {
+        if (bossMusicTimer) {
+          clearInterval(bossMusicTimer);
+          bossMusicTimer = null;
+        }
+        if (active) {
+          bossStep = 0;
+          bossMusicTimer = setInterval(function () {
+            if (isMuted || !droneWanted) return;
+            var n = BOSS_NOTES[bossStep % BOSS_NOTES.length];
+            bossStep++;
+            tone(n, n * 0.98, 0.16, 'sawtooth', 0.045, 1.0);
+            if (bossStep % 4 === 1) {
+              tone(55, 42, 0.14, 'triangle', 0.06, 1.0);
+            }
+          }, 214);
+        }
+      }
 
       function ensureAudioCtx() {
         if (!audioCtx) {
@@ -294,7 +316,14 @@
           env.emberfall_toggle_drone = function (active) {
             droneWanted = active !== 0;
             if (droneWanted) startDrone();
-            else stopDrone();
+            else {
+              setBossMusic(false);
+              stopDrone();
+            }
+          };
+
+          env.emberfall_set_boss_music = function (active) {
+            setBossMusic(active !== 0);
           };
 
           env.emberfall_on_run_start = function () {
@@ -504,7 +533,7 @@
         name: 'emberfall_bridge'
       });
 
-      load('./emberfall.wasm?v=20261121c');
+      load('./emberfall.wasm?v=20261121d');
     })();
   </script>
 </body>

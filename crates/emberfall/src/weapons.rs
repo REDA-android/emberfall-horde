@@ -71,6 +71,7 @@ pub enum EvolutionId {
     CrimsonReaper,
     InfernoVortex,
     CelestialTempest,
+    SoulHarvester,
 }
 
 impl EvolutionId {
@@ -80,6 +81,7 @@ impl EvolutionId {
             Self::CrimsonReaper => "CRIMSON REAPER",
             Self::InfernoVortex => "INFERNO VORTEX",
             Self::CelestialTempest => "CELESTIAL TEMPEST",
+            Self::SoulHarvester => "SOUL HARVESTER",
         }
     }
 
@@ -89,6 +91,7 @@ impl EvolutionId {
             Self::CrimsonReaper => "🩸",
             Self::InfernoVortex => "🌀",
             Self::CelestialTempest => "🌩️",
+            Self::SoulHarvester => "💀",
         }
     }
 
@@ -98,6 +101,7 @@ impl EvolutionId {
             Self::CrimsonReaper => Color::from_rgba(244, 63, 94, 255),
             Self::InfernoVortex => Color::from_rgba(232, 121, 249, 255),
             Self::CelestialTempest => Color::from_rgba(56, 189, 248, 255),
+            Self::SoulHarvester => Color::from_rgba(192, 132, 252, 255),
         }
     }
 }
@@ -301,6 +305,10 @@ impl HeroBuild {
         self.lightning_lvl >= 3 && self.magnet_lvl >= 3
     }
 
+    pub fn has_soul_harvester(&self) -> bool {
+        self.ward_lvl >= 3 && self.magnet_lvl >= 3
+    }
+
     pub fn evolutions(&self) -> Vec<EvolutionId> {
         let mut out = Vec::new();
         if self.has_meteor_barrage() {
@@ -315,6 +323,9 @@ impl HeroBuild {
         if self.has_celestial_tempest() {
             out.push(EvolutionId::CelestialTempest);
         }
+        if self.has_soul_harvester() {
+            out.push(EvolutionId::SoulHarvester);
+        }
         out
     }
 
@@ -327,6 +338,8 @@ impl HeroBuild {
             Some(EvolutionId::InfernoVortex)
         } else if self.has_celestial_tempest() && !prev.has_celestial_tempest() {
             Some(EvolutionId::CelestialTempest)
+        } else if self.has_soul_harvester() && !prev.has_soul_harvester() {
+            Some(EvolutionId::SoulHarvester)
         } else {
             None
         }
@@ -452,18 +465,20 @@ mod tests {
             Some(EvolutionId::InfernoVortex)
         );
 
-        // Celestial Tempest: ChainLightning Lv3 + SoulMagnet Lv3
+        // Celestial Tempest: ChainLightning Lv3 + SoulMagnet Lv3 (also unlocks SoulHarvester since ward_lvl == 3!)
         b.lightning_lvl = 3;
         b.magnet_lvl = 2;
         assert!(!b.has_celestial_tempest());
+        assert!(!b.has_soul_harvester());
         let prev4 = b.clone();
         b.apply(UpgradeId::SoulMagnet);
         assert!(b.has_celestial_tempest());
+        assert!(b.has_soul_harvester());
         assert_eq!(
             b.newly_unlocked_evolution(&prev4),
             Some(EvolutionId::CelestialTempest)
         );
-        assert_eq!(b.evolutions().len(), 4);
+        assert_eq!(b.evolutions().len(), 5);
 
         for i in 0..4 {
             assert!(!RelicId::from_index(i).title().is_empty());

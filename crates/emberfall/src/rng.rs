@@ -197,6 +197,65 @@ pub fn compute_rank(score: u32, boss_slain: bool) -> &'static str {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BountyKind {
+    DetonateBarrels,
+    ClaimShrines,
+    ReachCombo,
+    OpenChests,
+    SlayHorde,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DailyBounty {
+    pub kind: BountyKind,
+    pub target: u32,
+}
+
+impl DailyBounty {
+    pub fn label(self, progress: u32) -> String {
+        let p = progress.min(self.target);
+        match self.kind {
+            BountyKind::DetonateBarrels => format!("BARRELS {}/{}", p, self.target),
+            BountyKind::ClaimShrines => format!("SHRINES {}/{}", p, self.target),
+            BountyKind::ReachCombo => format!("COMBO {}/{}x", p, self.target),
+            BountyKind::OpenChests => format!("CHESTS {}/{}", p, self.target),
+            BountyKind::SlayHorde => format!("SLAY {}/{}", p, self.target),
+        }
+    }
+}
+
+pub fn generate_daily_bounties(seed: &str) -> [DailyBounty; 3] {
+    let mut r = Rng::from_seed_str(&format!("bounties:{}", seed));
+    let mut pool = [
+        DailyBounty {
+            kind: BountyKind::DetonateBarrels,
+            target: 3,
+        },
+        DailyBounty {
+            kind: BountyKind::ClaimShrines,
+            target: 1,
+        },
+        DailyBounty {
+            kind: BountyKind::ReachCombo,
+            target: 30,
+        },
+        DailyBounty {
+            kind: BountyKind::OpenChests,
+            target: 2,
+        },
+        DailyBounty {
+            kind: BountyKind::SlayHorde,
+            target: 75,
+        },
+    ];
+    for i in (1..pool.len()).rev() {
+        let j = r.range_usize(0, i + 1);
+        pool.swap(i, j);
+    }
+    [pool[0], pool[1], pool[2]]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -218,6 +277,12 @@ mod tests {
 
             let b = DailyBiome::from_seed(&seed);
             seen_biomes[b.to_index()] = true;
+
+            let bnts = generate_daily_bounties(&seed);
+            assert_eq!(bnts, generate_daily_bounties(&seed));
+            assert_ne!(bnts[0].kind, bnts[1].kind);
+            assert_ne!(bnts[1].kind, bnts[2].kind);
+            assert_ne!(bnts[0].kind, bnts[2].kind);
         }
         assert!(seen_mods.iter().all(|&x| x), "All 4 daily modifiers must appear");
         assert!(seen_biomes.iter().all(|&x| x), "All 3 daily biomes must appear");
