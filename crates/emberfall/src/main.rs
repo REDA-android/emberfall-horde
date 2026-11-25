@@ -10,13 +10,16 @@ use rng::{
     generate_shrine_positions, BountyKind, DailyBiome, DailyBounty, DailyModifier, Rng,
 };
 use shaders::GameShaders;
-use weapons::{HeroBuild, HeroClass, RelicId, UpgradeId};
+use weapons::{HeroBuild, HeroClass, RelicId, UpgradeId, ALL_UPGRADES};
 
 #[cfg(target_arch = "wasm32")]
 #[link(wasm_import_module = "env")]
 extern "C" {
     fn emberfall_get_day_number() -> u32;
     fn emberfall_play_sfx_pitched(kind: i32, pitch_mul: f32);
+    fn emberfall_play_voice_blip(speaker_kind: i32);
+    fn emberfall_set_biome_music(biome_idx: i32);
+    fn emberfall_set_crt(enabled: i32);
     fn emberfall_set_muted(muted: i32);
     fn emberfall_toggle_drone(active: i32);
     fn emberfall_set_boss_music(active: i32);
@@ -71,6 +74,12 @@ unsafe fn emberfall_get_day_number() -> u32 {
 }
 #[cfg(not(target_arch = "wasm32"))]
 unsafe fn emberfall_play_sfx_pitched(_kind: i32, _pitch_mul: f32) {}
+#[cfg(not(target_arch = "wasm32"))]
+unsafe fn emberfall_play_voice_blip(_speaker_kind: i32) {}
+#[cfg(not(target_arch = "wasm32"))]
+unsafe fn emberfall_set_biome_music(_biome_idx: i32) {}
+#[cfg(not(target_arch = "wasm32"))]
+unsafe fn emberfall_set_crt(_enabled: i32) {}
 #[cfg(not(target_arch = "wasm32"))]
 unsafe fn emberfall_set_muted(_muted: i32) {}
 #[cfg(not(target_arch = "wasm32"))]
@@ -173,6 +182,12 @@ fn play_sfx(kind: i32) {
 fn play_sfx_pitched(kind: i32, pitch_mul: f32) {
     unsafe {
         emberfall_play_sfx_pitched(kind, pitch_mul);
+    }
+}
+
+fn play_voice_blip(speaker_kind: i32) {
+    unsafe {
+        emberfall_play_voice_blip(speaker_kind);
     }
 }
 
@@ -691,13 +706,23 @@ struct Game {
     slow_mo_timer: f32,
     dodge_triggered_this_dash: bool,
 
-    // Camera, Juice, Audio & Social
+    // Camera, Juice, Audio, Companion, Banter & Social
     cam_pos: Vec2,
     trauma: f32,
     hitstop: f32,
     aberration: f32,
     shockwave: f32,
     muted: bool,
+    crt_enabled: bool,
+    hurt_flash: f32,
+    pet_pos: Vec2,
+    pet_attack_cd: f32,
+    pet_facing_left: bool,
+    banter_is_boss: bool,
+    banter_title: String,
+    banter_line: String,
+    banter_timer: f32,
+    banter_accent: Color,
     joy_active: bool,
     joy_origin: Vec2,
     joy_curr: Vec2,
@@ -818,6 +843,16 @@ impl Game {
             aberration: 0.0,
             shockwave: 0.0,
             muted: false,
+            crt_enabled: false,
+            hurt_flash: 0.0,
+            pet_pos: vec2(-42.0, -24.0),
+            pet_attack_cd: 1.2,
+            pet_facing_left: false,
+            banter_is_boss: false,
+            banter_title: String::new(),
+            banter_line: String::new(),
+            banter_timer: 0.0,
+            banter_accent: GOLD,
             joy_active: false,
             joy_origin: Vec2::ZERO,
             joy_curr: Vec2::ZERO,
@@ -941,6 +976,10 @@ impl Game {
                 if persisted_mute == 1 {
                     self.muted = true;
                 }
+                let persisted_crt = unsafe { emberfall_get_init_field(22) };
+                if persisted_crt == 1 {
+                    self.crt_enabled = true;
+                }
             }
         }
         // Refresh UTC countdown & live tomorrow vote tallies periodically
@@ -965,6 +1004,29 @@ impl Game {
             }
         }
         self.social.last_status_msg = read_ffi_str(3, 0);
+    }
+
+    fn toggle_crt(&mut self) {
+        self.crt_enabled = !self.crt_enabled;
+        play_sfx(0);
+        unsafe {
+            emberfall_set_crt(if self.crt_enabled { 1 } else { 0 });
+        }
+    }
+
+    fn trigger_banter(&mut self, is_boss: bool, line: &str) {
+        self.banter_is_boss = is_boss;
+        self.banter_line = line.to_string();
+        self.banter_timer = 2.8;
+        if is_boss {
+            self.banter_title = biome_boss_name(self.biome).to_string();
+            self.banter_accent = biome_boss_color(self.biome);
+            play_voice_blip(3 + self.biome.to_index() as i32);
+        } else {
+            self.banter_title = self.hero_class.title().to_string();
+            self.banter_accent = self.hero_class.accent();
+            play_voice_blip(self.hero_class.to_index() as i32);
+        }
     }
 
     fn active_blessing(&self) -> usize {
@@ -997,6 +1059,11 @@ impl Game {
         self.hero_invuln = 0.6;
         self.hero_facing_left = false;
         self.hero_squash = 0.0;
+        self.hurt_flash = 0.0;
+        self.pet_pos = vec2(-42.0, -24.0);
+        self.pet_attack_cd = 1.0;
+        self.pet_facing_left = false;
+        self.banter_timer = 0.0;
         self.dash_cd = 0.0;
         self.dash_timer = 0.0;
         self.build = HeroBuild::for_class(self.hero_class);
@@ -1080,6 +1147,7 @@ impl Game {
 
         unsafe {
             emberfall_on_run_start();
+            emberfall_set_biome_music(self.biome.to_index() as i32);
             emberfall_set_boss_music(0);
             emberfall_toggle_drone(if self.muted { 0 } else { 1 });
         }
@@ -1088,6 +1156,12 @@ impl Game {
         for _ in 0..6 {
             self.spawn_enemy(EnemyKind::Imp, false);
         }
+        let opening_line = match self.hero_class {
+            HeroClass::SunKnight => "For the Solar Order! Hold the line!",
+            HeroClass::ArcanePyromancer => "Let the Arcane flames consume them!",
+            HeroClass::ShadowAssassin => "From the shadows... strike fast!",
+        };
+        self.trigger_banter(false, opening_line);
         play_sfx(0);
     }
 
@@ -1253,7 +1327,8 @@ impl Game {
         self.hitstop = self.hitstop.max(0.12);
         self.shockwave = 1.0;
         self.aberration = 0.02;
-        play_sfx(5);
+        play_sfx(4);
+        self.trigger_banter(false, "SUPERNOVA! BURN IT ALL!");
         for (n, col) in [
             Color::from_rgba(253, 224, 71, 255),
             Color::from_rgba(251, 146, 60, 255),
@@ -1552,12 +1627,21 @@ impl Game {
 
         if trigger_enrage {
             self.boss_enraged = true;
-            self.evo_banner_text = "ARCH-LICH PHASE II — SHATTER SOUL OBELISKS!".to_string();
+            self.evo_banner_text = format!("{} PHASE II — SHATTER OBELISKS!", biome_boss_name(self.biome));
             self.evo_banner_color = Color::from_rgba(244, 63, 94, 255);
             self.evo_banner_timer = 3.4;
             self.shockwave = 1.0;
             self.add_trauma(0.85);
             play_sfx(6);
+            unsafe {
+                emberfall_set_boss_music(2);
+            }
+            let p2_line = match self.biome {
+                DailyBiome::ObsidianSanctuary => "ENOUGH! The Abyss devours your soul!",
+                DailyBiome::VolcanicRift => "FURY UNLEASHED! Burn in molten wrath!",
+                DailyBiome::FrostAbyss => "SHATTER! Eternal winter claims you now!",
+            };
+            self.trigger_banter(true, p2_line);
             self.spawn_burst(pos, 32, Color::from_rgba(244, 63, 94, 255), VfxKind::Flame, 320.0);
             for side in [-1.0f32, 1.0f32] {
                 let ob_pos = vec2(
@@ -1822,6 +1906,7 @@ impl Game {
         let pause_rect = Rect::new(sw - 46.0, 16.0, 32.0, 28.0);
         let mute_rect = Rect::new(sw - 84.0, 16.0, 32.0, 28.0);
         let info_rect = Rect::new(sw - 122.0, 16.0, 32.0, 28.0);
+        let crt_rect = Rect::new(sw - 160.0, 16.0, 34.0, 28.0);
 
         // Touch / Mouse 1-thumb virtual joystick
         let mut active_pointer: Option<(Vec2, bool)> = None;
@@ -1831,7 +1916,8 @@ impl Game {
                 if !self.joy_active
                     && (mute_rect.contains(t.position)
                         || pause_rect.contains(t.position)
-                        || info_rect.contains(t.position))
+                        || info_rect.contains(t.position)
+                        || crt_rect.contains(t.position))
                 {
                     continue;
                 }
@@ -1852,9 +1938,12 @@ impl Game {
             let mp = vec2(mouse_position().0, mouse_position().1);
             let started = is_mouse_button_pressed(MouseButton::Left);
             if !self.joy_active
-                && (mute_rect.contains(mp) || pause_rect.contains(mp) || info_rect.contains(mp))
+                && (mute_rect.contains(mp)
+                    || pause_rect.contains(mp)
+                    || info_rect.contains(mp)
+                    || crt_rect.contains(mp))
             {
-                // Ignore HUD Info/Mute/Pause button clicks so joystick does not activate
+                // Ignore HUD CRT/Info/Mute/Pause button clicks so joystick does not activate
             } else if started && mp.distance(ult_center) <= 34.0 {
                 self.trigger_ultimate();
             } else if started && mp.distance(dash_center) <= dash_r + 10.0 {
@@ -1901,6 +1990,8 @@ impl Game {
         self.slow_mo_timer = (self.slow_mo_timer - raw_dt).max(0.0);
         self.lightning_flash = (self.lightning_flash - raw_dt * 2.2).max(0.0);
         self.hero_attack_swing = (self.hero_attack_swing - raw_dt * 4.5).max(0.0);
+        self.banter_timer = (self.banter_timer - raw_dt).max(0.0);
+        self.hurt_flash = (self.hurt_flash - raw_dt * 2.5).max(0.0);
         let dt = if self.slow_mo_timer > 0.0 {
             raw_dt * 0.38
         } else {
@@ -2112,7 +2203,7 @@ impl Game {
                 emberfall_toggle_drone(0);
             }
             self.report_run_once();
-            play_sfx(5);
+            play_sfx(12);
             return;
         }
 
@@ -2131,6 +2222,12 @@ impl Game {
             self.shockwave = 1.0;
             self.spawn_enemy(EnemyKind::Boss, false);
             self.check_medals();
+            let bquote = match self.biome {
+                DailyBiome::ObsidianSanctuary => "THE ABYSS RECLAIMS YOUR SOUL!",
+                DailyBiome::VolcanicRift => "BURN IN ETERNAL MAGMA, MORTAL!",
+                DailyBiome::FrostAbyss => "KNEEL BEFORE THE ENDLESS WINTER!",
+            };
+            self.trigger_banter(true, bquote);
             unsafe {
                 emberfall_set_boss_music(1);
             }
@@ -2217,6 +2314,37 @@ impl Game {
         );
         self.cam_pos = self.cam_pos.lerp(self.hero_pos, (raw_dt * 8.5).min(1.0));
 
+        // Faction Companion Pet: spring-follow hero & fire themed homing bolts!
+        let pet_target = self.hero_pos
+            + vec2(
+                if self.hero_facing_left { 46.0 } else { -46.0 },
+                -24.0 + (self.elapsed * 4.8).sin() * 7.0,
+            );
+        self.pet_pos = self.pet_pos.lerp(pet_target, (hero_dt * 6.5).min(1.0));
+        self.pet_facing_left = self.hero_facing_left;
+        self.pet_attack_cd -= dt;
+        if self.pet_attack_cd <= 0.0 {
+            if let Some(t_idx) = self.nearest_enemy_index(self.pet_pos, 420.0) {
+                self.pet_attack_cd = 1.65;
+                let dir = (self.enemies[t_idx].pos - self.pet_pos).normalize_or_zero();
+                let pet_col = self.hero_class.accent();
+                self.projectiles.push(Projectile {
+                    pos: self.pet_pos,
+                    vel: dir * 480.0,
+                    damage: 18.0 + (self.level as f32) * 3.0,
+                    radius: 10.0,
+                    life: 1.2,
+                    pierce: 1,
+                    from_enemy: false,
+                    color: pet_col,
+                });
+                self.spawn_burst(self.pet_pos, 5, pet_col, VfxKind::Star, 120.0);
+                play_sfx_pitched(1, 1.38);
+            } else {
+                self.pet_attack_cd = 0.25;
+            }
+        }
+
         // Blood Shrines channeling (2.0s -> Elite + 0.5x score mult + bonus upgrade)
         let mut shrine_reward_idx: Option<usize> = None;
         for (idx, shrine) in self.shrines.iter_mut().enumerate() {
@@ -2271,6 +2399,12 @@ impl Game {
             self.hitstop = self.hitstop.max(0.075);
             self.shockwave = 1.0;
             self.spawn_enemy(EnemyKind::Boss, false);
+            let bquote = match self.biome {
+                DailyBiome::ObsidianSanctuary => "MALAKOR AWAKENS! YOUR LIGHT DIES HERE!",
+                DailyBiome::VolcanicRift => "IGNIS REX RISES! TASTE MOLTEN FURY!",
+                DailyBiome::FrostAbyss => "SKADI DESCENDS! FREEZE IN ETERNITY!",
+            };
+            self.trigger_banter(true, bquote);
             unsafe {
                 emberfall_set_boss_music(1);
             }
@@ -2754,6 +2888,7 @@ impl Game {
         if hero_hit_dmg > 0.0 && self.hero_invuln <= 0.0 {
             self.hero_hp -= hero_hit_dmg;
             self.hero_invuln = 0.55;
+            self.hurt_flash = 0.55;
             self.hero_squash = -0.28;
             self.add_trauma(0.6);
             self.hitstop = self.hitstop.max(0.055);
@@ -2774,6 +2909,7 @@ impl Game {
                     emberfall_toggle_drone(0);
                 }
                 self.report_run_once();
+                play_sfx(13);
                 return;
             }
         }
@@ -2987,10 +3123,11 @@ impl Game {
         let min_y = ((self.cam_pos.y - sh * 0.65) / tile).floor() as i32;
         let max_y = ((self.cam_pos.y + sh * 0.65) / tile).ceil() as i32;
 
+        let floor_tex = assets.floor_for_biome(self.biome);
         let floor_tint = match self.biome {
-            DailyBiome::ObsidianSanctuary => Color::from_rgba(175, 175, 220, 255),
-            DailyBiome::VolcanicRift => Color::from_rgba(225, 170, 145, 255),
-            DailyBiome::FrostAbyss => Color::from_rgba(145, 205, 235, 255),
+            DailyBiome::ObsidianSanctuary => Color::from_rgba(195, 195, 232, 255),
+            DailyBiome::VolcanicRift => Color::from_rgba(242, 234, 228, 255),
+            DailyBiome::FrostAbyss => Color::from_rgba(232, 244, 252, 255),
         };
         let border_col = match self.biome {
             DailyBiome::ObsidianSanctuary => Color::from_rgba(192, 132, 252, 200),
@@ -3001,7 +3138,7 @@ impl Game {
         for tx in min_x..=max_x {
             for ty in min_y..=max_y {
                 draw_texture_ex(
-                    &assets.floor,
+                    floor_tex,
                     tx as f32 * tile,
                     ty as f32 * tile,
                     floor_tint,
@@ -3363,17 +3500,27 @@ impl Game {
 
         // 4. Hero Aura & Dash Afterimages
         let aura_col = self.hero_class.accent();
-        let aura_sz = 110.0 + (self.elapsed * 4.0).sin() * 6.0;
+        let aura_sz = 110.0 + (self.elapsed * 4.0).sin() * 6.0 + self.fever * 24.0;
         draw_texture_ex(
             &assets.vfx_light,
             self.hero_pos.x - aura_sz * 0.5,
             self.hero_pos.y - aura_sz * 0.5,
-            Color::new(aura_col.r, aura_col.g, aura_col.b, 0.26),
+            Color::new(aura_col.r, aura_col.g, aura_col.b, 0.26 + self.fever * 0.14),
             DrawTextureParams {
                 dest_size: Some(vec2(aura_sz, aura_sz)),
                 ..Default::default()
             },
         );
+        if self.fever > 0.65 {
+            let f_pulse = 44.0 + (self.elapsed * 9.0).sin() * 5.0;
+            draw_circle_lines(
+                self.hero_pos.x,
+                self.hero_pos.y + 18.0,
+                f_pulse,
+                2.4,
+                Color::from_rgba(250, 204, 21, 185),
+            );
+        }
 
         if self.ult_fx > 0.0 {
             let t = 1.0 - self.ult_fx;
@@ -3419,7 +3566,7 @@ impl Game {
                 EnemyKind::Imp => (&assets.imp, 64.0),
                 EnemyKind::Golem => (&assets.golem, 94.0),
                 EnemyKind::Wraith => (&assets.wraith, 76.0),
-                EnemyKind::Boss => (&assets.boss, 186.0),
+                EnemyKind::Boss => (assets.boss_for_biome(self.biome), 186.0),
             };
             let t = (de.life / de.max_life).clamp(0.0, 1.0);
             let sz = (if de.is_elite { base_sz * 1.24 } else { base_sz }) * (0.45 + 0.55 * t);
@@ -3443,7 +3590,7 @@ impl Game {
                 EnemyKind::Imp => (&assets.imp, 64.0),
                 EnemyKind::Golem => (&assets.golem, 94.0),
                 EnemyKind::Wraith => (&assets.wraith, 76.0),
-                EnemyKind::Boss => (&assets.boss, 186.0),
+                EnemyKind::Boss => (assets.boss_for_biome(self.biome), 186.0),
             };
             let draw_sz = if e.is_elite { base_sz * 1.24 } else { base_sz };
             let sx = (1.0 + e.squash).clamp(0.68, 1.42);
@@ -3606,6 +3753,44 @@ impl Game {
             (self.elapsed * 3.8).sin(),
             hero_split_u,
         );
+
+        // 6b. Faction Companion Pet (Solar Phoenix / Astral Owl / Shadow Wolf Pup)
+        {
+            let pet_tex = assets.pet_for_class(self.hero_class);
+            let pet_bob = (self.elapsed * 6.0).sin() * 3.5;
+            let pet_sz = 50.0;
+            let p_col = self.hero_class.accent();
+            draw_ellipse(
+                self.pet_pos.x,
+                self.pet_pos.y + 24.0,
+                14.0,
+                5.5,
+                0.0,
+                Color::from_rgba(0, 0, 0, 115),
+            );
+            draw_texture_ex(
+                &assets.vfx_light,
+                self.pet_pos.x - 28.0,
+                self.pet_pos.y + pet_bob - 28.0,
+                Color::new(p_col.r, p_col.g, p_col.b, 0.30),
+                DrawTextureParams {
+                    dest_size: Some(vec2(56.0, 56.0)),
+                    ..Default::default()
+                },
+            );
+            draw_texture_ex(
+                pet_tex,
+                self.pet_pos.x - pet_sz * 0.5,
+                self.pet_pos.y + pet_bob - pet_sz * 0.5,
+                WHITE,
+                DrawTextureParams {
+                    dest_size: Some(vec2(pet_sz, pet_sz)),
+                    flip_x: self.pet_facing_left,
+                    rotation: (self.elapsed * 4.5).cos() * 0.07,
+                    ..Default::default()
+                },
+            );
+        }
 
         // 7. Runic Orbit Blades (or Evolved Inferno Vortex)
         if self.build.orbit_lvl > 0 {
@@ -4337,66 +4522,189 @@ impl Game {
         }
 
         // LIVE IN-GAME HUD
-        // Top XP Bar
+        // Top XP Bar (with subtle specular top edge)
         let xp_pct = (self.xp as f32 / self.xp_next.max(1) as f32).clamp(0.0, 1.0);
-        draw_rectangle(0.0, 0.0, sw, 8.0, Color::from_rgba(15, 23, 42, 220));
+        draw_rectangle(0.0, 0.0, sw, 8.0, Color::from_rgba(12, 18, 34, 230));
         draw_rectangle(0.0, 0.0, sw * xp_pct, 8.0, Color::from_rgba(56, 189, 248, 255));
+        draw_rectangle(0.0, 0.0, sw * xp_pct, 2.5, Color::from_rgba(186, 230, 253, 210));
 
-        // Top-Left: HP Bar, Class/Level & Fever Meter
-        draw_rectangle(14.0, 16.0, 184.0, 62.0, Color::from_rgba(8, 13, 28, 205));
-        draw_rectangle_lines(14.0, 16.0, 184.0, 62.0, 1.5, self.hero_class.accent());
+        // Top-Left: Sculpted Hero Avatar Medallion HUD + Equipped Skill Icons
+        let hud_x = 12.0;
+        let hud_y = 14.0;
+        let hud_w = if sw < 420.0 { 222.0 } else { 248.0 };
+        let hud_h = 74.0;
+        let h_accent = self.hero_class.accent();
+        draw_rectangle(hud_x, hud_y, hud_w, hud_h, Color::from_rgba(8, 13, 28, 224));
+        draw_rectangle_lines(hud_x, hud_y, hud_w, hud_h, 1.8, h_accent);
+        draw_rectangle_lines(
+            hud_x + 2.5,
+            hud_y + 2.5,
+            hud_w - 5.0,
+            hud_h - 5.0,
+            1.0,
+            Color::from_rgba(255, 255, 255, 28),
+        );
+
+        // Portrait Medallion Box (56x56) with Hurt Pulse & Fever Golden Halo
+        let por_x = hud_x + 8.0;
+        let por_y = hud_y + 9.0;
+        let por_sz = 56.0;
+        let por_bg = if self.hurt_flash > 0.0 {
+            Color::new(0.45, 0.06, 0.14, 0.92)
+        } else if self.fever > 0.72 {
+            Color::from_rgba(45, 26, 8, 235)
+        } else {
+            Color::from_rgba(15, 23, 42, 240)
+        };
+        draw_rectangle(por_x, por_y, por_sz, por_sz, por_bg);
+        let por_border = if self.hurt_flash > 0.0 {
+            Color::from_rgba(244, 63, 94, 255)
+        } else if self.fever > 0.72 {
+            Color::from_rgba(250, 204, 21, 255)
+        } else {
+            h_accent
+        };
+        draw_rectangle_lines(por_x, por_y, por_sz, por_sz, 2.0, por_border);
+        let breathe = 1.0 + (self.elapsed * 3.8).sin() * 0.035;
+        let spr_w = 50.0 * breathe;
+        let hero_por_tint = if self.hurt_flash > 0.0 {
+            Color::from_rgba(255, 165, 180, 255)
+        } else {
+            WHITE
+        };
+        draw_texture_ex(
+            self.hero_texture(assets),
+            por_x + (por_sz - spr_w) * 0.5,
+            por_y + (por_sz - spr_w) * 0.5,
+            hero_por_tint,
+            DrawTextureParams {
+                dest_size: Some(vec2(spr_w, spr_w)),
+                ..Default::default()
+            },
+        );
+
+        // Right Column inside Sculpted HUD: LV/Class, Beveled HP & Fever, Equipped Skill Icons
+        let col_x = por_x + por_sz + 9.0;
+        let bar_w = hud_w - (col_x - hud_x) - 10.0;
         draw_ui_text(
             font,
             &format!("LV.{} {}", self.level, self.hero_class.title()),
-            22.0,
-            33.0,
-            14.0,
-            self.hero_class.accent(),
+            col_x,
+            hud_y + 20.0,
+            13.0,
+            h_accent,
         );
         let hp_pct = (self.hero_hp / self.hero_max_hp).clamp(0.0, 1.0);
-        draw_rectangle(22.0, 40.0, 166.0, 9.0, Color::from_rgba(30, 41, 59, 240));
+        draw_rectangle(col_x, hud_y + 25.0, bar_w, 10.0, Color::from_rgba(24, 32, 48, 245));
         draw_rectangle(
-            22.0,
-            40.0,
-            166.0 * hp_pct,
-            9.0,
-            Color::from_rgba(244, 63, 94, 255),
+            col_x,
+            hud_y + 25.0,
+            bar_w * hp_pct,
+            10.0,
+            if self.hurt_flash > 0.0 {
+                Color::from_rgba(251, 113, 133, 255)
+            } else {
+                Color::from_rgba(225, 29, 72, 255)
+            },
+        );
+        draw_rectangle(
+            col_x,
+            hud_y + 25.0,
+            bar_w * hp_pct,
+            3.0,
+            Color::from_rgba(255, 200, 210, 140),
         );
 
         let f_mult = fever_multiplier(self.fever);
-        draw_rectangle(22.0, 54.0, 166.0, 7.0, Color::from_rgba(30, 41, 59, 240));
+        draw_rectangle(col_x, hud_y + 39.0, bar_w, 7.0, Color::from_rgba(24, 32, 48, 245));
         draw_rectangle(
-            22.0,
-            54.0,
-            166.0 * self.fever.clamp(0.0, 1.0),
+            col_x,
+            hud_y + 39.0,
+            bar_w * self.fever.clamp(0.0, 1.0),
             7.0,
             Color::from_rgba(251, 146, 60, 255),
         );
-        draw_ui_text(
-            font,
-            &format!("FEVER x{:.1} · {}", f_mult, self.biome.title()),
-            22.0,
-            73.0,
-            11.0,
-            if self.fever > 0.5 {
-                Color::from_rgba(251, 146, 60, 255)
-            } else {
-                Color::from_rgba(148, 163, 184, 255)
-            },
+        draw_rectangle(
+            col_x,
+            hud_y + 39.0,
+            bar_w * self.fever.clamp(0.0, 1.0),
+            2.0,
+            Color::from_rgba(254, 240, 138, 170),
         );
+
+        // Equipped Upgrade Mini-Icons Row (from icons_atlas) + Fever Multiplier
+        let mut ix = col_x;
+        let iy = hud_y + 50.0;
+        let icon_sz = 18.0;
+        for up in ALL_UPGRADES.iter() {
+            let lvl = self.build.level_of(*up);
+            if lvl > 0 && ix + icon_sz <= hud_x + hud_w - 6.0 {
+                draw_texture_ex(
+                    &assets.icons_atlas,
+                    ix,
+                    iy,
+                    WHITE,
+                    DrawTextureParams {
+                        source: Some(GameAssets::upgrade_icon_src(*up)),
+                        dest_size: Some(vec2(icon_sz, icon_sz)),
+                        ..Default::default()
+                    },
+                );
+                draw_rectangle_lines(ix, iy, icon_sz, icon_sz, 1.0, up.accent());
+                let ltxt = format!("{}", lvl);
+                draw_ui_text(
+                    font,
+                    &ltxt,
+                    ix + icon_sz - 6.5,
+                    iy + icon_sz - 1.5,
+                    9.5,
+                    Color::from_rgba(253, 224, 71, 255),
+                );
+                ix += icon_sz + 3.0;
+            }
+        }
+        if ix == col_x {
+            draw_ui_text(
+                font,
+                &format!("FEVER x{:.1} · {}", f_mult, self.biome.title()),
+                col_x,
+                hud_y + 63.0,
+                10.5,
+                if self.fever > 0.5 {
+                    Color::from_rgba(251, 146, 60, 255)
+                } else {
+                    Color::from_rgba(148, 163, 184, 255)
+                },
+            );
+        }
+
         if !self.relics.is_empty() {
-            let rel_txt = format!("RELICS: {}", self.relics.len());
+            let rel_txt = format!("RELICS: {} · FEVER x{:.1}", self.relics.len(), f_mult);
             draw_ui_text(
                 font,
                 &rel_txt,
                 16.0,
-                93.0,
-                12.0,
-                Color::from_rgba(250, 204, 21, 240),
+                102.0,
+                11.5,
+                Color::from_rgba(250, 204, 21, 245),
+            );
+        } else {
+            let f_txt = format!("FEVER x{:.1} · {}", f_mult, self.biome.title());
+            draw_ui_text(
+                font,
+                &f_txt,
+                16.0,
+                102.0,
+                10.5,
+                if self.fever > 0.5 {
+                    Color::from_rgba(251, 146, 60, 255)
+                } else {
+                    Color::from_rgba(148, 163, 184, 230)
+                },
             );
         }
-        // Compact 3 Daily Bounties Checklist (Top-Left under HUD)
-        let mut by_off = if self.relics.is_empty() { 92.0 } else { 108.0 };
+        // Compact 3 Daily Bounties Checklist (Top-Left under Sculpted HUD)
+        let mut by_off = 117.0;
         for (bounty, prog, done) in &self.bounties {
             let b_str = if *done {
                 format!("✓ {}", bounty.label(*prog))
@@ -4448,11 +4756,29 @@ impl Game {
             draw_ui_text(font, &timer_str, sw * 0.5 - td.width * 0.5, 42.0, 30.0, WHITE);
         }
 
-        // Top-Right: Info (?) + Mute + Pause buttons & Score/Kills + Minimap Radar
+        // Top-Right: CRT + Info (?) + Mute + Pause buttons & Score/Kills + Minimap Radar
         let pause_rect = Rect::new(sw - 46.0, 16.0, 32.0, 28.0);
         let mute_rect = Rect::new(sw - 84.0, 16.0, 32.0, 28.0);
         let info_rect = Rect::new(sw - 122.0, 16.0, 32.0, 28.0);
+        let crt_rect = Rect::new(sw - 160.0, 16.0, 34.0, 28.0);
         if self.phase == Phase::Playing {
+            if self.draw_button(
+                font,
+                crt_rect,
+                "CRT",
+                if self.crt_enabled {
+                    Color::from_rgba(14, 116, 144, 225)
+                } else {
+                    Color::from_rgba(15, 23, 42, 210)
+                },
+                if self.crt_enabled {
+                    Color::from_rgba(103, 232, 249, 255)
+                } else {
+                    Color::from_rgba(148, 163, 184, 160)
+                },
+            ) {
+                self.toggle_crt();
+            }
             if self.draw_button(
                 font,
                 info_rect,
@@ -4625,7 +4951,7 @@ impl Game {
             draw_rectangle(px, py, plate_w, plate_h, Color::from_rgba(6, 9, 20, 235));
             draw_rectangle_lines(px, py, plate_w, plate_h, 2.5, bcol);
             draw_texture_ex(
-                &assets.boss,
+                assets.boss_for_biome(self.biome),
                 px + 8.0,
                 py + 4.0,
                 WHITE,
@@ -4644,6 +4970,57 @@ impl Game {
                 py + 48.0,
                 13.0,
                 Color::from_rgba(253, 224, 71, 240),
+            );
+        }
+
+        // Talking Portrait Banter Box (non-blocking 2.8s arcade dialogue box)
+        if self.phase == Phase::Playing && self.banter_timer > 0.0 && !self.banter_line.is_empty() {
+            let fade = (self.banter_timer / 0.45).clamp(0.0, 1.0);
+            let slide = ((2.8 - self.banter_timer).clamp(0.0, 0.22) / 0.22).clamp(0.0, 1.0);
+            let has_boss = self.enemies.iter().any(|e| e.kind == EnemyKind::Boss);
+            let bw = (sw - 36.0).min(368.0);
+            let bh = 54.0;
+            let bx = (sw - bw) * 0.5;
+            let base_y = if has_boss { 78.0 } else { 54.0 };
+            let by = base_y - (1.0 - slide) * 14.0;
+            let ac = self.banter_accent;
+
+            draw_rectangle(bx, by, bw, bh, Color::new(0.03, 0.05, 0.12, 0.90 * fade));
+            draw_rectangle_lines(bx, by, bw, bh, 1.8, Color::new(ac.r, ac.g, ac.b, 0.95 * fade));
+            draw_rectangle(bx + 5.0, by + 5.0, 44.0, 44.0, Color::new(0.06, 0.10, 0.20, 0.95 * fade));
+            draw_rectangle_lines(bx + 5.0, by + 5.0, 44.0, 44.0, 1.2, Color::new(ac.r, ac.g, ac.b, 0.85 * fade));
+
+            let speak_bob = (self.elapsed * 22.0).sin() * 1.4;
+            let por_tex = if self.banter_is_boss {
+                assets.boss_for_biome(self.biome)
+            } else {
+                self.hero_texture(assets)
+            };
+            draw_texture_ex(
+                por_tex,
+                bx + 7.0,
+                by + 6.0 + speak_bob,
+                Color::new(1.0, 1.0, 1.0, fade),
+                DrawTextureParams {
+                    dest_size: Some(vec2(40.0, 40.0)),
+                    ..Default::default()
+                },
+            );
+            draw_ui_text(
+                font,
+                &self.banter_title,
+                bx + 57.0,
+                by + 20.0,
+                12.5,
+                Color::new(ac.r, ac.g, ac.b, fade),
+            );
+            draw_ui_text(
+                font,
+                &self.banter_line,
+                bx + 57.0,
+                by + 40.0,
+                13.0,
+                Color::new(0.95, 0.97, 0.99, fade),
             );
         }
 
@@ -4710,36 +5087,73 @@ impl Game {
             draw_ui_text(font, &lbl, dc.x - ld.width * 0.5, dc.y + 6.0, 18.0, WHITE);
         }
 
-        // Ultimate SUPERNOVA button
+        // Ultimate SUPERNOVA Liquid Vial Orb Button
         if self.phase == Phase::Playing {
             let uc = vec2(sw - 150.0, sh - 56.0);
             let ready = self.ult_charge >= 1.0;
             let pulse = if ready {
-                1.0 + (get_time() as f32 * 7.0).sin() * 0.08
+                1.0 + (get_time() as f32 * 7.0).sin() * 0.07
             } else {
                 1.0
             };
+            let r = 32.0 * pulse;
+            draw_circle(uc.x, uc.y, r, Color::from_rgba(11, 17, 32, 225));
+
+            // Animated rising liquid inside glass orb
+            let fill = self.ult_charge.clamp(0.0, 1.0);
+            if fill > 0.02 {
+                let inner_r = r - 3.0;
+                let fill_top_y = uc.y + inner_r - fill * (inner_r * 2.0);
+                let wave_t = get_time() as f32 * 5.2;
+                let liq_col = if ready {
+                    Color::from_rgba(225, 29, 72, 235)
+                } else {
+                    Color::from_rgba(234, 88, 12, 210)
+                };
+                let surf_col = if ready {
+                    Color::from_rgba(253, 224, 71, 240)
+                } else {
+                    Color::from_rgba(251, 146, 60, 235)
+                };
+                let slices = 18;
+                let dy = (inner_r * 2.0) / slices as f32;
+                for s in 0..slices {
+                    let sy = uc.y - inner_r + (s as f32 + 0.5) * dy;
+                    let wave = ((sy * 0.14) + wave_t).sin() * 2.2;
+                    if sy >= fill_top_y + wave {
+                        let dist_y = (sy - uc.y).abs();
+                        if dist_y < inner_r {
+                            let half_w = (inner_r * inner_r - dist_y * dist_y).sqrt();
+                            let is_top = (sy - (fill_top_y + wave)).abs() < dy * 1.1;
+                            draw_rectangle(
+                                uc.x - half_w,
+                                sy - dy * 0.55,
+                                half_w * 2.0,
+                                dy + 0.6,
+                                if is_top { surf_col } else { liq_col },
+                            );
+                        }
+                    }
+                }
+            }
+            // Glass specular highlight + golden outer rim
             draw_circle(
+                uc.x - r * 0.34,
+                uc.y - r * 0.34,
+                r * 0.16,
+                Color::from_rgba(255, 255, 255, 75),
+            );
+            draw_circle_lines(
                 uc.x,
                 uc.y,
-                32.0 * pulse,
+                r,
+                2.5,
                 if ready {
-                    Color::from_rgba(190, 24, 93, 235)
+                    Color::from_rgba(253, 224, 71, 255)
                 } else {
-                    Color::from_rgba(15, 23, 42, 200)
+                    Color::from_rgba(148, 163, 184, 155)
                 },
             );
-            let sweep = self.ult_charge.clamp(0.0, 1.0);
-            let steps = (sweep * 40.0) as i32;
-            for i in 0..steps {
-                let ang = -std::f32::consts::FRAC_PI_2 + (i as f32 / 40.0) * std::f32::consts::TAU;
-                draw_circle(
-                    uc.x + ang.cos() * 32.0,
-                    uc.y + ang.sin() * 32.0,
-                    3.2,
-                    Color::from_rgba(253, 224, 71, 255),
-                );
-            }
             let lbl = if ready { "NOVA" } else { "ULT" };
             let ld = measure_ui_text(font, lbl, 16);
             draw_ui_text(font, lbl, uc.x - ld.width * 0.5, uc.y + 6.0, 16.0, WHITE);
@@ -4931,24 +5345,24 @@ impl Game {
             return;
         }
 
-        // LEVEL-UP 3-CARD PICKER
+        // LEVEL-UP 3-CARD PICKER (Illustrated Gold-Framed Relic Cards)
         if self.phase == Phase::LevelUp {
-            draw_rectangle(0.0, 0.0, sw, sh, Color::from_rgba(5, 8, 18, 205));
+            draw_rectangle(0.0, 0.0, sw, sh, Color::from_rgba(5, 8, 18, 212));
             let hdr = format!("LEVEL {} — CHOOSE POWER", self.level);
             let hd = measure_ui_text(font, &hdr, 28);
             draw_ui_text(
                 font,
                 &hdr,
                 sw * 0.5 - hd.width * 0.5,
-                sh * 0.16,
+                sh * 0.15,
                 28.0,
                 Color::from_rgba(250, 204, 21, 255),
             );
 
-            let card_w = (sw - 40.0).min(340.0);
-            let card_h = 92.0;
+            let card_w = (sw - 28.0).min(384.0);
+            let card_h = 94.0;
             let gap = 14.0;
-            let start_y = sh * 0.24;
+            let start_y = sh * 0.22;
             let choices = self.pending_choices;
 
             for (i, up) in choices.iter().enumerate() {
@@ -4960,34 +5374,90 @@ impl Game {
                 );
                 let mp = vec2(mouse_position().0, mouse_position().1);
                 let hovered = rect.contains(mp);
+
+                // Check if picking this card triggers a Weapon Evolution!
+                let mut sim = self.build.clone();
+                sim.apply(*up);
+                let evo_ready = sim.newly_unlocked_evolution(&self.build);
+
                 draw_rectangle(
                     rect.x,
                     rect.y,
                     rect.w,
                     rect.h,
                     if hovered {
-                        Color::from_rgba(30, 41, 72, 245)
+                        Color::from_rgba(28, 38, 68, 248)
                     } else {
-                        Color::from_rgba(15, 23, 46, 235)
+                        Color::from_rgba(12, 18, 36, 240)
                     },
                 );
-                draw_rectangle_lines(rect.x, rect.y, rect.w, rect.h, 2.5, up.accent());
+                let border_col = if evo_ready.is_some() {
+                    Color::from_rgba(250, 204, 21, 255)
+                } else {
+                    up.accent()
+                };
+                draw_rectangle_lines(rect.x, rect.y, rect.w, rect.h, if hovered { 3.0 } else { 2.2 }, border_col);
+                draw_rectangle_lines(
+                    rect.x + 3.0,
+                    rect.y + 3.0,
+                    rect.w - 6.0,
+                    rect.h - 6.0,
+                    1.0,
+                    Color::from_rgba(255, 255, 255, 26),
+                );
 
+                // Illustrated 62x62 Skill Icon from icons_atlas
+                let ic_x = rect.x + 12.0;
+                let ic_y = rect.y + (card_h - 64.0) * 0.5;
+                draw_texture_ex(
+                    &assets.icons_atlas,
+                    ic_x,
+                    ic_y,
+                    WHITE,
+                    DrawTextureParams {
+                        source: Some(GameAssets::upgrade_icon_src(*up)),
+                        dest_size: Some(vec2(64.0, 64.0)),
+                        ..Default::default()
+                    },
+                );
+                draw_rectangle_lines(ic_x, ic_y, 64.0, 64.0, 1.5, border_col);
+
+                let tx = ic_x + 76.0;
                 let next_lvl = self.build.level_of(*up) + 1;
+                let stars: String = (0..next_lvl.min(5)).map(|_| '★').collect();
                 draw_ui_text(
                     font,
                     &format!("[{}] {}  LV.{}", i + 1, up.name(), next_lvl),
-                    rect.x + 16.0,
-                    rect.y + 34.0,
-                    20.0,
+                    tx,
+                    rect.y + 30.0,
+                    18.0,
                     up.accent(),
                 );
                 draw_ui_text(
                     font,
+                    &stars,
+                    tx,
+                    rect.y + 49.0,
+                    12.0,
+                    Color::from_rgba(250, 204, 21, 245),
+                );
+                if let Some(evo) = evo_ready {
+                    let badge = format!("★ EVOLVES -> {}!", evo.title());
+                    draw_ui_text(
+                        font,
+                        &badge,
+                        tx + 54.0,
+                        rect.y + 49.0,
+                        11.5,
+                        Color::from_rgba(253, 224, 71, 255),
+                    );
+                }
+                draw_ui_text(
+                    font,
                     up.desc(),
-                    rect.x + 16.0,
-                    rect.y + 66.0,
-                    15.0,
+                    tx,
+                    rect.y + 72.0,
+                    13.5,
                     Color::from_rgba(226, 232, 240, 255),
                 );
 
@@ -5391,6 +5861,9 @@ async fn main() {
         if is_key_pressed(KeyCode::M) {
             game.toggle_mute();
         }
+        if is_key_pressed(KeyCode::C) {
+            game.toggle_crt();
+        }
         if is_key_pressed(KeyCode::P) || is_key_pressed(KeyCode::Escape) || is_key_pressed(KeyCode::H) {
             if game.phase == Phase::Playing {
                 game.phase = Phase::Paused;
@@ -5448,6 +5921,7 @@ async fn main() {
             );
             mat.set_uniform("u_biome", game.biome.to_index() as f32);
             mat.set_uniform("u_fever", game.fever);
+            mat.set_uniform("u_crt", if game.crt_enabled { 1.0f32 } else { 0.0f32 });
             gl_use_material(mat);
         }
         draw_texture_ex(

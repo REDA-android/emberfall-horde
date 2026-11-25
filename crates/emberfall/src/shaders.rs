@@ -48,6 +48,7 @@ uniform float u_shockwave;
 uniform float u_blood_moon;
 uniform float u_biome;
 uniform float u_fever;
+uniform float u_crt;
 
 vec3 sample_bloom(vec2 suv) {
     vec2 off = vec2(0.0045, 0.0045);
@@ -70,6 +71,11 @@ void main() {
     vec2 dir = dist > 0.0001 ? delta / dist : vec2(0.0, 0.0);
 
     vec2 sample_uv = uv;
+    if (u_crt > 0.5) {
+        // Subtle barrel CRT lens curvature
+        float r2 = dot(delta, delta);
+        sample_uv = center + delta * (1.0 + 0.065 * r2);
+    }
     if (u_shockwave > 0.001) {
         float progress = 1.0 - clamp(u_shockwave, 0.0, 1.0);
         float radius = progress * 0.65;
@@ -78,8 +84,9 @@ void main() {
     }
 
     vec3 col;
-    if (u_aberration > 0.0002) {
-        vec2 off = delta * u_aberration;
+    float ca = u_aberration + (u_crt > 0.5 ? 0.0018 : 0.0);
+    if (ca > 0.0002) {
+        vec2 off = delta * ca;
         float r = texture2D(Texture, clamp(sample_uv + off, 0.0, 1.0)).r;
         float g = texture2D(Texture, clamp(sample_uv, 0.0, 1.0)).g;
         float b = texture2D(Texture, clamp(sample_uv - off, 0.0, 1.0)).b;
@@ -123,6 +130,15 @@ void main() {
         col = mix(col, vec3(0.75, 0.04, 0.08), edge * u_low_hp * (0.28 + 0.34 * pulse));
     }
 
+    // Optional Arcade CRT Scanlines + Phosphor Punch
+    if (u_crt > 0.5) {
+        float scan = 0.90 + 0.10 * sin(sample_uv.y * 540.0 + u_time * 2.0);
+        float grille = 0.96 + 0.04 * sin(sample_uv.x * 720.0);
+        col = col * scan * grille * 1.07;
+        float out_edge = step(0.0, sample_uv.x) * step(sample_uv.x, 1.0) * step(0.0, sample_uv.y) * step(sample_uv.y, 1.0);
+        col *= out_edge;
+    }
+
     gl_FragColor = vec4(col, 1.0) * color;
 }
 "#;
@@ -160,6 +176,7 @@ impl GameShaders {
                     UniformDesc::new("u_blood_moon", UniformType::Float1),
                     UniformDesc::new("u_biome", UniformType::Float1),
                     UniformDesc::new("u_fever", UniformType::Float1),
+                    UniformDesc::new("u_crt", UniformType::Float1),
                 ],
                 ..Default::default()
             },

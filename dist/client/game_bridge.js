@@ -8,14 +8,53 @@
   });
 
   var MODIFIERS = ['BLOOD MOON', 'ARCANE SURGE', 'SWARM RUSH', "TITAN'S WRATH"];
+
+  // =========================================================================
+  // PHASE 3: PRO PROCEDURAL MULTI-TRACK DARK-SYNTHWAVE / CHIPTUNE ENGINE
+  // Zero external audio files — DynamicsCompressor + Procedural Cathedral Reverb
+  // =========================================================================
   var audioCtx = null;
+  var masterBus = null;
+  var reverbBus = null;
   var noiseBuffer = null;
   var isMuted = false;
-  var droneNodes = null;
-  var droneWanted = false;
-  var bossMusicTimer = null;
-  var bossStep = 0;
-  var BOSS_NOTES = [110, 130.81, 146.83, 164.81, 155.56, 146.83, 130.81, 98.0];
+  var crtEnabled = false;
+  var musicActive = false;
+  var currentBiomeIdx = 0;
+  var bossMusicPhase = 0; // 0 = biome theme, 1 = boss phase I, 2 = boss phase II eclipse
+  var seqTimer = null;
+  var seqStep = 0;
+
+  // 3 Distinct 16-step Musical Themes per Biome (Frequencies in Hz)
+  // 0: Obsidian Sanctuary (D Harmonic Minor — gothic synthwave)
+  // 1: Volcanic Rift (E Phrygian — fierce driving metal/synth)
+  // 2: Frost Abyss (C Dorian / Lydian icy shimmer — crystalline 16-bit)
+  var BIOME_THEMES = [
+    {
+      bpm: 124,
+      bass: [73.42, 73.42, 87.31, 73.42, 110.0, 110.0, 98.0, 82.41, 73.42, 73.42, 87.31, 110.0, 116.54, 110.0, 98.0, 82.41],
+      arp:  [293.66, 349.23, 440.0, 554.37, 440.0, 349.23, 293.66, 220.0, 293.66, 349.23, 466.16, 587.33, 554.37, 440.0, 349.23, 329.63],
+      lead: [587.33, 0, 554.37, 587.33, 698.46, 0, 659.25, 0, 587.33, 0, 440.0, 466.16, 554.37, 0, 440.0, 0]
+    },
+    {
+      bpm: 132,
+      bass: [82.41, 82.41, 87.31, 82.41, 98.0, 87.31, 82.41, 73.42, 82.41, 82.41, 110.0, 98.0, 123.47, 110.0, 98.0, 87.31],
+      arp:  [329.63, 349.23, 493.88, 659.25, 493.88, 392.0, 349.23, 329.63, 329.63, 440.0, 493.88, 659.25, 698.46, 659.25, 493.88, 392.0],
+      lead: [659.25, 0, 698.46, 659.25, 493.88, 0, 523.25, 493.88, 659.25, 0, 783.99, 698.46, 659.25, 0, 493.88, 0]
+    },
+    {
+      bpm: 118,
+      bass: [65.41, 65.41, 77.78, 98.0, 87.31, 87.31, 77.78, 73.42, 65.41, 98.0, 116.54, 98.0, 87.31, 77.78, 73.42, 65.41],
+      arp:  [261.63, 311.13, 392.0, 523.25, 587.33, 523.25, 392.0, 311.13, 349.23, 440.0, 523.25, 698.46, 622.25, 523.25, 466.16, 392.0],
+      lead: [523.25, 0, 622.25, 587.33, 783.99, 0, 698.46, 0, 622.25, 0, 587.33, 523.25, 466.16, 0, 392.0, 0]
+    }
+  ];
+
+  var BOSS_THEME = {
+    bass: [55.0, 55.0, 65.41, 55.0, 73.42, 55.0, 82.41, 77.78, 55.0, 55.0, 87.31, 82.41, 73.42, 65.41, 61.74, 55.0],
+    arp:  [220.0, 261.63, 329.63, 440.0, 466.16, 440.0, 329.63, 261.63, 220.0, 293.66, 349.23, 440.0, 523.25, 466.16, 440.0, 329.63],
+    lead: [440.0, 466.16, 440.0, 329.63, 523.25, 0, 466.16, 440.0, 587.33, 0, 523.25, 466.16, 440.0, 329.63, 440.0, 0]
+  };
 
   function utcSeed(offsetDays) {
     var d = new Date(Date.now() + (offsetDays || 0) * 86400000);
@@ -57,6 +96,39 @@
       var Ctx = window.AudioContext || window.webkitAudioContext;
       if (!Ctx) return null;
       audioCtx = new Ctx();
+      try {
+        var comp = audioCtx.createDynamicsCompressor();
+        comp.threshold.value = -16;
+        comp.knee.value = 18;
+        comp.ratio.value = 6;
+        comp.attack.value = 0.004;
+        comp.release.value = 0.16;
+        comp.connect(audioCtx.destination);
+        masterBus = comp;
+
+        // Procedural cathedral impulse response for ConvolverNode reverb
+        if (typeof audioCtx.createConvolver === 'function') {
+          var conv = audioCtx.createConvolver();
+          var rate = audioCtx.sampleRate;
+          var irLen = Math.floor(rate * 1.15);
+          var ir = audioCtx.createBuffer(2, irLen, rate);
+          for (var ch = 0; ch < 2; ch++) {
+            var data = ir.getChannelData(ch);
+            for (var i = 0; i < irLen; i++) {
+              var decay = Math.pow(1 - i / irLen, 2.8);
+              data[i] = (Math.random() * 2 - 1) * decay * 0.45;
+            }
+          }
+          conv.buffer = ir;
+          var wetGain = audioCtx.createGain();
+          wetGain.gain.value = 0.22;
+          conv.connect(wetGain);
+          wetGain.connect(masterBus);
+          reverbBus = conv;
+        }
+      } catch (_) {
+        masterBus = audioCtx.destination;
+      }
     }
     if (audioCtx.state === 'suspended') {
       try { audioCtx.resume(); } catch (_) {}
@@ -67,7 +139,7 @@
   function ensureNoiseBuffer(ctx) {
     if (noiseBuffer) return noiseBuffer;
     try {
-      var len = Math.floor(ctx.sampleRate * 0.45);
+      var len = Math.floor(ctx.sampleRate * 0.5);
       var buf = ctx.createBuffer(1, len, ctx.sampleRate);
       var data = buf.getChannelData(0);
       for (var i = 0; i < len; i++) {
@@ -87,7 +159,7 @@
       src.buffer = buf;
       src.connect(ctx.destination);
       if (src.start) src.start(0);
-      if (droneWanted && !droneNodes) startDrone();
+      if (musicActive && !seqTimer) startSequencer();
     } catch (_) {}
   }
 
@@ -95,7 +167,7 @@
     window.addEventListener(evt, unlockAudio, { passive: true });
   });
 
-  function tone(f1, f2, dur, type, vol, pitchMul, delaySec) {
+  function tone(f1, f2, dur, type, vol, pitchMul, delaySec, useReverb, filterHz) {
     if (isMuted) return;
     try {
       var ctx = ensureAudioCtx();
@@ -110,14 +182,26 @@
       g.gain.setValueAtTime(0.0001, now);
       g.gain.linearRampToValueAtTime(vol || 0.1, now + Math.min(0.012, dur * 0.2));
       g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-      osc.connect(g);
-      g.connect(ctx.destination);
+
+      var dest = masterBus || ctx.destination;
+      if (filterHz && filterHz > 0) {
+        var flt = ctx.createBiquadFilter();
+        flt.type = 'lowpass';
+        flt.frequency.setValueAtTime(filterHz, now);
+        flt.Q.value = 1.6;
+        osc.connect(flt);
+        flt.connect(g);
+      } else {
+        osc.connect(g);
+      }
+      g.connect(dest);
+      if (useReverb && reverbBus) g.connect(reverbBus);
       osc.start(now);
-      osc.stop(now + dur + 0.02);
+      osc.stop(now + dur + 0.03);
     } catch (_) {}
   }
 
-  function noiseBurst(dur, filterFreq, filterType, vol, delaySec) {
+  function noiseBurst(dur, filterFreq, filterType, vol, delaySec, useReverb) {
     if (isMuted) return;
     try {
       var ctx = ensureAudioCtx();
@@ -133,75 +217,111 @@
       flt.frequency.exponentialRampToValueAtTime(Math.max(120, (filterFreq || 900) * 0.35), now + dur);
       var g = ctx.createGain();
       g.gain.setValueAtTime(0.0001, now);
-      g.gain.linearRampToValueAtTime(vol || 0.06, now + 0.01);
+      g.gain.linearRampToValueAtTime(vol || 0.06, now + 0.008);
       g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
       src.connect(flt);
       flt.connect(g);
-      g.connect(ctx.destination);
+      var dest = masterBus || ctx.destination;
+      g.connect(dest);
+      if (useReverb && reverbBus) g.connect(reverbBus);
       src.start(now);
-      src.stop(now + dur + 0.02);
+      src.stop(now + dur + 0.03);
     } catch (_) {}
   }
 
-  function setBossMusic(active) {
-    if (bossMusicTimer) {
-      clearInterval(bossMusicTimer);
-      bossMusicTimer = null;
+  function stepSequencer() {
+    if (isMuted || !musicActive) return;
+    var theme = bossMusicPhase > 0 ? BOSS_THEME : (BIOME_THEMES[currentBiomeIdx % 3] || BIOME_THEMES[0]);
+    var i = seqStep % 16;
+    var bar = Math.floor(seqStep / 16) % 4;
+    seqStep++;
+
+    // Track 1: Punchy Synthwave Sub + Drive Bass
+    var bNote = theme.bass[i];
+    if (bNote > 0) {
+      tone(bNote, bNote * 0.992, 0.17, 'sawtooth', bossMusicPhase > 0 ? 0.052 : 0.040, 1.0, 0, false, 340);
+      if (i % 2 === 0) {
+        tone(bNote * 0.5, bNote * 0.495, 0.18, 'triangle', 0.048, 1.0, 0, false, 180);
+      }
     }
-    if (active) {
-      bossStep = 0;
-      bossMusicTimer = setInterval(function () {
-        if (isMuted || !droneWanted) return;
-        var n = BOSS_NOTES[bossStep % BOSS_NOTES.length];
-        bossStep++;
-        tone(n, n * 0.985, 0.16, 'sawtooth', 0.042, 1.0);
-        if (bossStep % 4 === 1) {
-          tone(55, 42, 0.15, 'triangle', 0.062, 1.0);
-        }
-      }, 214);
+
+    // Track 2: 16-bit Crystalline Arpeggiator
+    var aNote = theme.arp[i];
+    if (aNote > 0) {
+      var arpWave = currentBiomeIdx === 2 && bossMusicPhase === 0 ? 'triangle' : 'square';
+      tone(aNote, aNote, 0.11, arpWave, bossMusicPhase > 0 ? 0.028 : 0.022, 1.0, 0, true, 1900);
+    }
+
+    // Track 3: Heroic Melodic Lead (enters on bars 1-3 or always during Boss)
+    var lNote = theme.lead[i];
+    if (lNote > 0 && (bossMusicPhase > 0 || bar >= 1)) {
+      tone(lNote, lNote * 1.003, 0.24, 'sawtooth', bossMusicPhase === 2 ? 0.038 : 0.028, 1.0, 0, true, 2400);
+    }
+
+    // Track 4: Synthwave Percussion (Kick + Gated Snare + Crisp Hat)
+    var kickBeat = (i % 4 === 0) || (bossMusicPhase === 2 && i % 4 === 2);
+    if (kickBeat) {
+      tone(128, 38, 0.13, 'sine', bossMusicPhase > 0 ? 0.088 : 0.068, 1.0, 0, false, 0);
+    }
+    if (i === 4 || i === 12) {
+      noiseBurst(0.11, 1450, 'bandpass', bossMusicPhase > 0 ? 0.048 : 0.036, 0, true);
+      tone(195, 110, 0.06, 'triangle', 0.035, 1.0, 0, false, 0);
+    }
+    if (i % 2 === 1) {
+      noiseBurst(0.032, 6500, 'highpass', 0.015, 0, false);
     }
   }
 
-  function startDrone() {
-    try {
-      var ctx = ensureAudioCtx();
-      if (!ctx || droneNodes) return;
-      var filter = ctx.createBiquadFilter();
-      filter.type = 'lowpass';
-      filter.frequency.value = 180;
-      var gain = ctx.createGain();
-      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-      var targetGain = isMuted ? 0.0001 : 0.030;
-      gain.gain.setTargetAtTime(targetGain, ctx.currentTime, 0.35);
-
-      var osc1 = ctx.createOscillator();
-      osc1.type = 'sawtooth';
-      osc1.frequency.value = 55;
-      var osc2 = ctx.createOscillator();
-      osc2.type = 'triangle';
-      osc2.frequency.value = 82.41;
-
-      osc1.connect(filter);
-      osc2.connect(filter);
-      filter.connect(gain);
-      gain.connect(ctx.destination);
-      osc1.start();
-      osc2.start();
-      droneNodes = { osc1: osc1, osc2: osc2, gain: gain };
-    } catch (_) {}
+  function startSequencer() {
+    stopSequencer();
+    if (!musicActive) return;
+    var bpm = bossMusicPhase === 2 ? 152 : (bossMusicPhase === 1 ? 140 : (BIOME_THEMES[currentBiomeIdx % 3] || BIOME_THEMES[0]).bpm);
+    var stepMs = Math.max(85, Math.round((60000 / bpm) / 2)); // 8th-note steps
+    seqTimer = setInterval(stepSequencer, stepMs);
   }
 
-  function stopDrone() {
-    if (!droneNodes || !audioCtx) return;
-    try {
-      var nodes = droneNodes;
-      droneNodes = null;
-      nodes.gain.gain.setTargetAtTime(0.0001, audioCtx.currentTime, 0.15);
-      setTimeout(function () {
-        try { nodes.osc1.stop(); nodes.osc2.stop(); } catch (_) {}
-      }, 400);
-    } catch (_) {
-      droneNodes = null;
+  function stopSequencer() {
+    if (seqTimer) {
+      clearInterval(seqTimer);
+      seqTimer = null;
+    }
+  }
+
+  function setBossMusic(phase) {
+    var nextPhase = Math.max(0, Math.min(2, phase | 0));
+    if (bossMusicPhase !== nextPhase) {
+      bossMusicPhase = nextPhase;
+      if (musicActive) startSequencer();
+    }
+  }
+
+  function playVoiceBlip(speakerKind) {
+    if (isMuted) return;
+    // 16-bit retro expressive voice blips for Banter Box portraits
+    if (speakerKind === 0) {
+      // Sun Knight: warm heroic baritone
+      tone(210, 260, 0.065, 'triangle', 0.075, 1.0, 0, true, 1200);
+      tone(245, 295, 0.06, 'triangle', 0.065, 1.0, 0.07, true, 1200);
+    } else if (speakerKind === 1) {
+      // Pyromancer: bright arcane chime voice
+      tone(340, 420, 0.06, 'sine', 0.07, 1.0, 0, true, 2200);
+      tone(420, 510, 0.055, 'triangle', 0.06, 1.0, 0.065, true, 2200);
+    } else if (speakerKind === 2) {
+      // Shadow Assassin: quick sharp whisper-synth
+      tone(290, 210, 0.05, 'sawtooth', 0.055, 1.0, 0, true, 1400);
+      tone(320, 250, 0.05, 'sawtooth', 0.05, 1.0, 0.055, true, 1400);
+    } else if (speakerKind === 3) {
+      // Malakor Void Lich: eerie deep necrotic voice
+      tone(110, 88, 0.11, 'sawtooth', 0.085, 1.0, 0, true, 620);
+      tone(98, 78, 0.12, 'sawtooth', 0.08, 1.0, 0.09, true, 540);
+    } else if (speakerKind === 4) {
+      // Ignis Rex Magma Titan: seismic volcanic rumble
+      tone(82, 58, 0.14, 'sawtooth', 0.095, 1.0, 0, true, 420);
+      tone(73, 52, 0.14, 'square', 0.07, 1.0, 0.10, true, 360);
+    } else {
+      // Skadi Glacial Empress: resonant crystalline chime voice
+      tone(523, 659, 0.09, 'sine', 0.075, 1.0, 0, true, 3200);
+      tone(659, 587, 0.10, 'triangle', 0.065, 1.0, 0.08, true, 3000);
     }
   }
 
@@ -209,54 +329,66 @@
     if (isMuted) return;
     if (kind === 0) {
       // Crisp UI select chime
-      tone(392, 587, 0.09, 'triangle', 0.085, pitchMul, 0);
-      tone(587, 784, 0.09, 'sine', 0.06, pitchMul, 0.04);
+      tone(440, 659, 0.085, 'triangle', 0.08, pitchMul, 0, true, 2800);
+      tone(659, 880, 0.09, 'sine', 0.055, pitchMul, 0.04, true, 3200);
     } else if (kind === 1) {
       // Weapon shot / slash
-      tone(540, 190, 0.085, 'sawtooth', 0.048, pitchMul, 0);
-      noiseBurst(0.045, 1800, 'highpass', 0.025, 0);
+      tone(540, 185, 0.085, 'sawtooth', 0.045, pitchMul, 0, false, 2000);
+      noiseBurst(0.045, 1900, 'highpass', 0.025, 0, false);
     } else if (kind === 2) {
-      // Impact thud
-      tone(220, 72, 0.075, 'square', 0.048, pitchMul, 0);
-      noiseBurst(0.04, 650, 'bandpass', 0.03, 0);
+      // Enemy hit thud
+      tone(210, 68, 0.075, 'square', 0.046, pitchMul, 0, false, 900);
+      noiseBurst(0.038, 650, 'bandpass', 0.028, 0, false);
     } else if (kind === 3) {
       // Chain lightning / Void storm crackle
-      tone(1260, 380, 0.14, 'sawtooth', 0.065, pitchMul, 0);
-      noiseBurst(0.11, 2800, 'highpass', 0.055, 0);
+      tone(1320, 360, 0.14, 'sawtooth', 0.062, pitchMul, 0, true, 3400);
+      noiseBurst(0.11, 2900, 'highpass', 0.052, 0, true);
     } else if (kind === 4) {
-      // Barrel / Supernova explosion
-      tone(180, 44, 0.24, 'sawtooth', 0.105, pitchMul, 0);
-      noiseBurst(0.22, 520, 'lowpass', 0.085, 0);
+      // Barrel / Supernova heavy impact explosion
+      tone(165, 38, 0.28, 'sawtooth', 0.115, pitchMul, 0, true, 620);
+      noiseBurst(0.24, 480, 'lowpass', 0.095, 0, true);
     } else if (kind === 5) {
-      // Level-Up / Bounty / Victory fanfare
-      tone(523.25, 523.25, 0.14, 'triangle', 0.095, pitchMul, 0);
-      tone(659.25, 659.25, 0.16, 'triangle', 0.095, pitchMul, 0.065);
-      tone(783.99, 1046.5, 0.26, 'sine', 0.105, pitchMul, 0.13);
+      // Level-Up / Bounty fanfare chord
+      tone(523.25, 523.25, 0.14, 'triangle', 0.09, pitchMul, 0, true, 3200);
+      tone(659.25, 659.25, 0.16, 'triangle', 0.09, pitchMul, 0.065, true, 3200);
+      tone(783.99, 1046.5, 0.28, 'sine', 0.105, pitchMul, 0.13, true, 3600);
     } else if (kind === 6) {
-      // Boss alert war horn
-      tone(110, 73.4, 0.48, 'sawtooth', 0.12, pitchMul, 0);
-      tone(55, 46, 0.52, 'triangle', 0.13, pitchMul, 0.02);
-      noiseBurst(0.32, 340, 'lowpass', 0.05, 0.04);
+      // Boss alert cathedral war horn
+      tone(110, 73.4, 0.56, 'sawtooth', 0.125, pitchMul, 0, true, 780);
+      tone(55, 46, 0.60, 'triangle', 0.135, pitchMul, 0.02, true, 420);
+      noiseBurst(0.35, 340, 'lowpass', 0.055, 0.04, true);
     } else if (kind === 7) {
       // Hero hurt
-      tone(175, 58, 0.18, 'sawtooth', 0.11, pitchMul, 0);
-      noiseBurst(0.09, 420, 'bandpass', 0.06, 0);
+      tone(175, 54, 0.19, 'sawtooth', 0.115, pitchMul, 0, false, 700);
+      noiseBurst(0.09, 420, 'bandpass', 0.062, 0, false);
     } else if (kind === 8) {
-      // XP gem sparkle
-      tone(880, 1320, 0.065, 'sine', 0.055, pitchMul, 0);
+      // XP gem combo-pitched sparkle
+      tone(880, 1320, 0.065, 'sine', 0.05, pitchMul, 0, true, 0);
     } else if (kind === 9) {
-      // Runic chest / Blood shrine harmonic chime
-      tone(392, 587, 0.17, 'triangle', 0.09, pitchMul, 0);
-      tone(587, 880, 0.22, 'sine', 0.085, pitchMul, 0.075);
+      // Runic chest / Blood shrine mystical arpeggio
+      tone(392, 587, 0.17, 'triangle', 0.088, pitchMul, 0, true, 2800);
+      tone(587, 880, 0.24, 'sine', 0.085, pitchMul, 0.075, true, 3400);
     } else if (kind === 10) {
-      // Inferno Dash whoosh
-      noiseBurst(0.15, 1600, 'bandpass', 0.075, 0);
-      tone(340, 120, 0.14, 'triangle', 0.07, pitchMul, 0);
+      // Inferno Dash airy whoosh + ember crack
+      noiseBurst(0.15, 1650, 'bandpass', 0.075, 0, true);
+      tone(360, 115, 0.14, 'triangle', 0.07, pitchMul, 0, false, 1400);
     } else if (kind === 11) {
-      // Witch-Time Perfect Dodge (time-warp dive + crystal shimmer)
-      tone(660, 135, 0.34, 'sine', 0.11, 1.0, 0);
-      tone(1320, 1760, 0.24, 'triangle', 0.08, 1.0, 0.05);
-      tone(987.77, 1480, 0.22, 'sine', 0.06, 1.0, 0.11);
+      // Witch-Time Perfect Dodge (time-warp dive + cathedral crystal shimmer)
+      tone(660, 130, 0.36, 'sine', 0.115, 1.0, 0, true, 0);
+      tone(1320, 1760, 0.28, 'triangle', 0.082, 1.0, 0.05, true, 0);
+      tone(987.77, 1480, 0.25, 'sine', 0.065, 1.0, 0.11, true, 0);
+    } else if (kind === 12) {
+      // Epic Victory Jingle (4-note triumphant brass/synth fanfare)
+      tone(523.25, 523.25, 0.15, 'sawtooth', 0.075, 1.0, 0, true, 2400);
+      tone(659.25, 659.25, 0.15, 'sawtooth', 0.075, 1.0, 0.11, true, 2400);
+      tone(783.99, 783.99, 0.18, 'sawtooth', 0.082, 1.0, 0.22, true, 2600);
+      tone(1046.5, 1046.5, 0.52, 'triangle', 0.11, 1.0, 0.35, true, 3200);
+      tone(523.25, 523.25, 0.52, 'sawtooth', 0.07, 1.0, 0.35, true, 1600);
+    } else if (kind === 13) {
+      // Dramatic Defeat Chord
+      tone(220, 196, 0.30, 'sawtooth', 0.08, 1.0, 0, true, 900);
+      tone(164.81, 146.83, 0.42, 'triangle', 0.085, 1.0, 0.18, true, 700);
+      tone(110, 92.5, 0.55, 'sawtooth', 0.09, 1.0, 0.32, true, 520);
     }
   }
 
@@ -305,6 +437,7 @@
         initData.bestEndlessWave = Math.max(initData.bestEndlessWave, Number(p.bestEndlessWave) || 0);
         initData.selectedAura = Math.max(0, Math.min(3, Number(p.selectedAura) || 0));
         if (typeof p.muted === 'boolean') isMuted = p.muted;
+        if (typeof p.crt === 'boolean') crtEnabled = p.crt;
         var today = utcSeed(0);
         var yesterday = utcSeed(-1);
         if (p.localStreakDate === today || p.localStreakDate === yesterday) {
@@ -326,6 +459,7 @@
         bestEndlessWave: initData.bestEndlessWave,
         selectedAura: initData.selectedAura,
         muted: isMuted,
+        crt: crtEnabled,
         localStreak: initData.localStreak,
         localStreakDate: initData.localStreakDate,
         localVoteDate: utcSeed(0),
@@ -491,27 +625,38 @@
         playSfxPitched(kind, pitchMul);
       };
 
+      env.emberfall_play_voice_blip = function (speakerKind) {
+        playVoiceBlip(speakerKind | 0);
+      };
+
+      env.emberfall_set_biome_music = function (biomeIdx) {
+        currentBiomeIdx = Math.max(0, Math.min(2, biomeIdx | 0));
+        if (musicActive && bossMusicPhase === 0) startSequencer();
+      };
+
+      env.emberfall_set_crt = function (enabled) {
+        crtEnabled = enabled !== 0;
+        saveLocalProfile();
+      };
+
       env.emberfall_set_muted = function (muted) {
         isMuted = muted !== 0;
         saveLocalProfile();
-        if (droneNodes && audioCtx) {
-          try {
-            droneNodes.gain.gain.setTargetAtTime(isMuted ? 0.0001 : 0.030, audioCtx.currentTime, 0.08);
-          } catch (_) {}
-        }
       };
 
       env.emberfall_toggle_drone = function (active) {
-        droneWanted = active !== 0;
-        if (droneWanted) startDrone();
-        else {
-          setBossMusic(false);
-          stopDrone();
+        musicActive = active !== 0;
+        if (musicActive) {
+          seqStep = 0;
+          startSequencer();
+        } else {
+          bossMusicPhase = 0;
+          stopSequencer();
         }
       };
 
       env.emberfall_set_boss_music = function (active) {
-        setBossMusic(active !== 0);
+        setBossMusic(active | 0);
       };
 
       env.emberfall_on_run_start = function () {
@@ -772,6 +917,7 @@
             return Math.max(0, Math.floor((nextMid - now.getTime()) / 1000)) | 0;
           }
           case 21: return isMuted ? 1 : 0;
+          case 22: return crtEnabled ? 1 : 0;
           default: return 0;
         }
       };
@@ -838,5 +984,5 @@
     name: 'emberfall_bridge'
   });
 
-  load('./emberfall.wasm?v=20261125v7');
+  load('./emberfall.wasm?v=20261125v8');
 })();
