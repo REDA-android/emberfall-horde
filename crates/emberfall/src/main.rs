@@ -58,6 +58,7 @@ extern "C" {
     ) -> u32;
     fn emberfall_get_lb_score(index: i32) -> u32;
     fn emberfall_get_faction_score(index: i32) -> u32;
+    fn emberfall_get_tomorrow_vote(index: i32) -> u32;
     fn emberfall_get_ghost_x(index: i32) -> i32;
     fn emberfall_get_ghost_y(index: i32) -> i32;
     fn emberfall_get_share_state() -> i32;
@@ -140,6 +141,10 @@ unsafe fn emberfall_get_lb_score(_index: i32) -> u32 {
 }
 #[cfg(not(target_arch = "wasm32"))]
 unsafe fn emberfall_get_faction_score(_index: i32) -> u32 {
+    0
+}
+#[cfg(not(target_arch = "wasm32"))]
+unsafe fn emberfall_get_tomorrow_vote(_index: i32) -> u32 {
     0
 }
 #[cfg(not(target_arch = "wasm32"))]
@@ -504,6 +509,13 @@ struct SocialState {
     best_endless_wave: u32,
     selected_aura: usize,
     blessing_faction: i32,
+    tomorrow_biome_idx: usize,
+    tomorrow_leading_mutator: usize,
+    tomorrow_votes: [u32; 4],
+    tomorrow_total_votes: u32,
+    siege_feed: Vec<String>,
+    utc_seconds_to_midnight: u32,
+    countdown_sync_timer: f32,
 }
 
 struct Projectile {
@@ -664,6 +676,7 @@ struct Game {
     barrel_detonations: u32,
     shrines_claimed: u32,
     chests_opened: u32,
+    witch_time_dodges: u32,
     combo_milestone: u32,
     dmg_by_weapon: [f32; 4],
     particles: Vec<Particle>,
@@ -785,6 +798,7 @@ impl Game {
             barrel_detonations: 0,
             shrines_claimed: 0,
             chests_opened: 0,
+            witch_time_dodges: 0,
             combo_milestone: 0,
             dmg_by_weapon: [0.0; 4],
             particles: Vec::new(),
@@ -890,6 +904,65 @@ impl Game {
             } else {
                 self.social.blessing_faction = self.biome.to_index() as i32;
             }
+            let tb = unsafe { emberfall_get_init_field(15) };
+            if (0..=2).contains(&tb) {
+                self.social.tomorrow_biome_idx = tb as usize;
+            } else {
+                self.social.tomorrow_biome_idx = (self.biome.to_index() + 1) % 3;
+            }
+            let tm = unsafe { emberfall_get_init_field(16) };
+            if (0..=3).contains(&tm) {
+                self.social.tomorrow_leading_mutator = tm as usize;
+            }
+            let my_v = unsafe { emberfall_get_init_field(17) };
+            if (0..=3).contains(&my_v) {
+                self.social.voted_mutator = Some(my_v as usize);
+            }
+            self.social.tomorrow_total_votes =
+                unsafe { emberfall_get_init_field(18) }.max(0) as u32;
+            for vi in 0..4 {
+                self.social.tomorrow_votes[vi] =
+                    unsafe { emberfall_get_tomorrow_vote(vi as i32) };
+            }
+            let sf_count = (unsafe { emberfall_get_init_field(19) }).clamp(0, 6) as usize;
+            self.social.siege_feed.clear();
+            for si in 0..sf_count {
+                let s = read_ffi_str(5, si as i32);
+                if !s.is_empty() {
+                    self.social.siege_feed.push(s);
+                }
+            }
+            let rem_sec = unsafe { emberfall_get_init_field(20) };
+            if rem_sec >= 0 {
+                self.social.utc_seconds_to_midnight = rem_sec as u32;
+            }
+            if !just_submitted {
+                let persisted_mute = unsafe { emberfall_get_init_field(21) };
+                if persisted_mute == 1 {
+                    self.muted = true;
+                }
+            }
+        }
+        // Refresh UTC countdown & live tomorrow vote tallies periodically
+        self.social.countdown_sync_timer += get_frame_time();
+        if self.social.countdown_sync_timer >= 0.75 {
+            self.social.countdown_sync_timer = 0.0;
+            let rem_sec = unsafe { emberfall_get_init_field(20) };
+            if rem_sec >= 0 {
+                self.social.utc_seconds_to_midnight = rem_sec as u32;
+            }
+            let tv = unsafe { emberfall_get_init_field(18) };
+            if tv >= 0 {
+                self.social.tomorrow_total_votes = tv as u32;
+                let tm = unsafe { emberfall_get_init_field(16) };
+                if (0..=3).contains(&tm) {
+                    self.social.tomorrow_leading_mutator = tm as usize;
+                }
+                for vi in 0..4 {
+                    self.social.tomorrow_votes[vi] =
+                        unsafe { emberfall_get_tomorrow_vote(vi as i32) };
+                }
+            }
         }
         self.social.last_status_msg = read_ffi_str(3, 0);
     }
@@ -990,6 +1063,7 @@ impl Game {
         self.barrel_detonations = 0;
         self.shrines_claimed = 0;
         self.chests_opened = 0;
+        self.witch_time_dodges = 0;
         self.combo_milestone = 0;
         self.dmg_by_weapon = [0.0; 4];
         self.particles.clear();
@@ -1152,7 +1226,7 @@ impl Game {
         self.hero_squash = 0.36;
         self.dash_cd = (2.2 - (self.build.dash_lvl as f32 - 1.0) * 0.26).max(0.95);
         self.add_trauma(0.26);
-        play_sfx(4);
+        play_sfx(10);
 
         // Inferno Nova explosion on dash!
         let nova_r = 95.0 + (self.build.dash_lvl as f32) * 26.0;
@@ -1199,6 +1273,15 @@ impl Game {
         for i in 0..3 {
             let (bounty, ref mut prog, ref mut done) = self.bounties[i];
             let new_p = match bounty.kind {
+                BountyKind::WitchTimeDodges => self.witch_time_dodges,
+                BountyKind::ReachLevel => self.level,
+                BountyKind::SlayDailyBoss => {
+                    if self.boss_slain {
+                        1
+                    } else {
+                        0
+                    }
+                }
                 BountyKind::DetonateBarrels => self.barrel_detonations,
                 BountyKind::ClaimShrines => self.shrines_claimed,
                 BountyKind::ReachCombo => (*prog).max(self.combo),
@@ -1738,13 +1821,18 @@ impl Game {
         let ult_center = vec2(sw - 150.0, sh - 56.0);
         let pause_rect = Rect::new(sw - 46.0, 16.0, 32.0, 28.0);
         let mute_rect = Rect::new(sw - 84.0, 16.0, 32.0, 28.0);
+        let info_rect = Rect::new(sw - 122.0, 16.0, 32.0, 28.0);
 
         // Touch / Mouse 1-thumb virtual joystick
         let mut active_pointer: Option<(Vec2, bool)> = None;
         let ts = touches();
         if !ts.is_empty() {
             for t in &ts {
-                if !self.joy_active && (mute_rect.contains(t.position) || pause_rect.contains(t.position)) {
+                if !self.joy_active
+                    && (mute_rect.contains(t.position)
+                        || pause_rect.contains(t.position)
+                        || info_rect.contains(t.position))
+                {
                     continue;
                 }
                 if t.phase == TouchPhase::Started && t.position.distance(ult_center) <= 38.0 {
@@ -1763,8 +1851,10 @@ impl Game {
         } else if is_mouse_button_down(MouseButton::Left) {
             let mp = vec2(mouse_position().0, mouse_position().1);
             let started = is_mouse_button_pressed(MouseButton::Left);
-            if !self.joy_active && (mute_rect.contains(mp) || pause_rect.contains(mp)) {
-                // Ignore HUD Mute/Pause button clicks so joystick does not activate
+            if !self.joy_active
+                && (mute_rect.contains(mp) || pause_rect.contains(mp) || info_rect.contains(mp))
+            {
+                // Ignore HUD Info/Mute/Pause button clicks so joystick does not activate
             } else if started && mp.distance(ult_center) <= 34.0 {
                 self.trigger_ultimate();
             } else if started && mp.distance(dash_center) <= dash_r + 10.0 {
@@ -2078,18 +2168,20 @@ impl Game {
                 });
                 if near_shot || near_ring {
                     self.dodge_triggered_this_dash = true;
+                    self.witch_time_dodges += 1;
                     self.slow_mo_timer = 0.42;
                     self.score += 150;
                     self.dash_cd = (self.dash_cd * 0.65).max(0.2);
                     self.shockwave = 0.85;
                     self.float_texts.push(FloatText {
                         pos: self.hero_pos + vec2(0.0, -42.0),
-                        text: "PERFECT DODGE! +150".to_string(),
+                        text: "WITCH-TIME DODGE! +150".to_string(),
                         color: Color::from_rgba(56, 189, 248, 255),
                         life: 1.2,
                         scale: 23.0,
                     });
-                    play_sfx(5);
+                    play_sfx(11);
+                    self.check_bounties();
                 }
             }
         } else {
@@ -2751,6 +2843,7 @@ impl Game {
                 if self.xp >= self.xp_next {
                     self.xp -= self.xp_next;
                     self.level += 1;
+                    self.check_bounties();
                     self.xp_next = ((self.xp_next as f32) * 1.34) as u32 + 12;
                     self.pending_choices = self.build.roll_three(&mut self.rng);
                     self.phase = Phase::LevelUp;
@@ -3675,24 +3768,29 @@ impl Game {
     }
 
     fn draw_social_panel(&self, font: Option<&Font>, x: f32, y: f32, w: f32, max_rows: usize) {
-        // 1. Subreddit Faction War bar (3 Reddit Orders)
-        let f0 = self.social.faction_scores[0].max(1) as f32;
-        let f1 = self.social.faction_scores[1].max(1) as f32;
-        let f2 = self.social.faction_scores[2].max(1) as f32;
-        let f_total = (f0 + f1 + f2).max(1.0);
-        let w0 = w * (f0 / f_total);
-        let w1 = w * (f1 / f_total);
+        // 1. Subreddit Faction War bar (3 Reddit Orders with live percentages)
+        let raw_total = self.social.faction_scores[0]
+            + self.social.faction_scores[1]
+            + self.social.faction_scores[2];
+        let (p0, p1, p2) = if raw_total > 0 {
+            let a = ((self.social.faction_scores[0] as f32 / raw_total as f32) * 100.0).round() as u32;
+            let b = ((self.social.faction_scores[1] as f32 / raw_total as f32) * 100.0).round() as u32;
+            let c = 100u32.saturating_sub(a + b);
+            (a, b, c)
+        } else {
+            (33, 33, 34)
+        };
+        let w0 = w * (p0.max(8) as f32 / (p0.max(8) + p1.max(8) + p2.max(8)) as f32);
+        let w1 = w * (p1.max(8) as f32 / (p0.max(8) + p1.max(8) + p2.max(8)) as f32);
         let w2 = (w - w0 - w1).max(0.0);
 
-        draw_rectangle(x, y, w0, 18.0, Color::from_rgba(234, 179, 8, 225));
-        draw_rectangle(x + w0, y, w1, 18.0, Color::from_rgba(14, 165, 233, 225));
-        draw_rectangle(x + w0 + w1, y, w2, 18.0, Color::from_rgba(168, 85, 247, 225));
-        draw_rectangle_lines(x, y, w, 18.0, 1.4, Color::from_rgba(226, 232, 240, 160));
+        draw_rectangle(x, y, w0, 18.0, Color::from_rgba(202, 138, 4, 235));
+        draw_rectangle(x + w0, y, w1, 18.0, Color::from_rgba(2, 132, 199, 235));
+        draw_rectangle(x + w0 + w1, y, w2, 18.0, Color::from_rgba(147, 51, 234, 235));
+        draw_rectangle_lines(x, y, w, 18.0, 1.4, Color::from_rgba(226, 232, 240, 175));
         let fw_lbl = format!(
-            "FACTION WAR: SOLAR {} · ARCANE {} · SHADOW {}",
-            self.social.faction_scores[0],
-            self.social.faction_scores[1],
-            self.social.faction_scores[2]
+            "FACTION WAR: SOLAR {}% · ARCANE {}% · SHADOW {}%",
+            p0, p1, p2
         );
         let fwd = measure_ui_text(font, &fw_lbl, 11);
         draw_ui_text(font, &fw_lbl, x + (w - fwd.width) * 0.5, y + 13.0, 11.0, WHITE);
@@ -3701,50 +3799,107 @@ impl Game {
         let sy = y + 22.0;
         let siege_t = self.social.siege_target.max(1);
         let siege_pct = (self.social.boss_kills_today as f32 / siege_t as f32).clamp(0.0, 1.0);
-        draw_rectangle(x, sy, w, 20.0, Color::from_rgba(15, 23, 42, 210));
-        draw_rectangle(x, sy, w * siege_pct, 20.0, Color::from_rgba(234, 88, 12, 220));
-        draw_rectangle_lines(x, sy, w, 20.0, 1.4, Color::from_rgba(251, 191, 36, 170));
+        draw_rectangle(x, sy, w, 18.0, Color::from_rgba(15, 23, 42, 215));
+        draw_rectangle(x, sy, w * siege_pct, 18.0, Color::from_rgba(234, 88, 12, 225));
+        draw_rectangle_lines(x, sy, w, 18.0, 1.3, Color::from_rgba(251, 191, 36, 175));
         let siege_lbl = format!(
             "SUBREDDIT BOSS SIEGE: {}/{}",
             self.social.boss_kills_today, siege_t
         );
-        let sd = measure_ui_text(font, &siege_lbl, 12);
-        draw_ui_text(font, &siege_lbl, x + (w - sd.width) * 0.5, sy + 14.0, 12.0, WHITE);
+        let sd = measure_ui_text(font, &siege_lbl, 11);
+        draw_ui_text(font, &siege_lbl, x + (w - sd.width) * 0.5, sy + 13.0, 11.0, WHITE);
+
+        let mut ly = sy + 22.0;
+
+        // 2b. Live Boss Siege Activity Feed
+        if !self.social.siege_feed.is_empty() {
+            let feed_str = format!(
+                "SIEGE FEED: {}",
+                self.social
+                    .siege_feed
+                    .iter()
+                    .take(2)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(" · ")
+            );
+            let fdd = measure_ui_text(font, &feed_str, 10);
+            draw_ui_text(
+                font,
+                &feed_str,
+                x + (w - fdd.width) * 0.5,
+                ly + 9.0,
+                10.0,
+                Color::from_rgba(252, 165, 165, 240),
+            );
+            ly += 14.0;
+        }
+
+        // 2c. Tomorrow's Dungeon Teaser + Live UTC Countdown
+        {
+            let rem = self.social.utc_seconds_to_midnight;
+            let hh = rem / 3600;
+            let mm = (rem % 3600) / 60;
+            let ss = rem % 60;
+            let t_biome = DailyBiome::from_index(self.social.tomorrow_biome_idx).title();
+            let t_short = t_biome.split_whitespace().next().unwrap_or(t_biome);
+            let t_mut = DailyModifier::from_index(self.social.tomorrow_leading_mutator).title();
+            let teaser = if self.social.tomorrow_total_votes > 0 {
+                format!(
+                    "NEXT {:02}:{:02}:{:02} · TOMORROW: {} · VOTE: {} ({})",
+                    hh, mm, ss, t_short, t_mut, self.social.tomorrow_total_votes
+                )
+            } else {
+                format!(
+                    "NEXT {:02}:{:02}:{:02} · TOMORROW: {} · {}",
+                    hh, mm, ss, t_short, t_mut
+                )
+            };
+            let td = measure_ui_text(font, &teaser, 10);
+            draw_ui_text(
+                font,
+                &teaser,
+                x + (w - td.width) * 0.5,
+                ly + 9.0,
+                10.0,
+                Color::from_rgba(125, 211, 252, 240),
+            );
+            ly += 14.0;
+        }
 
         // 3. Daily Leaderboard + Yesterday's Crowned Champion
-        let mut ly = sy + 25.0;
         if !self.social.yesterday_champion.is_empty() {
             let y_lbl = format!(
-                "YESTERDAY'S #1 CHAMPION: u/{} ({} PTS)",
+                "YESTERDAY'S #1: u/{} ({} PTS)",
                 self.social.yesterday_champion, self.social.yesterday_score
             );
-            let yd = measure_ui_text(font, &y_lbl, 12);
+            let yd = measure_ui_text(font, &y_lbl, 11);
             draw_ui_text(
                 font,
                 &y_lbl,
                 x + (w - yd.width) * 0.5,
-                ly + 11.0,
-                12.0,
+                ly + 10.0,
+                11.0,
                 Color::from_rgba(250, 204, 21, 255),
             );
-            ly += 17.0;
+            ly += 15.0;
         }
 
         if !self.social.leaderboard.is_empty() {
             let rows = self.social.leaderboard.len().min(max_rows);
-            let box_h = 24.0 + (rows as f32) * 18.0;
+            let box_h = 22.0 + (rows as f32) * 16.5;
             draw_rectangle(x, ly, w, box_h, Color::from_rgba(8, 13, 28, 205));
             draw_rectangle_lines(x, ly, w, box_h, 1.2, Color::from_rgba(148, 163, 184, 90));
             draw_ui_text(
                 font,
                 "DAILY LEADERBOARD",
                 x + 10.0,
-                ly + 15.0,
-                12.0,
+                ly + 14.0,
+                11.0,
                 Color::from_rgba(56, 189, 248, 255),
             );
             for (idx, entry) in self.social.leaderboard.iter().take(rows).enumerate() {
-                let ry = ly + 32.0 + (idx as f32) * 18.0;
+                let ry = ly + 30.0 + (idx as f32) * 16.5;
                 let col = if idx == 0 {
                     Color::from_rgba(250, 204, 21, 255)
                 } else {
@@ -3755,12 +3910,12 @@ impl Game {
                     &format!("#{} u/{}", idx + 1, entry.username),
                     x + 10.0,
                     ry,
-                    13.0,
+                    12.0,
                     col,
                 );
                 let sc_str = format!("{}", entry.score);
-                let sc_d = measure_ui_text(font, &sc_str, 13);
-                draw_ui_text(font, &sc_str, x + w - sc_d.width - 10.0, ry, 13.0, col);
+                let sc_d = measure_ui_text(font, &sc_str, 12);
+                draw_ui_text(font, &sc_str, x + w - sc_d.width - 10.0, ry, 12.0, col);
             }
         }
     }
@@ -4293,10 +4448,26 @@ impl Game {
             draw_ui_text(font, &timer_str, sw * 0.5 - td.width * 0.5, 42.0, 30.0, WHITE);
         }
 
-        // Top-Right: Mute + Pause buttons & Score/Kills + Minimap Radar
+        // Top-Right: Info (?) + Mute + Pause buttons & Score/Kills + Minimap Radar
         let pause_rect = Rect::new(sw - 46.0, 16.0, 32.0, 28.0);
         let mute_rect = Rect::new(sw - 84.0, 16.0, 32.0, 28.0);
+        let info_rect = Rect::new(sw - 122.0, 16.0, 32.0, 28.0);
         if self.phase == Phase::Playing {
+            if self.draw_button(
+                font,
+                info_rect,
+                "?",
+                Color::from_rgba(15, 23, 42, 210),
+                Color::from_rgba(56, 189, 248, 200),
+            ) {
+                self.phase = Phase::Paused;
+                self.joy_active = false;
+                self.joy_vec = Vec2::ZERO;
+                play_sfx(0);
+                unsafe {
+                    emberfall_toggle_drone(0);
+                }
+            }
             if self.draw_button(
                 font,
                 mute_rect,
@@ -4574,25 +4745,124 @@ impl Game {
             draw_ui_text(font, lbl, uc.x - ld.width * 0.5, uc.y + 6.0, 16.0, WHITE);
         }
 
-        // PAUSED OVERLAY
+        // Auto-fading first-5-second Control Hint Pill
+        if self.phase == Phase::Playing && self.elapsed < 5.5 {
+            let alpha = if self.elapsed < 4.0 {
+                1.0
+            } else {
+                ((5.5 - self.elapsed) / 1.5).clamp(0.0, 1.0)
+            };
+            let hint1 = "MOVE (Drag / WASD) · DASH (Space) · AUTO-ATTACK";
+            let hint2 = "Dash near shots or Boss rings = WITCH-TIME DODGE!";
+            let h1d = measure_ui_text(font, hint1, 13);
+            let h2d = measure_ui_text(font, hint2, 11);
+            let pill_w = h1d.width.max(h2d.width) + 26.0;
+            let pill_h = 40.0;
+            let px = (sw - pill_w) * 0.5;
+            let py = if sw < 560.0 { sh - 156.0 } else { sh - 58.0 };
+            draw_rectangle(px, py, pill_w, pill_h, Color::new(0.04, 0.07, 0.15, 0.84 * alpha));
+            draw_rectangle_lines(
+                px,
+                py,
+                pill_w,
+                pill_h,
+                1.4,
+                Color::new(0.22, 0.74, 0.97, 0.80 * alpha),
+            );
+            draw_ui_text(
+                font,
+                hint1,
+                sw * 0.5 - h1d.width * 0.5,
+                py + 16.0,
+                13.0,
+                Color::new(0.98, 0.98, 0.99, alpha),
+            );
+            draw_ui_text(
+                font,
+                hint2,
+                sw * 0.5 - h2d.width * 0.5,
+                py + 32.0,
+                11.0,
+                Color::new(0.98, 0.80, 0.14, 0.95 * alpha),
+            );
+        }
+
+        // PAUSED / TODAY'S DUNGEON BRIEFING MODAL
         if self.phase == Phase::Paused {
-            draw_rectangle(0.0, 0.0, sw, sh, Color::from_rgba(5, 8, 18, 205));
+            draw_rectangle(0.0, 0.0, sw, sh, Color::from_rgba(5, 8, 18, 222));
             let cx = sw * 0.5;
-            let cy = sh * 0.5;
-            let hdr = "PAUSED";
-            let hd = measure_ui_text(font, hdr, 36);
+            let modal_w = (sw - 24.0).min(420.0);
+            let mx = cx - modal_w * 0.5;
+            let top_y = (sh * 0.06).max(20.0);
+
+            let hdr = "PAUSED · DUNGEON BRIEFING";
+            let hd = measure_ui_text(font, hdr, 22);
             draw_ui_text(
                 font,
                 hdr,
                 cx - hd.width * 0.5,
-                cy - 110.0,
-                36.0,
+                top_y + 18.0,
+                22.0,
                 Color::from_rgba(250, 204, 21, 255),
             );
 
+            // Today's Dungeon Summary Card (Seed, Biome, Boss, Mutator, Blessing, Siege, Bounties)
+            let info_y = top_y + 28.0;
+            let info_h = 154.0;
+            draw_rectangle(mx, info_y, modal_w, info_h, Color::from_rgba(12, 18, 36, 245));
+            draw_rectangle_lines(mx, info_y, modal_w, info_h, 1.6, biome_boss_color(self.biome));
+
+            let l1 = format!("#{} · {}", self.day_seed, self.biome.title());
+            draw_ui_text(font, &l1, mx + 12.0, info_y + 18.0, 12.5, Color::from_rgba(56, 189, 248, 255));
+            let l2 = format!("BOSS: {} · {}", biome_boss_name(self.biome), self.biome.subtitle());
+            draw_ui_text(font, &l2, mx + 12.0, info_y + 34.0, 10.5, biome_boss_color(self.biome));
+            let l3 = format!("MUTATOR: {} ({})", self.modifier.title(), self.modifier.subtitle());
+            draw_ui_text(font, &l3, mx + 12.0, info_y + 51.0, 10.5, Color::from_rgba(252, 165, 165, 255));
+            let bless_idx = self.active_blessing();
+            let l4 = format!(
+                "BLESSING: {} ({})",
+                blessing_name(bless_idx),
+                blessing_effect(bless_idx)
+            );
+            draw_ui_text(font, &l4, mx + 12.0, info_y + 66.0, 10.5, Color::from_rgba(250, 204, 21, 250));
+            let l5 = format!(
+                "SUBREDDIT SIEGE: {}/{} BOSSES SLAIN · STREAK: {}d",
+                self.social.boss_kills_today,
+                self.social.siege_target.max(1),
+                self.social.streak
+            );
+            draw_ui_text(font, &l5, mx + 12.0, info_y + 82.0, 10.5, Color::from_rgba(203, 213, 225, 245));
+
+            draw_ui_text(
+                font,
+                "DAILY BOUNTIES (+750 PTS EACH):",
+                mx + 12.0,
+                info_y + 100.0,
+                10.5,
+                Color::from_rgba(134, 239, 172, 255),
+            );
+            for (bi, (bounty, prog, done)) in self.bounties.iter().enumerate() {
+                let mark = if *done { "[✓]" } else { "[ ]" };
+                let btxt = format!("{} {}", mark, bounty.label(*prog));
+                draw_ui_text(
+                    font,
+                    &btxt,
+                    mx + 16.0,
+                    info_y + 115.0 + (bi as f32) * 13.0,
+                    11.0,
+                    if *done {
+                        Color::from_rgba(74, 222, 128, 255)
+                    } else {
+                        Color::from_rgba(226, 232, 240, 230)
+                    },
+                );
+            }
+
+            // Action Buttons
+            let btn_y = info_y + info_h + 10.0;
             if self.draw_button(
                 font,
-                Rect::new(cx - 120.0, cy - 60.0, 240.0, 48.0),
+                Rect::new(cx - 120.0, btn_y, 240.0, 40.0),
                 "RESUME",
                 Color::from_rgba(234, 88, 12, 235),
                 Color::from_rgba(253, 224, 71, 255),
@@ -4604,8 +4874,8 @@ impl Game {
             }
             if self.draw_button(
                 font,
-                Rect::new(cx - 120.0, cy + 2.0, 240.0, 48.0),
-                if self.muted { "UNMUTE AUDIO" } else { "MUTE AUDIO" },
+                Rect::new(cx - 120.0, btn_y + 46.0, 240.0, 38.0),
+                if self.muted { "UNMUTE AUDIO (M)" } else { "MUTE AUDIO (M)" },
                 Color::from_rgba(30, 41, 59, 235),
                 Color::from_rgba(148, 163, 184, 220),
             ) {
@@ -4613,7 +4883,7 @@ impl Game {
             }
             if self.draw_button(
                 font,
-                Rect::new(cx - 120.0, cy + 64.0, 240.0, 48.0),
+                Rect::new(cx - 120.0, btn_y + 90.0, 240.0, 38.0),
                 "QUIT TO TITLE",
                 Color::from_rgba(127, 29, 29, 220),
                 Color::from_rgba(244, 63, 94, 220),
@@ -4626,35 +4896,37 @@ impl Game {
             }
 
             // Evolution Synergy Codex (below Pause buttons)
-            let codex_y = cy + 128.0;
-            let chdr = "EVOLUTION SYNERGY CODEX (LV.3 + LV.3)";
-            let cd = measure_ui_text(font, chdr, 13);
-            draw_ui_text(
-                font,
-                chdr,
-                cx - cd.width * 0.5,
-                codex_y,
-                13.0,
-                Color::from_rgba(250, 204, 21, 240),
-            );
-            let recipes = [
-                ("METEOR BARRAGE", "Ember Bolts + Arcane Haste"),
-                ("CRIMSON REAPER", "Arcane Slash + Vampiric Ward"),
-                ("INFERNO VORTEX", "Runic Orbit + Inferno Dash"),
-                ("CELESTIAL TEMPEST", "Chain Lightning + Soul Magnet"),
-                ("SOUL HARVESTER", "Vampiric Ward + Soul Magnet"),
-            ];
-            for (ri, (rname, rreq)) in recipes.iter().enumerate() {
-                let txt = format!("{} = {}", rname, rreq);
-                let td = measure_ui_text(font, &txt, 11);
+            let codex_y = btn_y + 144.0;
+            if codex_y + 72.0 < sh {
+                let chdr = "EVOLUTION SYNERGY CODEX (LV.3 + LV.3)";
+                let cd = measure_ui_text(font, chdr, 12);
                 draw_ui_text(
                     font,
-                    &txt,
-                    cx - td.width * 0.5,
-                    codex_y + 18.0 + (ri as f32) * 14.0,
-                    11.0,
-                    Color::from_rgba(203, 213, 225, 220),
+                    chdr,
+                    cx - cd.width * 0.5,
+                    codex_y,
+                    12.0,
+                    Color::from_rgba(250, 204, 21, 240),
                 );
+                let recipes = [
+                    ("METEOR BARRAGE", "Ember Bolts + Arcane Haste"),
+                    ("CRIMSON REAPER", "Arcane Slash + Vampiric Ward"),
+                    ("INFERNO VORTEX", "Runic Orbit + Inferno Dash"),
+                    ("CELESTIAL TEMPEST", "Chain Lightning + Soul Magnet"),
+                    ("SOUL HARVESTER", "Vampiric Ward + Soul Magnet"),
+                ];
+                for (ri, (rname, rreq)) in recipes.iter().enumerate() {
+                    let txt = format!("{} = {}", rname, rreq);
+                    let td = measure_ui_text(font, &txt, 10);
+                    draw_ui_text(
+                        font,
+                        &txt,
+                        cx - td.width * 0.5,
+                        codex_y + 15.0 + (ri as f32) * 13.0,
+                        10.0,
+                        Color::from_rgba(203, 213, 225, 220),
+                    );
+                }
             }
             return;
         }
@@ -4741,17 +5013,18 @@ impl Game {
         if self.phase == Phase::Victory || self.phase == Phase::GameOver {
             draw_rectangle(0.0, 0.0, sw, sh, Color::from_rgba(5, 8, 18, 228));
             let cx = sw * 0.5;
-            let top_y = (sh * 0.05).max(20.0);
+            let top_y = (sh * 0.03).max(14.0);
             let rank = compute_rank(self.score, self.boss_slain);
-            let card_w = (sw - 24.0).min(400.0);
+            let card_w = (sw - 24.0).min(410.0);
             let card_x = cx - card_w * 0.5;
+            let card_h = 212.0;
 
             // Ornate Dark Fantasy Poster Frame
             draw_rectangle(
                 card_x,
                 top_y,
                 card_w,
-                194.0,
+                card_h,
                 Color::from_rgba(11, 17, 34, 245),
             );
             let frame_col = if self.phase == Phase::Victory {
@@ -4759,12 +5032,12 @@ impl Game {
             } else {
                 Color::from_rgba(244, 63, 94, 220)
             };
-            draw_rectangle_lines(card_x, top_y, card_w, 194.0, 2.5, frame_col);
+            draw_rectangle_lines(card_x, top_y, card_w, card_h, 2.5, frame_col);
             draw_rectangle_lines(
                 card_x + 4.0,
                 top_y + 4.0,
                 card_w - 8.0,
-                186.0,
+                card_h - 8.0,
                 1.0,
                 Color::from_rgba(148, 163, 184, 90),
             );
@@ -4772,7 +5045,7 @@ impl Game {
             // Hero Portrait on Left with Active Aura Ring
             let hero_tex = self.hero_texture(assets);
             let p_cx = card_x + 42.0;
-            let p_cy = top_y + 46.0;
+            let p_cy = top_y + 44.0;
             draw_circle_lines(p_cx, p_cy, 29.0, 2.5, aura_color(self.social.selected_aura));
             draw_texture_ex(
                 hero_tex,
@@ -4787,7 +5060,7 @@ impl Game {
 
             // Golden Wax / Runic Rank Seal on Right
             let seal_cx = card_x + card_w - 44.0;
-            let seal_cy = top_y + 46.0;
+            let seal_cy = top_y + 44.0;
             draw_poly(
                 seal_cx,
                 seal_cy,
@@ -4815,7 +5088,7 @@ impl Game {
                 Color::from_rgba(253, 224, 71, 255),
             );
 
-            // Center Poster Title & Hero Class/Faction
+            // Center Poster Title & Hero Class/Faction + Daily Streak
             let heading = if self.phase == Phase::Victory {
                 "DUNGEON CLEARED"
             } else if self.endless_mode {
@@ -4828,23 +5101,25 @@ impl Game {
                 font,
                 heading,
                 cx - hd.width * 0.5,
-                top_y + 28.0,
+                top_y + 26.0,
                 20.0,
                 frame_col,
             );
 
+            let streak_now = self.social.streak.max(1);
             let class_line = format!(
-                "{} · {}",
+                "{} · {} · {}-DAY STREAK",
                 self.hero_class.title(),
-                self.hero_class.faction_name()
+                self.hero_class.faction_name(),
+                streak_now
             );
-            let cld = measure_ui_text(font, &class_line, 12);
+            let cld = measure_ui_text(font, &class_line, 11);
             draw_ui_text(
                 font,
                 &class_line,
                 cx - cld.width * 0.5,
-                top_y + 46.0,
-                12.0,
+                top_y + 43.0,
+                11.0,
                 self.hero_class.accent(),
             );
 
@@ -4858,8 +5133,8 @@ impl Game {
                     "SURVIVED"
                 }
             );
-            let std = measure_ui_text(font, &stats, 14);
-            draw_ui_text(font, &stats, cx - std.width * 0.5, top_y + 66.0, 14.0, WHITE);
+            let std = measure_ui_text(font, &stats, 13);
+            draw_ui_text(font, &stats, cx - std.width * 0.5, top_y + 61.0, 13.0, WHITE);
 
             // Visual Subreddit Siege Progress Bar inside Poster
             let bounties_done = self.bounties.iter().filter(|(_, _, d)| *d).count();
@@ -4868,7 +5143,7 @@ impl Game {
             let siege_pct = (siege_now as f32 / siege_target as f32).clamp(0.0, 1.0);
             let bar_w = card_w - 32.0;
             let bar_x = card_x + 16.0;
-            let bar_y = top_y + 76.0;
+            let bar_y = top_y + 70.0;
             draw_rectangle(bar_x, bar_y, bar_w, 13.0, Color::from_rgba(15, 23, 42, 235));
             draw_rectangle(
                 bar_x,
@@ -4879,7 +5154,7 @@ impl Game {
             );
             draw_rectangle_lines(bar_x, bar_y, bar_w, 13.0, 1.0, Color::from_rgba(250, 204, 21, 180));
             let siege_lbl = format!(
-                "RANK #{}/{} · SUBREDDIT SIEGE {}/{} · BOUNTIES {}/3",
+                "RANK #{}/{} · SIEGE {}/{} · BOUNTIES {}/3",
                 self.social.my_rank.max(1),
                 self.social.total_players.max(1),
                 siege_now,
@@ -4896,6 +5171,33 @@ impl Game {
                 WHITE,
             );
 
+            // 3 Daily Bounties Checklist Strip inside Poster
+            let b_summary: Vec<String> = self
+                .bounties
+                .iter()
+                .map(|(b, p, d)| {
+                    if *d {
+                        format!("✓ {}", b.label(*p))
+                    } else {
+                        format!("○ {}", b.label(*p))
+                    }
+                })
+                .collect();
+            let b_line = b_summary.join("  ·  ");
+            let bld = measure_ui_text(font, &b_line, 10);
+            draw_ui_text(
+                font,
+                &b_line,
+                cx - bld.width * 0.5,
+                top_y + 98.0,
+                10.0,
+                if bounties_done == 3 {
+                    Color::from_rgba(74, 222, 128, 255)
+                } else {
+                    Color::from_rgba(186, 230, 253, 240)
+                },
+            );
+
             // Build Used + Weapon DPS Breakdown Strip
             let dps_line = format!(
                 "BUILD: {}  |  S:{}k B:{}k Z:{}k O:{}k",
@@ -4905,13 +5207,13 @@ impl Game {
                 (self.dmg_by_weapon[2] / 1000.0).round() as u32,
                 (self.dmg_by_weapon[3] / 1000.0).round() as u32,
             );
-            let dld = measure_ui_text(font, &dps_line, 11);
+            let dld = measure_ui_text(font, &dps_line, 10);
             draw_ui_text(
                 font,
                 &dps_line,
                 cx - dld.width * 0.5,
-                top_y + 104.0,
-                11.0,
+                top_y + 114.0,
+                10.0,
                 Color::from_rgba(250, 204, 21, 235),
             );
 
@@ -4919,10 +5221,10 @@ impl Game {
             let share_lbl = match share_state {
                 1 => "SHARING...",
                 2 => "SHARED TO REDDIT ✓",
-                3 => "LOGIN ON REDDIT TO SHARE",
+                3 => "PLAY ON REDDIT TO SHARE",
                 _ => "POST BUILD CARD TO REDDIT",
             };
-            let share_rect = Rect::new(cx - 140.0, top_y + 112.0, 280.0, 36.0);
+            let share_rect = Rect::new(cx - 140.0, top_y + 123.0, 280.0, 36.0);
             if self.draw_button(
                 font,
                 share_rect,
@@ -4954,7 +5256,7 @@ impl Game {
 
             if self.phase == Phase::Victory {
                 let bw = 136.0;
-                let retry_rect = Rect::new(cx - bw - 4.0, top_y + 152.0, bw, 36.0);
+                let retry_rect = Rect::new(cx - bw - 4.0, top_y + 164.0, bw, 36.0);
                 if self.draw_button(
                     font,
                     retry_rect,
@@ -4967,7 +5269,7 @@ impl Game {
                     self.start_run(false);
                 }
 
-                let ascend_rect = Rect::new(cx + 4.0, top_y + 152.0, bw, 36.0);
+                let ascend_rect = Rect::new(cx + 4.0, top_y + 164.0, bw, 36.0);
                 if self.draw_button(
                     font,
                     ascend_rect,
@@ -4978,7 +5280,7 @@ impl Game {
                     self.ascend_to_endless();
                 }
             } else {
-                let retry_rect = Rect::new(cx - 140.0, top_y + 152.0, 280.0, 36.0);
+                let retry_rect = Rect::new(cx - 140.0, top_y + 164.0, 280.0, 36.0);
                 if self.draw_button(
                     font,
                     retry_rect,
@@ -4992,47 +5294,77 @@ impl Game {
                 }
             }
 
-            let mut panel_y = top_y + 200.0;
-            if self.social.can_vote_mutator {
-                let vhdr = "TOP-3 BONUS: VOTE TOMORROW'S MUTATOR";
-                let vd = measure_ui_text(font, vhdr, 13);
+            // Community-Wide Tomorrow Mutator Vote (open to all Redditors!)
+            let mut panel_y = top_y + card_h + 6.0;
+            {
+                let vhdr = if self.social.voted_mutator.is_some() {
+                    "COMMUNITY VOTE: TOMORROW'S MUTATOR (VOTED ✓)"
+                } else {
+                    "COMMUNITY VOTE: PICK TOMORROW'S MUTATOR"
+                };
+                let vd = measure_ui_text(font, vhdr, 12);
                 draw_ui_text(
                     font,
                     vhdr,
                     cx - vd.width * 0.5,
                     panel_y + 10.0,
-                    13.0,
+                    12.0,
                     Color::from_rgba(250, 204, 21, 255),
                 );
-                let labels = ["BLOOD", "ARCANE", "SWARM", "TITAN"];
-                let bw = 74.0;
+                let short_names = ["BLOOD", "ARCANE", "SWARM", "TITAN"];
+                let bw = ((card_w - 18.0) / 4.0).min(96.0);
                 let total_w = bw * 4.0 + 18.0;
                 let sx = cx - total_w * 0.5;
-                for (mi, lbl) in labels.iter().enumerate() {
+                for (mi, sname) in short_names.iter().enumerate() {
                     let selected = self.social.voted_mutator == Some(mi);
-                    let r = Rect::new(sx + (mi as f32) * (bw + 6.0), panel_y + 16.0, bw, 28.0);
+                    let cnt = self.social.tomorrow_votes[mi];
+                    let lbl = if cnt > 0 {
+                        format!("{} ({})", sname, cnt)
+                    } else {
+                        (*sname).to_string()
+                    };
+                    let r = Rect::new(sx + (mi as f32) * (bw + 6.0), panel_y + 15.0, bw, 27.0);
                     if self.draw_button(
                         font,
                         r,
-                        lbl,
+                        &lbl,
                         if selected {
                             Color::from_rgba(234, 88, 12, 240)
                         } else {
                             Color::from_rgba(15, 23, 42, 230)
                         },
-                        Color::from_rgba(250, 204, 21, 200),
+                        if selected {
+                            Color::from_rgba(253, 224, 71, 255)
+                        } else {
+                            Color::from_rgba(250, 204, 21, 180)
+                        },
                     ) {
                         self.social.voted_mutator = Some(mi);
+                        play_sfx(0);
                         unsafe {
                             emberfall_vote_mutator(mi as i32);
                         }
                     }
                 }
-                panel_y += 52.0;
+                panel_y += 48.0;
             }
 
-            let panel_w = (sw - 32.0).min(360.0);
-            self.draw_social_panel(font, cx - panel_w * 0.5, panel_y, panel_w, 4);
+            if !self.social.last_status_msg.is_empty() {
+                let sm = &self.social.last_status_msg;
+                let smd = measure_ui_text(font, sm, 11);
+                draw_ui_text(
+                    font,
+                    sm,
+                    cx - smd.width * 0.5,
+                    panel_y + 9.0,
+                    11.0,
+                    Color::from_rgba(134, 239, 172, 245),
+                );
+                panel_y += 14.0;
+            }
+
+            let panel_w = (sw - 28.0).min(380.0);
+            self.draw_social_panel(font, cx - panel_w * 0.5, panel_y, panel_w, 3);
         }
     }
 }
@@ -5059,7 +5391,7 @@ async fn main() {
         if is_key_pressed(KeyCode::M) {
             game.toggle_mute();
         }
-        if is_key_pressed(KeyCode::P) || is_key_pressed(KeyCode::Escape) {
+        if is_key_pressed(KeyCode::P) || is_key_pressed(KeyCode::Escape) || is_key_pressed(KeyCode::H) {
             if game.phase == Phase::Playing {
                 game.phase = Phase::Paused;
                 game.joy_active = false;

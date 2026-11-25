@@ -38,7 +38,8 @@ impl Rng {
         if max_exclusive <= min {
             return min;
         }
-        min + (self.next_u64() as usize) % (max_exclusive - min)
+        let span = (max_exclusive - min) as u64;
+        min + (self.next_u64() % span) as usize
     }
 }
 
@@ -199,6 +200,9 @@ pub fn compute_rank(score: u32, boss_slain: bool) -> &'static str {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BountyKind {
+    WitchTimeDodges,
+    ReachLevel,
+    SlayDailyBoss,
     DetonateBarrels,
     ClaimShrines,
     ReachCombo,
@@ -216,6 +220,9 @@ impl DailyBounty {
     pub fn label(self, progress: u32) -> String {
         let p = progress.min(self.target);
         match self.kind {
+            BountyKind::WitchTimeDodges => format!("WITCH-TIME {}/{}", p, self.target),
+            BountyKind::ReachLevel => format!("LEVEL {}/{}", p, self.target),
+            BountyKind::SlayDailyBoss => format!("SLAY BOSS {}/{}", p, self.target),
             BountyKind::DetonateBarrels => format!("BARRELS {}/{}", p, self.target),
             BountyKind::ClaimShrines => format!("SHRINES {}/{}", p, self.target),
             BountyKind::ReachCombo => format!("COMBO {}/{}x", p, self.target),
@@ -228,6 +235,18 @@ impl DailyBounty {
 pub fn generate_daily_bounties(seed: &str) -> [DailyBounty; 3] {
     let mut r = Rng::from_seed_str(&format!("bounties:{}", seed));
     let mut pool = [
+        DailyBounty {
+            kind: BountyKind::WitchTimeDodges,
+            target: 2,
+        },
+        DailyBounty {
+            kind: BountyKind::ReachLevel,
+            target: 6,
+        },
+        DailyBounty {
+            kind: BountyKind::SlayDailyBoss,
+            target: 1,
+        },
         DailyBounty {
             kind: BountyKind::DetonateBarrels,
             target: 3,
@@ -264,6 +283,7 @@ mod tests {
     fn deterministic_365_days_and_ranks() {
         let mut seen_mods = [false; 4];
         let mut seen_biomes = [false; 3];
+        let mut seen_bounties = [false; 8];
         for day in 1..=365 {
             let seed = format!("2026-D{:03}", day);
             let mut r1 = Rng::from_seed_str(&seed);
@@ -283,9 +303,23 @@ mod tests {
             assert_ne!(bnts[0].kind, bnts[1].kind);
             assert_ne!(bnts[1].kind, bnts[2].kind);
             assert_ne!(bnts[0].kind, bnts[2].kind);
+            for bn in &bnts {
+                let idx = match bn.kind {
+                    BountyKind::WitchTimeDodges => 0,
+                    BountyKind::ReachLevel => 1,
+                    BountyKind::SlayDailyBoss => 2,
+                    BountyKind::DetonateBarrels => 3,
+                    BountyKind::ClaimShrines => 4,
+                    BountyKind::ReachCombo => 5,
+                    BountyKind::OpenChests => 6,
+                    BountyKind::SlayHorde => 7,
+                };
+                seen_bounties[idx] = true;
+            }
         }
         assert!(seen_mods.iter().all(|&x| x), "All 4 daily modifiers must appear");
         assert!(seen_biomes.iter().all(|&x| x), "All 3 daily biomes must appear");
+        assert!(seen_bounties.iter().all(|&x| x), "All 8 daily bounty kinds must appear");
         assert_eq!(compute_rank(15_000, true), "SSS");
         assert_eq!(compute_rank(10_000, true), "SS");
         assert_eq!(compute_rank(15_000, false), "S");

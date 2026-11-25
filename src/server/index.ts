@@ -31,6 +31,21 @@ interface StoredProfile {
   lifetimeBosses: number;
 }
 
+interface SiegeFeedEntry {
+  username: string;
+  heroClass: number;
+  slain: boolean;
+  score: number;
+  ts: number;
+}
+
+interface DailyBountyInfo {
+  kind: string;
+  label: string;
+  target: number;
+  reward: number;
+}
+
 const THIRTY_DAYS_SEC = 30 * 86400;
 const SIEGE_TARGET = 25;
 const DAILY_MODIFIERS = [
@@ -46,10 +61,27 @@ const DAILY_BIOMES = [
   'FROST ABYSS',
 ] as const;
 
+const BIOME_BOSSES = [
+  'MALAKOR, VOID LICH',
+  'IGNIS REX, MAGMA TITAN',
+  'SKADI, GLACIAL EMPRESS',
+] as const;
+
 const HERO_CLASSES = [
   { title: 'SUN KNIGHT', faction: 'SOLAR ORDER', emoji: '☀️' },
   { title: 'PYROMANCER', faction: 'ARCANE CONCLAVE', emoji: '🔮' },
   { title: 'SHADOW ASSASSIN', faction: 'SHADOW GUILD', emoji: '🗡️' },
+] as const;
+
+const BOUNTY_POOL: readonly DailyBountyInfo[] = [
+  { kind: 'WitchTimeDodges', label: '2 Witch-Time Dodges', target: 2, reward: 750 },
+  { kind: 'ReachLevel', label: 'Reach Level 6', target: 6, reward: 750 },
+  { kind: 'SlayDailyBoss', label: "Slay Today's Boss", target: 1, reward: 750 },
+  { kind: 'DetonateBarrels', label: 'Detonate 3 Barrels', target: 3, reward: 750 },
+  { kind: 'ClaimShrines', label: 'Claim 1 Blood Shrine', target: 1, reward: 750 },
+  { kind: 'ReachCombo', label: 'Reach 30x Combo', target: 30, reward: 750 },
+  { kind: 'OpenChests', label: 'Open 2 Runic Chests', target: 2, reward: 750 },
+  { kind: 'SlayHorde', label: 'Slay 75 Enemies', target: 75, reward: 750 },
 ] as const;
 
 function getUtcDateString(offsetDays = 0): string {
@@ -60,20 +92,26 @@ function getUtcDateString(offsetDays = 0): string {
   return `${y}-${m}-${day}`;
 }
 
-function hashSeedU64(seed: string): bigint {
+function createSeedRng(seed: string): () => bigint {
   const mask = 0xffffffffffffffffn;
-  let h = 0xcbf29ce484222325n;
+  let state = 0xcbf29ce484222325n;
   for (let i = 0; i < seed.length; i++) {
-    h ^= BigInt(seed.charCodeAt(i) & 0xff);
-    h = (h * 0x100000001b3n) & mask;
+    state ^= BigInt(seed.charCodeAt(i) & 0xff);
+    state = (state * 0x100000001b3n) & mask;
   }
-  if (h === 0n) h = 0x9e3779b97f4a7c15n;
-  let x = h;
-  x ^= x >> 12n;
-  x ^= (x << 25n) & mask;
-  x ^= x >> 27n;
-  x = (x * 0x2545f4914f6cdd1dn) & mask;
-  return x;
+  if (state === 0n) state = 0x9e3779b97f4a7c15n;
+  return () => {
+    let x = state;
+    x ^= x >> 12n;
+    x ^= (x << 25n) & mask;
+    x ^= x >> 27n;
+    state = x;
+    return (x * 0x2545f4914f6cdd1dn) & mask;
+  };
+}
+
+function hashSeedU64(seed: string): bigint {
+  return createSeedRng(seed)();
 }
 
 function defaultMutatorFromSeed(seed: string): number {
@@ -83,6 +121,18 @@ function defaultMutatorFromSeed(seed: string): number {
 function defaultBiomeFromSeed(seed: string): { index: number; name: string } {
   const idx = Number(hashSeedU64(`${seed}-biome`) % 3n);
   return { index: idx, name: DAILY_BIOMES[idx] };
+}
+
+function getDailyBountiesFromSeed(seed: string): DailyBountyInfo[] {
+  const next = createSeedRng(`bounties:${seed}`);
+  const pool = [...BOUNTY_POOL];
+  for (let i = pool.length - 1; i >= 1; i--) {
+    const j = Number(next() % BigInt(i + 1));
+    const tmp = pool[i];
+    pool[i] = pool[j];
+    pool[j] = tmp;
+  }
+  return [pool[0], pool[1], pool[2]];
 }
 
 function computeRank(score: number, bossSlain: boolean): string {
@@ -146,6 +196,47 @@ const rateKey = (sub: string, user: string) => `ef:rate:${sub}:${user}`;
 const ghostKey = (sub: string, seed: string) => `ef:ghost:${sub}:${seed}`;
 const mutatorVoteKey = (sub: string, seed: string) => `ef:mutator-vote:${sub}:${seed}`;
 const profileKey = (sub: string, user: string) => `ef:profile:${sub}:${user}`;
+const siegeFeedKey = (sub: string, seed: string) => `ef:siege-feed:${sub}:${seed}`;
+
+function computeFactionPercents(scores: [number, number, number]): [number, number, number] {
+  const total = scores[0] + scores[1] + scores[2];
+  if (total <= 0) return [33, 33, 34];
+  const p0 = Math.round((scores[0] / total) * 100);
+  const p1 = Math.round((scores[1] / total) * 100);
+  const p2 = Math.max(0, 100 - p0 - p1);
+  return [p0, p1, p2];
+}
+
+async function getSiegeFeed(sub: string, seed: string): Promise<SiegeFeedEntry[]> {
+  try {
+    const raw = await redis.get(siegeFeedKey(sub, seed));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((e): e is SiegeFeedEntry => Boolean(e && typeof e.username === 'string'))
+      .slice(0, 6);
+  } catch {
+    return [];
+  }
+}
+
+async function pushSiegeFeed(
+  sub: string,
+  seed: string,
+  entry: SiegeFeedEntry
+): Promise<SiegeFeedEntry[]> {
+  const existing = await getSiegeFeed(sub, seed);
+  const filtered = existing.filter((e) => e.username !== entry.username || e.slain !== entry.slain);
+  const next = [entry, ...filtered].slice(0, 6);
+  try {
+    await redis.set(siegeFeedKey(sub, seed), JSON.stringify(next));
+    await redis.expire(siegeFeedKey(sub, seed), THIRTY_DAYS_SEC);
+  } catch {
+    // non-fatal
+  }
+  return next;
+}
 
 async function getUserProfile(sub: string, username: string | undefined): Promise<StoredProfile> {
   const empty: StoredProfile = {
@@ -198,27 +289,52 @@ async function getYesterdayChampion(
   }
 }
 
-async function resolveWinningMutator(sub: string, seed: string): Promise<number> {
+async function getMutatorVoteSummary(
+  sub: string,
+  seed: string,
+  username?: string
+): Promise<{
+  counts: [number, number, number, number];
+  totalVotes: number;
+  leadingIndex: number;
+  hasVotes: boolean;
+  myVote: number;
+}> {
+  const counts: [number, number, number, number] = [0, 0, 0, 0];
+  let totalVotes = 0;
+  let myVote = -1;
   try {
     const votes = await redis.hGetAll(mutatorVoteKey(sub, seed));
-    const counts = [0, 0, 0, 0];
-    let totalVotes = 0;
-    for (const val of Object.values(votes)) {
+    for (const [voter, val] of Object.entries(votes)) {
       const idx = Number(val);
       if (Number.isInteger(idx) && idx >= 0 && idx <= 3) {
         counts[idx]++;
         totalVotes++;
+        if (username && voter === username) myVote = idx;
       }
     }
-    if (totalVotes === 0) return -1;
-    let bestIdx = 0;
-    for (let i = 1; i < 4; i++) {
-      if (counts[i] > counts[bestIdx]) bestIdx = i;
-    }
-    return bestIdx;
   } catch {
-    return -1;
+    // fallback to seed default
   }
+  if (totalVotes === 0) {
+    return {
+      counts,
+      totalVotes: 0,
+      leadingIndex: defaultMutatorFromSeed(seed),
+      hasVotes: false,
+      myVote,
+    };
+  }
+  let bestIdx = 0;
+  for (let i = 1; i < 4; i++) {
+    if (counts[i] > counts[bestIdx]) bestIdx = i;
+  }
+  return { counts, totalVotes, leadingIndex: bestIdx, hasVotes: true, myVote };
+}
+
+async function resolveWinningMutator(sub: string, seed: string): Promise<number> {
+  const summary = await getMutatorVoteSummary(sub, seed);
+  return summary.hasVotes ? summary.leadingIndex : -1;
 }
 
 async function getEffectiveMutator(
@@ -460,10 +576,17 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         if (yFactions[2] > yFactions[yesterdayWinningFaction]) yesterdayWinningFaction = 2;
       }
 
+      const tomorrow = getUtcDateString(1);
+      const tomorrowBiome = defaultBiomeFromSeed(tomorrow);
+      const tomorrowVotes = await getMutatorVoteSummary(sub, tomorrow, username ?? undefined);
+      const siegeFeed = await getSiegeFeed(sub, seed);
+      const dailyBounties = getDailyBountiesFromSeed(seed);
+
       sendJson(res, 200, {
         seed,
         biomeIndex: biome.index,
         biomeName: biome.name,
+        bossName: BIOME_BOSSES[biome.index],
         mutatorOverride: mutator.override,
         username,
         streak,
@@ -472,12 +595,25 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         totalPlayers,
         bossKillsToday,
         siegeTarget: SIEGE_TARGET,
+        siegeFeed,
         factionScores,
+        factionPercents: computeFactionPercents(factionScores),
         yesterdayChampion,
         yesterdayWinningFaction,
         leaderboard,
         topGhost,
-        canVoteMutator: myRank >= 1 && myRank <= 3,
+        canVoteMutator: Boolean(username),
+        tomorrowSeed: tomorrow,
+        tomorrowBiomeIndex: tomorrowBiome.index,
+        tomorrowBiomeName: tomorrowBiome.name,
+        tomorrowBossName: BIOME_BOSSES[tomorrowBiome.index],
+        tomorrowMutatorVotes: tomorrowVotes.counts,
+        tomorrowTotalVotes: tomorrowVotes.totalVotes,
+        tomorrowLeadingMutator: tomorrowVotes.leadingIndex,
+        tomorrowHasVotes: tomorrowVotes.hasVotes,
+        myTomorrowVote: tomorrowVotes.myVote,
+        dailyBounties,
+        serverNowMs: Date.now(),
         medalsMask: profile.medalsMask,
         bestEndlessWave: profile.bestEndlessWave,
         lifetimeKills: profile.lifetimeKills,
@@ -513,6 +649,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         score?: number;
         kills?: number;
         bossSlain?: boolean;
+        bossReached?: boolean;
         level?: number;
         heroClass?: number;
         buildSummary?: string;
@@ -594,6 +731,19 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         bossKillsToday = bossRaw ? Math.max(0, Number(bossRaw) || 0) : 0;
       }
 
+      let siegeFeed: SiegeFeedEntry[];
+      if (username && (bossSlain || Boolean(body.bossReached) || score >= 1200)) {
+        siegeFeed = await pushSiegeFeed(sub, seed, {
+          username,
+          heroClass: heroClassIdx,
+          slain: bossSlain,
+          score,
+          ts: Date.now(),
+        });
+      } else {
+        siegeFeed = await getSiegeFeed(sub, seed);
+      }
+
       let isNewBest = false;
       let streak = 0;
 
@@ -670,6 +820,8 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         await redis.expire(profileKey(sub, username), THIRTY_DAYS_SEC * 3);
       }
 
+      const tomorrow = getUtcDateString(1);
+      const tomorrowVotes = await getMutatorVoteSummary(sub, tomorrow, username);
       const { myRank, totalPlayers } = await getMyRankAndTotal(sub, seed, username);
       sendJson(res, 200, {
         ok: true,
@@ -678,9 +830,16 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         totalPlayers,
         streak,
         bossKillsToday,
+        siegeFeed,
         factionScores,
+        factionPercents: computeFactionPercents(factionScores),
         isNewBest,
-        canVoteMutator: myRank >= 1 && myRank <= 3,
+        canVoteMutator: Boolean(username),
+        tomorrowMutatorVotes: tomorrowVotes.counts,
+        tomorrowTotalVotes: tomorrowVotes.totalVotes,
+        tomorrowLeadingMutator: tomorrowVotes.leadingIndex,
+        tomorrowHasVotes: tomorrowVotes.hasVotes,
+        myTomorrowVote: tomorrowVotes.myVote,
         medalsMask,
         newlyUnlockedMask,
         bestEndlessWave,
@@ -707,19 +866,21 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
       }
 
       const sub = context.subredditName ?? 'emberfall';
-      const today = getUtcDateString(0);
       const tomorrow = getUtcDateString(1);
-      const { myRank } = await getMyRankAndTotal(sub, today, username);
-      if (myRank < 1 || myRank > 3) {
-        sendJson(res, 403, { ok: false, error: 'Top 3 daily rank required to vote' });
-        return;
-      }
-
       const voteKey = mutatorVoteKey(sub, tomorrow);
       await redis.hSet(voteKey, { [username]: String(body.mutatorIndex) });
       await redis.expire(voteKey, THIRTY_DAYS_SEC);
 
-      sendJson(res, 200, { ok: true, mutatorIndex: body.mutatorIndex });
+      const summary = await getMutatorVoteSummary(sub, tomorrow, username);
+      sendJson(res, 200, {
+        ok: true,
+        mutatorIndex: body.mutatorIndex,
+        tomorrowMutatorVotes: summary.counts,
+        tomorrowTotalVotes: summary.totalVotes,
+        tomorrowLeadingMutator: summary.leadingIndex,
+        tomorrowHasVotes: summary.hasVotes,
+        myTomorrowVote: body.mutatorIndex,
+      });
       return;
     }
 
@@ -765,7 +926,8 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         typeof body.rank === 'string' && body.rank.length > 0
           ? body.rank.slice(0, 6)
           : computeRank(score, bossSlain);
-      const streakVal = Math.max(0, Math.floor(Number(body.streak) || 0));
+      const storedStreak = await getUserStreak(sub, username);
+      const streakVal = Math.max(1, Math.floor(Number(body.streak) || 0), storedStreak);
       const myRankVal = Math.max(0, Math.floor(Number(body.myRank) || 0));
       const mutator = await getEffectiveMutator(sub, seed);
       const mutatorName =
@@ -774,7 +936,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
           : mutator.name;
       const buildEmojis =
         typeof body.buildEmojis === 'string' && body.buildEmojis.trim().length > 0
-          ? body.buildEmojis.trim().slice(0, 48)
+          ? body.buildEmojis.trim().slice(0, 64)
           : '⚔️🔥';
 
       const guardKey = shareGuardKey(context.postId, seed, username);
@@ -784,26 +946,29 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         return;
       }
 
-      const BIOME_BOSSES = [
-        'MALAKOR, VOID LICH',
-        'IGNIS REX, MAGMA TITAN',
-        'SKADI, GLACIAL EMPRESS',
-      ] as const;
       const bossName = BIOME_BOSSES[biome.index] ?? BIOME_BOSSES[0];
       const bossRaw = await redis.get(bossKillsKey(sub, seed));
       const bossKillsToday = bossRaw ? Math.max(0, Number(bossRaw) || 0) : 0;
       const filledBlocks = Math.max(0, Math.min(10, Math.round((bossKillsToday / SIEGE_TARGET) * 10)));
       const siegeBar = '█'.repeat(filledBlocks) + '░'.repeat(10 - filledBlocks);
+      const factionScores = await getFactionScores(sub, seed);
+      const [fp0, fp1, fp2] = computeFactionPercents(factionScores);
+      const tomorrow = getUtcDateString(1);
+      const tomorrowBiome = defaultBiomeFromSeed(tomorrow);
+      const tomorrowVotes = await getMutatorVoteSummary(sub, tomorrow);
+      const tomorrowMutName = DAILY_MODIFIERS[tomorrowVotes.leadingIndex];
+
       const bossBadge = bossSlain ? `💀 ${bossName} SLAIN` : '🛡️ Survived';
       const rankBadge = myRankVal > 0 ? ` · #${myRankVal} Today` : '';
-      const streakBadge = streakVal > 0 ? ` · 🔥 ${streakVal}d Streak` : '';
+      const streakBadge = ` · 🔥 ${streakVal}-Day Streak`;
       const text = [
         `**╔══ 🔥 EMBERFALL: DAILY HORDE #${seed} ══╗**`,
         `🏆 **RANK ${rank}**${rankBadge}${streakBadge}`,
         `${heroInfo.emoji} **${heroInfo.title}** (*${heroInfo.faction}*) · Lv.**${level}** · **${score.toLocaleString('en-US')} PTS** · **${kills}** Kills`,
-        `⚔️ Build: ${buildEmojis}`,
+        `⚔️ Build & Bounties: ${buildEmojis}`,
         `🌍 Arena: **${biome.name}** (*${mutatorName}*) · ${bossBadge}`,
-        `🏰 Subreddit Siege: \`[${siegeBar}]\` **${bossKillsToday}/${SIEGE_TARGET}**`,
+        `🏰 Subreddit Siege: \`[${siegeBar}]\` **${bossKillsToday}/${SIEGE_TARGET}** · ⚔️ Factions: ☀️ ${fp0}% | 🔮 ${fp1}% | 🗡️ ${fp2}%`,
+        `🗳️ Tomorrow (*${tomorrowBiome.name}*): **${tomorrowMutName}** leading (${tomorrowVotes.totalVotes} votes)`,
         `**╚══** *Can your Faction beat my build? Hit Enter Dungeon above!* **══╝**`,
       ].join('\n\n');
 

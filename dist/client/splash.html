@@ -3,125 +3,217 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-  <meta name="theme-color" content="#060914" />
+  <meta name="theme-color" id="meta-theme" content="#060914" />
   <title>EMBERFALL: DAILY HORDE</title>
   <style>
     :root {
-      --bg: #060914;
-      --card: rgba(15, 21, 40, 0.9);
-      --border: rgba(245, 158, 11, 0.28);
+      --bg-top: #26123a;
+      --bg-bot: #060914;
+      --card: rgba(14, 18, 36, 0.88);
+      --card-accent-bg: linear-gradient(135deg, rgba(44, 18, 62, 0.92), rgba(14, 18, 36, 0.92));
+      --border: rgba(192, 132, 252, 0.34);
+      --accent: #c084fc;
+      --accent-soft: #fde68a;
       --gold: #f59e0b;
       --gold-soft: #fde68a;
-      --crimson: #ef4444;
+      --cta-bg: linear-gradient(135deg, #fbbf24, #f59e0b 55%, #ea580c);
+      --cta-shadow: rgba(245, 158, 11, 0.34);
+      --siege-grad: linear-gradient(90deg, #9333ea, #f59e0b);
       --text: #f8fafc;
       --muted: #94a3b8;
+    }
+    body.biome-volcanic {
+      --bg-top: #3a1208;
+      --bg-bot: #0b0506;
+      --card: rgba(24, 12, 12, 0.88);
+      --card-accent-bg: linear-gradient(135deg, rgba(64, 18, 12, 0.94), rgba(20, 10, 12, 0.92));
+      --border: rgba(251, 146, 60, 0.40);
+      --accent: #fb923c;
+      --accent-soft: #fed7aa;
+      --cta-bg: linear-gradient(135deg, #fb923c, #ef4444 58%, #b91c1c);
+      --cta-shadow: rgba(239, 68, 68, 0.36);
+      --siege-grad: linear-gradient(90deg, #dc2626, #fb923c);
+    }
+    body.biome-frost {
+      --bg-top: #09273d;
+      --bg-bot: #040b14;
+      --card: rgba(9, 21, 36, 0.88);
+      --card-accent-bg: linear-gradient(135deg, rgba(12, 46, 72, 0.94), rgba(8, 18, 32, 0.92));
+      --border: rgba(56, 189, 248, 0.38);
+      --accent: #38bdf8;
+      --accent-soft: #bae6fd;
+      --cta-bg: linear-gradient(135deg, #38bdf8, #0ea5e9 55%, #2563eb);
+      --cta-shadow: rgba(56, 189, 248, 0.36);
+      --siege-grad: linear-gradient(90deg, #0284c7, #67e8f9);
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body {
       width: 100%;
       height: 100%;
-      background: radial-gradient(circle at 50% 0%, #1c1229 0%, #060914 68%);
+      background: radial-gradient(circle at 50% 0%, var(--bg-top) 0%, var(--bg-bot) 70%);
       color: var(--text);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       overflow: hidden;
       -webkit-font-smoothing: antialiased;
     }
     .wrap {
+      position: relative;
       height: 100%;
       max-width: 520px;
       margin: 0 auto;
-      padding: 14px 16px;
+      padding: 10px 14px;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
-      gap: 10px;
+      gap: 7px;
     }
     .header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 10px;
+      gap: 8px;
     }
     .brand {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 9px;
+      min-width: 0;
     }
     .sigil {
-      width: 36px;
-      height: 36px;
+      width: 34px;
+      height: 34px;
       border-radius: 10px;
-      background: linear-gradient(135deg, rgba(245,158,11,0.22), rgba(239,68,68,0.22));
+      background: linear-gradient(135deg, rgba(255,255,255,0.12), rgba(0,0,0,0.22));
       border: 1px solid var(--border);
       display: grid;
       place-items: center;
       flex-shrink: 0;
+      box-shadow: 0 0 14px var(--cta-shadow);
     }
     .title {
-      font-size: 17px;
-      font-weight: 800;
+      font-size: 16px;
+      font-weight: 900;
       letter-spacing: 0.06em;
-      color: var(--gold-soft);
-      line-height: 1.1;
+      color: var(--accent-soft);
+      line-height: 1.05;
+    }
+    .sub-line {
+      font-size: 10.5px;
+      color: var(--muted);
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .hdr-right {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
     }
     .seed-pill {
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.05em;
-      color: var(--gold);
-      background: rgba(245, 158, 11, 0.12);
+      font-size: 10.5px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      color: var(--accent-soft);
+      background: rgba(255, 255, 255, 0.07);
       border: 1px solid var(--border);
-      padding: 4px 9px;
+      padding: 4px 8px;
       border-radius: 999px;
       white-space: nowrap;
     }
-    .sub-line {
+    .help-btn {
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.09);
+      color: var(--accent-soft);
+      border-radius: 999px;
+      padding: 4px 9px;
       font-size: 11px;
-      color: var(--muted);
-      margin-top: 2px;
+      font-weight: 800;
+      cursor: pointer;
+      white-space: nowrap;
     }
+    .help-btn:active { transform: scale(0.95); }
     .card {
       background: var(--card);
-      border: 1px solid rgba(148, 163, 184, 0.16);
-      border-radius: 12px;
-      padding: 10px 12px;
+      border: 1px solid rgba(148, 163, 184, 0.17);
+      border-radius: 11px;
+      padding: 8px 11px;
     }
     .mutator-card {
-      border-color: rgba(239, 68, 68, 0.35);
-      background: linear-gradient(135deg, rgba(30, 14, 24, 0.92), rgba(15, 21, 40, 0.92));
+      border-color: var(--border);
+      background: var(--card-accent-bg);
+    }
+    .label-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 2px;
     }
     .label {
-      font-size: 10px;
-      font-weight: 700;
+      font-size: 9.5px;
+      font-weight: 800;
       text-transform: uppercase;
       letter-spacing: 0.09em;
       color: var(--muted);
-      margin-bottom: 3px;
+    }
+    .biome-tag {
+      font-size: 9.5px;
+      font-weight: 800;
+      color: var(--accent-soft);
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--border);
+      padding: 1px 6px;
+      border-radius: 999px;
     }
     .mutator-name {
-      font-size: 15px;
-      font-weight: 800;
-      color: #fca5a5;
-      letter-spacing: 0.04em;
+      font-size: 14px;
+      font-weight: 900;
+      color: var(--accent-soft);
+      letter-spacing: 0.03em;
+      line-height: 1.2;
     }
     .mutator-desc {
-      font-size: 12px;
+      font-size: 11.5px;
       color: #cbd5e1;
       margin-top: 2px;
+      line-height: 1.25;
+    }
+    .blessing-line {
+      margin-top: 4px;
+      font-size: 11px;
+      color: #fde68a;
+      font-weight: 700;
+    }
+    .bounty-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-top: 5px;
+    }
+    .b-chip {
+      font-size: 10px;
+      font-weight: 700;
+      color: #bbf7d0;
+      background: rgba(34, 197, 94, 0.13);
+      border: 1px solid rgba(74, 222, 128, 0.28);
+      border-radius: 6px;
+      padding: 2px 6px;
     }
     .siege-head {
       display: flex;
       justify-content: space-between;
       align-items: baseline;
-      margin-bottom: 6px;
+      margin-bottom: 4px;
     }
     .siege-count {
-      font-size: 12px;
-      font-weight: 700;
+      font-size: 11px;
+      font-weight: 800;
       color: var(--gold-soft);
     }
     .bar-bg {
-      height: 8px;
+      height: 7px;
       border-radius: 999px;
       background: rgba(255, 255, 255, 0.08);
       overflow: hidden;
@@ -130,34 +222,67 @@
       height: 100%;
       width: 0%;
       border-radius: 999px;
-      background: linear-gradient(90deg, #dc2626, #f59e0b);
+      background: var(--siege-grad);
       transition: width 0.35s ease;
     }
+    .faction-bar {
+      display: flex;
+      height: 8px;
+      border-radius: 999px;
+      overflow: hidden;
+      margin-top: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.10);
+    }
+    .f-seg { height: 100%; transition: width 0.4s ease; }
+    .f-solar { background: #eab308; width: 33%; }
+    .f-arcane { background: #0ea5e9; width: 33%; }
+    .f-shadow { background: #a855f7; width: 34%; }
+    .faction-line {
+      margin-top: 4px;
+      font-size: 10.5px;
+      color: #e2e8f0;
+      font-weight: 600;
+      display: flex;
+      justify-content: space-between;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .siege-feed {
+      margin-top: 4px;
+      font-size: 10px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .siege-feed strong { color: #fca5a5; }
     .lb-list {
       display: flex;
       flex-direction: column;
-      gap: 6px;
-      margin-top: 4px;
+      gap: 4px;
+      margin-top: 3px;
     }
     .lb-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      font-size: 12px;
-      padding: 4px 6px;
-      border-radius: 7px;
-      background: rgba(255, 255, 255, 0.03);
+      font-size: 11.5px;
+      padding: 3px 6px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.035);
     }
     .lb-left {
       display: flex;
       align-items: center;
-      gap: 7px;
+      gap: 6px;
       min-width: 0;
     }
     .lb-pos {
       font-weight: 800;
       color: var(--gold);
       width: 18px;
+      flex-shrink: 0;
     }
     .lb-user {
       color: var(--text);
@@ -169,13 +294,13 @@
     .lb-right {
       display: flex;
       align-items: center;
-      gap: 7px;
+      gap: 6px;
       flex-shrink: 0;
     }
     .tier {
-      font-size: 10px;
+      font-size: 9.5px;
       font-weight: 800;
-      padding: 2px 5px;
+      padding: 1px 5px;
       border-radius: 5px;
       background: rgba(245, 158, 11, 0.16);
       color: var(--gold-soft);
@@ -185,22 +310,41 @@
       font-variant-numeric: tabular-nums;
       color: #e2e8f0;
     }
+    .tomorrow-strip {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      font-size: 10.5px;
+      color: #cbd5e1;
+      background: rgba(255, 255, 255, 0.045);
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      border-radius: 8px;
+      padding: 5px 9px;
+    }
+    .tomorrow-strip strong { color: var(--accent-soft); }
+    .countdown {
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      color: var(--gold-soft);
+      white-space: nowrap;
+    }
     .footer {
       display: flex;
       flex-direction: column;
-      gap: 7px;
+      gap: 5px;
     }
     .cta {
       width: 100%;
       border: 0;
-      border-radius: 12px;
-      padding: 13px 16px;
-      font-size: 15px;
-      font-weight: 800;
-      letter-spacing: 0.08em;
+      border-radius: 11px;
+      padding: 11px 14px;
+      font-size: 14.5px;
+      font-weight: 900;
+      letter-spacing: 0.07em;
       color: #0b0f19;
-      background: linear-gradient(135deg, #fbbf24, #f59e0b 55%, #ea580c);
-      box-shadow: 0 6px 22px rgba(245, 158, 11, 0.32);
+      background: var(--cta-bg);
+      box-shadow: 0 5px 20px var(--cta-shadow);
       cursor: pointer;
       transition: transform 0.12s ease, filter 0.12s ease;
     }
@@ -213,57 +357,166 @@
       padding: 0 2px;
     }
     .me-bar strong { color: var(--gold-soft); }
+
+    /* Interactive Briefing / How-To-Play Drawer */
+    .drawer {
+      position: absolute;
+      inset: 8px 10px;
+      z-index: 20;
+      background: rgba(7, 11, 24, 0.97);
+      border: 1.5px solid var(--border);
+      border-radius: 14px;
+      padding: 12px 14px;
+      display: none;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 8px;
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.65);
+      overflow-y: auto;
+    }
+    .drawer.open { display: flex; }
+    .drawer-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+      padding-bottom: 6px;
+    }
+    .drawer-title {
+      font-size: 14px;
+      font-weight: 900;
+      color: var(--accent-soft);
+      letter-spacing: 0.05em;
+    }
+    .close-btn {
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      background: rgba(255, 255, 255, 0.08);
+      color: #f8fafc;
+      border-radius: 8px;
+      padding: 3px 9px;
+      font-size: 11px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .d-sec {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(148, 163, 184, 0.15);
+      border-radius: 9px;
+      padding: 8px 10px;
+    }
+    .d-sec h3 {
+      font-size: 10.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--accent);
+      margin-bottom: 4px;
+    }
+    .d-sec p, .d-sec li {
+      font-size: 11.5px;
+      color: #e2e8f0;
+      line-height: 1.35;
+    }
+    .d-sec ul { padding-left: 16px; display: flex; flex-direction: column; gap: 2px; }
   </style>
 </head>
-<body>
+<body class="biome-obsidian">
   <div class="wrap">
     <div class="header">
       <div class="brand">
         <div class="sigil" aria-hidden="true">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-            <path d="M12 2L15 8L21 9L16.5 14L17.5 21L12 17.5L6.5 21L7.5 14L3 9L9 8L12 2Z" fill="#f59e0b"/>
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none">
+            <path id="sigil-path" d="M12 2L15 8L21 9L16.5 14L17.5 21L12 17.5L6.5 21L7.5 14L3 9L9 8L12 2Z" fill="#f59e0b"/>
           </svg>
         </div>
         <div>
           <div class="title">EMBERFALL</div>
-          <div class="sub-line">90s Daily Horde Survivor · 1-Thumb</div>
+          <div class="sub-line">90s Daily Horde · Rust/WASM · 1-Thumb &amp; Gamepad</div>
         </div>
       </div>
-      <div class="seed-pill" id="seed-pill">DUNGEON #----</div>
+      <div class="hdr-right">
+        <div class="seed-pill" id="seed-pill">#----</div>
+        <button class="help-btn" id="help-btn" type="button" aria-label="How to Play &amp; Today's Boss">? Guide</button>
+      </div>
     </div>
 
     <div class="card mutator-card">
-      <div class="label" id="biome-label">Today's Arena &amp; Daily Mutator</div>
+      <div class="label-row">
+        <div class="label">Today's Daily Arena &amp; Mutator</div>
+        <div class="biome-tag" id="biome-tag">OBSIDIAN</div>
+      </div>
       <div class="mutator-name" id="mutator-name">LOADING...</div>
       <div class="mutator-desc" id="mutator-desc">Syncing daily seed from Reddit...</div>
-      <div class="mutator-desc" id="bounty-line" style="margin-top:5px;font-size:11px;color:#86efac;font-weight:600;">🎯 Daily Bounties: 3Barrels · 1Shrine · 30xCombo (+2,250 PTS)</div>
+      <div class="blessing-line" id="blessing-line">✨ Community Blessing loading...</div>
+      <div class="bounty-chips" id="bounty-chips"></div>
     </div>
 
     <div class="card">
       <div class="siege-head">
-        <div class="label" style="margin:0;">Reddit Faction War &amp; Boss Siege</div>
-        <div class="siege-count" id="siege-count">0 / 25 Arch-Liches Slain</div>
+        <div class="label">Subreddit Boss Siege &amp; Faction War</div>
+        <div class="siege-count" id="siege-count">0 / 25 Bosses Slain</div>
       </div>
       <div class="bar-bg"><div class="bar-fill" id="siege-fill"></div></div>
-      <div class="mutator-desc" id="faction-line" style="margin-top:6px;font-size:11px;color:#fde68a;">☀️ Solar 0 · 🔮 Arcane 0 · 🗡️ Shadow 0</div>
+      <div class="faction-bar" aria-label="Reddit Faction War Percentages">
+        <div class="f-seg f-solar" id="f-seg-0"></div>
+        <div class="f-seg f-arcane" id="f-seg-1"></div>
+        <div class="f-seg f-shadow" id="f-seg-2"></div>
+      </div>
+      <div class="faction-line" id="faction-line">
+        <span>☀️ Solar 33% · 🔮 Arcane 33% · 🗡️ Shadow 34%</span>
+      </div>
+      <div class="siege-feed" id="siege-feed">⚔️ Be the first Redditor to strike today's Boss!</div>
     </div>
 
     <div class="card">
-      <div class="label">Top 3 Champions Today</div>
+      <div class="label-row">
+        <div class="label">Top 3 Champions Today</div>
+        <div class="label" id="yday-champ" style="color:#fde68a;"></div>
+      </div>
       <div class="lb-list" id="lb-list">
         <div class="lb-row"><span class="lb-user" style="color:#94a3b8;">Fetching leaderboard...</span></div>
       </div>
     </div>
 
+    <div class="tomorrow-strip">
+      <span id="tomorrow-info">Tomorrow: <strong>Syncing...</strong></span>
+      <span class="countdown" id="utc-countdown">⏳ --:--:--</span>
+    </div>
+
     <div class="footer">
       <button class="cta" id="enter-btn" type="button">⚔️ ENTER DUNGEON (3 CLASSES)</button>
       <div class="me-bar">
-        <span id="me-rank">Play Daily Ranked</span>
-        <span id="me-streak">🔥 0d Streak</span>
+        <span id="me-rank">Play Daily Ranked · Vote Tomorrow's Mutator</span>
+        <span id="me-streak">🔥 0-Day Streak</span>
       </div>
+    </div>
+
+    <div class="drawer" id="guide-drawer" role="dialog" aria-modal="true" aria-label="Dungeon Briefing and Controls">
+      <div class="drawer-head">
+        <div class="drawer-title" id="drawer-title">TODAY'S DUNGEON BRIEFING</div>
+        <button class="close-btn" id="close-guide-btn" type="button">✕ Close</button>
+      </div>
+      <div class="d-sec">
+        <h3>⚔️ How to Play (90s Run)</h3>
+        <ul>
+          <li><strong>Move:</strong> Drag anywhere (1-Thumb), <strong>WASD / Arrows</strong>, or Gamepad.</li>
+          <li><strong>Auto-Attack:</strong> Weapons fire automatically. Pick upgrades on Level-Up!</li>
+          <li><strong>Witch-Time Dodge:</strong> Tap <strong>DASH</strong> (or <strong>Space</strong>) near shots/boss rings for slow-mo +150 PTS!</li>
+          <li><strong>Supernova:</strong> Trigger <strong>NOVA</strong> (or <strong>Q/E</strong>) when charged. Shoot Barrels &amp; claim Shrines!</li>
+        </ul>
+      </div>
+      <div class="d-sec">
+        <h3>💀 Today's Boss &amp; Mutator</h3>
+        <p id="drawer-boss">Loading today's Boss...</p>
+        <p id="drawer-mutator" style="margin-top:4px;color:#fde68a;"></p>
+      </div>
+      <div class="d-sec">
+        <h3>🎯 Today's 3 Daily Bounties (+750 PTS Each)</h3>
+        <ul id="drawer-bounties"></ul>
+      </div>
+      <button class="cta" id="drawer-play-btn" type="button">⚔️ ENTER DUNGEON NOW</button>
     </div>
   </div>
   <script src="./splash.js"></script>
 </body>
 </html>
-

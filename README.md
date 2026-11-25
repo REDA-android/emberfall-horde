@@ -8,18 +8,19 @@
 
 - **100% Pure Rust WASM Client (`crates/emberfall/` → `dist/client/emberfall.wasm`)**: All game loop logic, 3 playable Hero Classes, 3 Daily Biomes, Runic Explosive Barrels, AI hordes, GLSL100 shaders, particle explosions, audio triggers, tactical Minimap Radar, and in-game HUD/menus are compiled from Rust with zero HTML/JS/CSS game logic and all PNGs + Open-Source TTF typography embedded via `include_bytes!()`.
 - **Devvit Web Entrypoints (`dist/client/`)**:
-  - `splash.html` (`default` inline feed card, `<30 KB`, zero WASM): Displays today's UTC Daily Biome & Mutator, Subreddit Faction War & Boss Siege progress bar, and Top 3 Champions, then launches fullscreen via `requestExpandedMode(event, 'game')`.
-  - `index.html` (`game` expanded fullscreen host): Loads `mq_js_bundle.js` + `emberfall.wasm` and registers the `emberfall_bridge` plugin for WebAudio SFX/drone, UTC day/init state, run lifecycle, ghost replay, faction war sync, mutator voting, and Reddit comment sharing.
+  - `splash.html` + `splash.js` (`default` inline feed card, `<30 KB`, zero WASM, zero inline scripts): Dynamically adapts its color palette to today's UTC Daily Biome (*Obsidian* purple/gold, *Volcanic* lava/ember, *Frost* ice/cyan), shows today's Boss, Mutator, Community Faction Blessing, 3 Daily Bounties, live 3-segment Faction War percentage bar, Subreddit Boss Siege progress & live Siege Activity Feed, Top 3 Champions, Tomorrow's Dungeon Countdown & Vote Leader teaser, plus an interactive `? Guide` briefing drawer before launching fullscreen via `requestExpandedMode(event, 'game')`.
+  - `index.html` + `game_bridge.js` (`game` expanded fullscreen host, zero inline scripts): Loads `mq_js_bundle.js` + `emberfall.wasm` and registers the `emberfall_bridge` plugin for layered 100% procedural WebAudio SFX (including Dash whoosh, Witch-Time time-dilation shimmer, lightning crackle, boss war horn, 140 BPM boss synth, and persisted Mute toggle), UTC day/init state, run lifecycle, ghost replay, faction war percentages, live Siege Activity Feed, community mutator voting, and Reddit comment sharing.
 - **Devvit Web + Redis Backend (`src/server/index.ts` → `dist/server/index.cjs`)**:
   - **UTC Daily Scheduler & Yesterday's Champion Coronation**: Automated daily post creation via `scheduler.tasks` + atomic Redis `SET NX` lock, automatically posting an official comment crowning yesterday's `#1 Champion` and winning Reddit Faction Order.
   - **Privacy & Retention**: 30-day (`30 * 86400`s) TTLs on all daily keys plus `onPostDelete` trigger cleanup.
   - **Run Session Anti-Cheat**: `POST /api/start-run` issues a `runId` + `startedAt`, validated on `POST /api/submit-run` (10s–180s duration bounds, score/kill clamping, per-user rate limit).
   - **Community & Social Hooks**:
-    - **3-Faction Daily Subreddit War**: Every run contributes points to the player's chosen Order (`☀️ Solar Order`, `🔮 Arcane Conclave`, or `🗡️ Shadow Guild`) in Redis (`ef:factions:{sub}:{seed}`).
+    - **3-Faction Daily Subreddit War**: Every run contributes points to the player's chosen Order (`☀️ Solar Order`, `🔮 Arcane Conclave`, or `🗡️ Shadow Guild`) in Redis (`ef:factions:{sub}:{seed}`), rendered as live percentages on the Splash Card, Title, Victory screen, and Reddit Share Card.
     - **#1 Champion Ghost Replay**: Records 2 Hz `(x, y)` hero path (~1.4 KB) and renders the daily `#1` champion as a translucent golden phantom in-game and on the Minimap Radar.
-    - **Subreddit Boss Siege**: Collective daily Arch-Lich slain progress bar across the subreddit.
-    - **Winner-Picks-Tomorrow's-Mutator**: Top 3 daily players vote on tomorrow's `DailyModifier` (`POST /api/vote-mutator`).
-    - **Wordle-Style Emoji Build Share Card**: 1-tap `POST /api/share-comment` posts rank, Hero Class, Faction Order, Daily Biome, score, streak, mutator, and weapon emoji strip directly to the Reddit thread (zero external links).
+    - **Subreddit Boss Siege & Live Activity Feed**: Collective daily Boss slain progress bar (`ef:bosses:{sub}:{seed}`) plus live ticker of recent Redditors striking/slaying today's Boss (`ef:siege-feed:{sub}:{seed}`).
+    - **Community Vote — Tomorrow's Mutator**: Any signed-in Redditor can vote on tomorrow's `DailyModifier` at the end of a run (`POST /api/vote-mutator`) with live Redis tallies and a live UTC countdown teaser (`HH:MM:SS`).
+    - **Daily Streak & 8-Bounty UTC Pool**: Per-Redditor Daily Streak (`🔥 X-Day Streak`) persisted in Redis and 3 deterministic Daily Bounties per UTC seed (including *2 Witch-Time Dodges*, *Reach Level 6*, and *Slay Today's Boss*).
+    - **Enriched Reddit Build Share Card**: 1-tap `POST /api/share-comment` posts rank, streak, Hero Class, Faction Order, Daily Biome, score, bounties, live Faction War %, Siege bar, and Tomorrow's Vote Leader directly to the Reddit thread (zero external links).
 
 ---
 
