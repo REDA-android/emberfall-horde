@@ -412,6 +412,7 @@ fn draw_articulated_sprite(
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Phase {
+    Intro,
     Title,
     Playing,
     Paused,
@@ -728,6 +729,9 @@ struct Game {
     joy_curr: Vec2,
     joy_vec: Vec2,
     title_time: f32,
+    intro_time: f32,
+    intro_stage_sfx: u8,
+    card_springs: [f32; 3],
     social: SocialState,
 }
 
@@ -745,7 +749,7 @@ impl Game {
         let b_arr = generate_daily_bounties(&day_seed);
 
         Self {
-            phase: Phase::Title,
+            phase: Phase::Intro,
             day_seed,
             modifier,
             biome,
@@ -858,6 +862,9 @@ impl Game {
             joy_curr: Vec2::ZERO,
             joy_vec: Vec2::ZERO,
             title_time: 0.0,
+            intro_time: 0.0,
+            intro_stage_sfx: 0,
+            card_springs: [1.0, 0.0, 0.0],
             social: SocialState::default(),
         }
     }
@@ -3921,25 +3928,82 @@ impl Game {
     fn draw_button(&self, font: Option<&Font>, rect: Rect, label: &str, fill: Color, border: Color) -> bool {
         let mp = vec2(mouse_position().0, mouse_position().1);
         let hovered = rect.contains(mp);
+        let held = hovered && is_mouse_button_down(MouseButton::Left);
+
+        // Tactile 3D push-button depth + magnetic hover pull (inspired by Kinetics & MetalForge)
+        let pull = if hovered && !held {
+            let center = vec2(rect.x + rect.w * 0.5, rect.y + rect.h * 0.5);
+            (mp - center) * 0.06
+        } else {
+            Vec2::ZERO
+        };
+        let press_dy = if held { 3.0 } else { 0.0 };
+        let lip_h = if rect.h >= 34.0 { 4.0 } else { 2.5 };
+
+        // Solid dark 3D bottom edge shadow
+        draw_rectangle(
+            rect.x + pull.x,
+            rect.y + pull.y + lip_h,
+            rect.w,
+            rect.h,
+            Color::new(fill.r * 0.35, fill.g * 0.35, fill.b * 0.35, (fill.a + 0.1).min(1.0)),
+        );
+
+        let bx = rect.x + pull.x;
+        let by = rect.y + pull.y + press_dy;
         let bg = if hovered {
             Color::new(
-                (fill.r + 0.08).min(1.0),
-                (fill.g + 0.08).min(1.0),
-                (fill.b + 0.08).min(1.0),
+                (fill.r + 0.10).min(1.0),
+                (fill.g + 0.10).min(1.0),
+                (fill.b + 0.10).min(1.0),
                 fill.a,
             )
         } else {
             fill
         };
-        draw_rectangle(rect.x, rect.y, rect.w, rect.h, bg);
-        draw_rectangle_lines(rect.x, rect.y, rect.w, rect.h, 2.2, border);
-        let dims = measure_ui_text(font, label, 19);
+        draw_rectangle(bx, by, rect.w, rect.h, bg);
+        // Top inner specular highlight strip
+        draw_rectangle(
+            bx + 2.0,
+            by + 2.0,
+            rect.w - 4.0,
+            (rect.h * 0.28).min(8.0),
+            Color::new(1.0, 1.0, 1.0, if hovered { 0.18 } else { 0.09 }),
+        );
+        // Animated diagonal metallic sheen sweep on wide CTA buttons
+        if rect.w >= 110.0 {
+            let t = ((get_time() as f32 * 0.65) % 1.8) / 1.2;
+            if t <= 1.0 {
+                let sx = bx + 6.0 + t * (rect.w - 22.0);
+                draw_rectangle(
+                    sx,
+                    by + 2.0,
+                    12.0,
+                    rect.h - 4.0,
+                    Color::new(1.0, 1.0, 1.0, if hovered { 0.22 } else { 0.10 }),
+                );
+            }
+        }
+        draw_rectangle_lines(bx, by, rect.w, rect.h, if hovered { 2.4 } else { 1.8 }, border);
+
+        // Precision hairline corner brackets on hover
+        if hovered && rect.w >= 70.0 {
+            let cl = 6.0;
+            let hc = Color::new(1.0, 1.0, 1.0, 0.85);
+            draw_line(bx - 2.0, by - 2.0, bx + cl, by - 2.0, 1.5, hc);
+            draw_line(bx - 2.0, by - 2.0, bx - 2.0, by + cl, 1.5, hc);
+            draw_line(bx + rect.w + 2.0, by - 2.0, bx + rect.w - cl, by - 2.0, 1.5, hc);
+            draw_line(bx + rect.w + 2.0, by - 2.0, bx + rect.w + 2.0, by + cl, 1.5, hc);
+        }
+
+        let fsize = if rect.h <= 30.0 { 13u16 } else { 18u16 };
+        let dims = measure_ui_text(font, label, fsize);
         draw_ui_text(
             font,
             label,
-            rect.x + (rect.w - dims.width) * 0.5,
-            rect.y + (rect.h + dims.height) * 0.5 - 2.0,
-            19.0,
+            bx + (rect.w - dims.width) * 0.5,
+            by + (rect.h + dims.height) * 0.5 - 2.0,
+            fsize as f32,
             WHITE,
         );
 
@@ -4176,141 +4240,477 @@ impl Game {
         let sh = screen_height();
         let font = assets.ui_font.as_ref();
 
-        if self.phase == Phase::Title {
-            self.title_time += get_frame_time();
-            draw_rectangle(0.0, 0.0, sw, sh, Color::from_rgba(6, 9, 20, 205));
+        // =========================================================================
+        // 0. CINEMATIC OPENING SEQUENCE (5.2s skippable 60fps widescreen intro!)
+        // =========================================================================
+        if self.phase == Phase::Intro {
+            let dt = get_frame_time().min(0.05);
+            self.intro_time += dt;
+            let t = self.intro_time;
 
-            // Top-left user, streak, PB & Best Endless Wave badge
+            // Trigger staged WebAudio SFX once user unlocks audio or during playback
+            if self.intro_stage_sfx == 0 && t >= 0.05 {
+                self.intro_stage_sfx = 1;
+                play_sfx(14);
+            } else if self.intro_stage_sfx == 1 && t >= 1.55 {
+                self.intro_stage_sfx = 2;
+                play_sfx(6);
+            } else if self.intro_stage_sfx == 2 && t >= 3.25 {
+                self.intro_stage_sfx = 3;
+                play_sfx(5);
+            }
+
+            // Deep obsidian backdrop
+            draw_rectangle(0.0, 0.0, sw, sh, Color::from_rgba(4, 6, 14, 248));
+
+            // Slow Ken-Burns zoom on panoramic Dark-Fantasy Key-Art Banner
+            let zoom = 1.04 + t * 0.032;
+            let bw = sw.max(sh * 2.4) * zoom;
+            let bh = bw * (180.0 / 480.0);
+            let banner_alpha = (t / 0.9).clamp(0.0, 1.0) * 0.58;
+            draw_texture_ex(
+                &assets.title_banner,
+                (sw - bw) * 0.5,
+                (sh - bh) * 0.36,
+                Color::new(1.0, 0.96, 0.90, banner_alpha),
+                DrawTextureParams {
+                    dest_size: Some(vec2(bw, bh)),
+                    ..Default::default()
+                },
+            );
+            // Dark gradient vignette overlays
+            draw_rectangle(0.0, 0.0, sw, sh * 0.22, Color::from_rgba(3, 5, 12, 235));
+            draw_rectangle(0.0, sh * 0.74, sw, sh * 0.26, Color::from_rgba(3, 5, 12, 242));
+
+            // Procedural rising ember sparks across the cinema frame
+            for i in 0..28 {
+                let fi = i as f32;
+                let px = ((fi * 97.3 + t * (18.0 + (i % 5) as f32 * 7.0)) % sw).abs();
+                let py = sh - ((fi * 61.7 + t * (55.0 + (i % 4) as f32 * 22.0)) % sh);
+                let sz = 2.0 + (fi % 3.0) * 1.3;
+                let pulse = 0.45 + ((t * 5.0 + fi).sin() * 0.35);
+                draw_circle(px, py, sz, Color::new(0.99, 0.58, 0.18, pulse));
+            }
+
+            let cx = sw * 0.5;
+            let cy = sh * 0.48;
+            let bcol = biome_boss_color(self.biome);
+
+            // Rotating arcane Hairline geometry sigil behind showcase
+            let sigil_r = (sw.min(sh) * 0.27).min(148.0);
+            draw_poly_lines(
+                cx,
+                cy - 8.0,
+                8,
+                sigil_r,
+                t * 18.0,
+                1.4,
+                Color::new(bcol.r, bcol.g, bcol.b, 0.38),
+            );
+            draw_poly_lines(
+                cx,
+                cy - 8.0,
+                6,
+                sigil_r * 0.78,
+                -t * 26.0,
+                1.1,
+                Color::from_rgba(250, 204, 21, 95),
+            );
+
+            // ACT I (0.0s .. 1.6s): Citadel Gate & UTC Seed Seal
+            if t < 1.65 {
+                let a = if t < 1.25 {
+                    (t / 0.45).clamp(0.0, 1.0)
+                } else {
+                    ((1.65 - t) / 0.4).clamp(0.0, 1.0)
+                };
+                let k1 = "REDDIT DAILY CITADEL CHRONICLE";
+                let k1d = measure_ui_text(font, k1, 14);
+                draw_ui_text(
+                    font,
+                    k1,
+                    cx - k1d.width * 0.5,
+                    cy - 24.0,
+                    14.0,
+                    Color::new(0.98, 0.75, 0.15, a),
+                );
+                let k2 = format!("DUNGEON #{} · {}", self.day_seed, self.biome.title());
+                let k2d = measure_ui_text(font, &k2, 26);
+                draw_ui_text(
+                    font,
+                    &k2,
+                    cx - k2d.width * 0.5,
+                    cy + 12.0,
+                    26.0,
+                    Color::new(1.0, 1.0, 1.0, a),
+                );
+                let line_w = (sw * 0.55).min(320.0) * a;
+                draw_line(
+                    cx - line_w * 0.5,
+                    cy + 26.0,
+                    cx + line_w * 0.5,
+                    cy + 26.0,
+                    1.6,
+                    Color::new(bcol.r, bcol.g, bcol.b, a),
+                );
+            }
+            // ACT II (1.55s .. 3.30s): Today's Boss Dramatic Reveal!
+            else if t < 3.30 {
+                let lt = t - 1.55;
+                let a = if lt < 1.35 {
+                    (lt / 0.32).clamp(0.0, 1.0)
+                } else {
+                    ((1.75 - lt) / 0.4).clamp(0.0, 1.0)
+                };
+                // Spring overshoot scale on Boss arrival
+                let spring_s = if lt < 0.28 {
+                    0.55 + (lt / 0.28) * 0.58
+                } else {
+                    1.13 - ((lt - 0.28) / 0.35).clamp(0.0, 1.0) * 0.13
+                };
+                let bsz = 154.0 * spring_s;
+                draw_texture_ex(
+                    &assets.vfx_light,
+                    cx - bsz * 0.65,
+                    cy - bsz * 0.65 - 18.0,
+                    Color::new(bcol.r, bcol.g, bcol.b, 0.42 * a),
+                    DrawTextureParams {
+                        dest_size: Some(vec2(bsz * 1.3, bsz * 1.3)),
+                        ..Default::default()
+                    },
+                );
+                draw_texture_ex(
+                    assets.boss_for_biome(self.biome),
+                    cx - bsz * 0.5,
+                    cy - bsz * 0.5 - 18.0,
+                    Color::new(1.0, 1.0, 1.0, a),
+                    DrawTextureParams {
+                        dest_size: Some(vec2(bsz, bsz)),
+                        ..Default::default()
+                    },
+                );
+                let tag = "TODAY'S OVERLORD AWAKENS";
+                let td = measure_ui_text(font, tag, 12);
+                draw_ui_text(
+                    font,
+                    tag,
+                    cx - td.width * 0.5,
+                    cy + 68.0,
+                    12.0,
+                    Color::new(0.98, 0.80, 0.15, a),
+                );
+                let bname = biome_boss_name(self.biome);
+                let bnd = measure_ui_text(font, bname, 26);
+                draw_ui_text(
+                    font,
+                    bname,
+                    cx - bnd.width * 0.5,
+                    cy + 95.0,
+                    26.0,
+                    Color::new(bcol.r, bcol.g, bcol.b, a),
+                );
+            }
+            // ACT III (3.25s .. 5.20s): 3 Heroes + Companions Assemble & EMBERFALL Logo Slam!
+            else {
+                let lt = t - 3.25;
+                let a = (lt / 0.28).clamp(0.0, 1.0);
+                // Screen flash on logo anvil slam
+                if lt < 0.22 {
+                    let fa = (1.0 - lt / 0.22) * 0.45;
+                    draw_rectangle(0.0, 0.0, sw, sh, Color::new(1.0, 0.90, 0.65, fa));
+                }
+
+                // 3 Heroes + 3 Faction Companions heroically flanked
+                let spread = (sw * 0.24).min(112.0) * (0.65 + 0.35 * a);
+                let hero_y = cy - 16.0;
+                let trio = [
+                    (-spread, &assets.hero, &assets.pet_solar, true),
+                    (0.0, &assets.hero_mage, &assets.pet_arcane, false),
+                    (spread, &assets.hero_rogue, &assets.pet_shadow, false),
+                ];
+                for (dx, htex, ptex, flip) in trio.iter() {
+                    let hx = cx + *dx;
+                    let hsz = if *dx == 0.0 { 104.0 } else { 90.0 };
+                    draw_texture_ex(
+                        htex,
+                        hx - hsz * 0.5,
+                        hero_y - hsz * 0.5,
+                        Color::new(1.0, 1.0, 1.0, a),
+                        DrawTextureParams {
+                            dest_size: Some(vec2(hsz, hsz)),
+                            flip_x: *flip,
+                            ..Default::default()
+                        },
+                    );
+                    let bob = (t * 6.0 + *dx).sin() * 4.0;
+                    draw_texture_ex(
+                        ptex,
+                        hx + (if *dx < 0.0 { -34.0 } else { 10.0 }),
+                        hero_y - 54.0 + bob,
+                        Color::new(1.0, 1.0, 1.0, a),
+                        DrawTextureParams {
+                            dest_size: Some(vec2(38.0, 38.0)),
+                            ..Default::default()
+                        },
+                    );
+                }
+
+                let logo = "EMBERFALL";
+                let ld = measure_ui_text(font, logo, 48);
+                draw_ui_text(
+                    font,
+                    logo,
+                    cx - ld.width * 0.5,
+                    cy - 78.0,
+                    48.0,
+                    Color::new(0.99, 0.78, 0.18, a),
+                );
+                let sub = "DAILY HORDE · CHOOSE YOUR ORDER";
+                let sd = measure_ui_text(font, sub, 15);
+                draw_ui_text(
+                    font,
+                    sub,
+                    cx - sd.width * 0.5,
+                    cy + 68.0,
+                    15.0,
+                    Color::new(0.94, 0.97, 1.0, a),
+                );
+            }
+
+            // Cinema Letterbox Bars (top & bottom) + Hairline gold trim + Progress bar + SKIP pill
+            let bar_h = (sh * 0.085).clamp(32.0, 54.0);
+            draw_rectangle(0.0, 0.0, sw, bar_h, Color::from_rgba(2, 4, 10, 255));
+            draw_rectangle(0.0, sh - bar_h, sw, bar_h, Color::from_rgba(2, 4, 10, 255));
+            draw_line(0.0, bar_h, sw, bar_h, 1.2, Color::from_rgba(250, 204, 21, 140));
+            draw_line(0.0, sh - bar_h, sw, sh - bar_h, 1.2, Color::from_rgba(250, 204, 21, 140));
+
+            let prog = (t / 5.2).clamp(0.0, 1.0);
+            draw_rectangle(0.0, sh - 3.0, sw * prog, 3.0, Color::from_rgba(251, 191, 36, 245));
+
+            let skip_lbl = "TAP / SPACE TO SKIP INTRO »";
+            let skd = measure_ui_text(font, skip_lbl, 12);
+            draw_ui_text(
+                font,
+                skip_lbl,
+                sw - skd.width - 16.0,
+                sh - bar_h * 0.5 + 4.0,
+                12.0,
+                Color::from_rgba(203, 213, 225, 220),
+            );
+
+            let any_touch = touches().iter().any(|tc| tc.phase == TouchPhase::Started);
+            let skip = t >= 5.2
+                || (t > 0.18
+                    && (is_mouse_button_pressed(MouseButton::Left)
+                        || any_touch
+                        || is_key_pressed(KeyCode::Space)
+                        || is_key_pressed(KeyCode::Enter)
+                        || is_key_pressed(KeyCode::Escape)));
+            if skip {
+                self.phase = Phase::Title;
+                play_sfx(0);
+            }
+            return;
+        }
+
+        // =========================================================================
+        // 1. REDESIGNED STUDIO TITLE SCREEN (MetalForge + Hairline + Kinetics UI)
+        // =========================================================================
+        if self.phase == Phase::Title {
+            let dt = get_frame_time().min(0.05);
+            self.title_time += dt;
+            let cx = sw * 0.5;
+            let bcol = biome_boss_color(self.biome);
+
+            // Deep obsidian glass overlay over live arena
+            draw_rectangle(0.0, 0.0, sw, sh, Color::from_rgba(5, 8, 18, 226));
+
+            // Panoramic Key-Art Hero Backdrop Header with slow breathing pan
+            let pan_w = sw.max(460.0) * 1.04;
+            let pan_h = (sh * 0.24).clamp(118.0, 168.0);
+            let pan_x = (sw - pan_w) * 0.5 + (self.title_time * 0.5).sin() * 8.0;
+            draw_texture_ex(
+                &assets.title_banner,
+                pan_x,
+                0.0,
+                Color::from_rgba(255, 245, 232, 165),
+                DrawTextureParams {
+                    dest_size: Some(vec2(pan_w, pan_h)),
+                    ..Default::default()
+                },
+            );
+            // Smooth bottom fade of key-art header + Hairline biome-tinted rule
+            draw_rectangle(0.0, pan_h - 36.0, sw, 36.0, Color::from_rgba(5, 8, 18, 200));
+            draw_line(0.0, pan_h, sw, pan_h, 1.5, Color::new(bcol.r, bcol.g, bcol.b, 0.65));
+
+            // Subtle floating ember motes on Title Screen
+            for i in 0..14 {
+                let fi = i as f32;
+                let mx = ((fi * 83.0 + self.title_time * 14.0) % sw).abs();
+                let my = ((fi * 53.0 - self.title_time * 24.0).rem_euclid(sh)).abs();
+                draw_circle(mx, my, 1.7, Color::new(bcol.r, bcol.g, bcol.b, 0.35));
+            }
+
+            // Top Glass Utility Bar: Player Pill (Left) + Replay Intro / Aura / CRT / Audio (Right)
+            draw_rectangle(0.0, 0.0, sw, 38.0, Color::from_rgba(4, 7, 16, 210));
+            draw_line(0.0, 38.0, sw, 38.0, 1.0, Color::from_rgba(255, 255, 255, 28));
+
             let user_lbl = if self.social.username.is_empty() {
                 "u/Guest".to_string()
             } else {
                 format!("u/{}", self.social.username)
             };
-            let info_lbl = if self.social.best_endless_wave > 0 {
-                format!(
-                    "{} · {}d · PB {} · W{}",
-                    user_lbl,
-                    self.social.streak,
-                    self.social.personal_best.max(0),
-                    self.social.best_endless_wave
-                )
-            } else {
-                format!(
-                    "{} · STREAK {}d · PB {}",
-                    user_lbl,
-                    self.social.streak,
-                    self.social.personal_best.max(0)
-                )
-            };
+            let info_lbl = format!(
+                "{} · {}d STREAK · PB {}",
+                user_lbl,
+                self.social.streak,
+                self.social.personal_best.max(0)
+            );
             draw_ui_text(
                 font,
                 &info_lbl,
-                14.0,
-                26.0,
-                13.0,
-                Color::from_rgba(203, 213, 225, 255),
+                12.0,
+                24.0,
+                12.0,
+                Color::from_rgba(226, 232, 240, 245),
             );
 
-            // Top-right Aura selector + Mute button
-            let unlocked_auras = (0..4)
-                .filter(|&a| is_aura_unlocked(a, self.social.medals_mask))
-                .count();
-            let aura_lbl = format!(
-                "AURA: {} ({}/4)",
-                AURA_NAMES[self.social.selected_aura.min(3)],
-                unlocked_auras
-            );
-            let aura_rect = Rect::new(sw - 278.0, 10.0, 164.0, 28.0);
-            if self.draw_button(
-                font,
-                aura_rect,
-                &aura_lbl,
-                Color::from_rgba(15, 23, 42, 220),
-                aura_color(self.social.selected_aura),
-            ) {
-                for step in 1..=4 {
-                    let cand = (self.social.selected_aura + step) % 4;
-                    if is_aura_unlocked(cand, self.social.medals_mask) {
-                        self.social.selected_aura = cand;
-                        unsafe {
-                            emberfall_set_selected_aura(cand as i32);
-                        }
-                        play_sfx(0);
-                        break;
-                    }
-                }
-            }
-
-            let mute_rect = Rect::new(sw - 108.0, 10.0, 94.0, 28.0);
+            let mute_rect = Rect::new(sw - 74.0, 6.0, 64.0, 25.0);
             if self.draw_button(
                 font,
                 mute_rect,
-                if self.muted { "SFX: OFF" } else { "SFX: ON" },
-                Color::from_rgba(15, 23, 42, 220),
-                Color::from_rgba(148, 163, 184, 180),
+                if self.muted { "MUTE" } else { "AUDIO" },
+                Color::from_rgba(15, 23, 42, 230),
+                if self.muted {
+                    Color::from_rgba(244, 63, 94, 200)
+                } else {
+                    Color::from_rgba(74, 222, 128, 210)
+                },
             ) {
                 self.toggle_mute();
             }
 
-            let cx = sw * 0.5;
-            let top_y = (sh * 0.07).max(38.0);
+            let intro_btn = Rect::new(sw - 144.0, 6.0, 64.0, 25.0);
+            if self.draw_button(
+                font,
+                intro_btn,
+                "INTRO",
+                Color::from_rgba(15, 23, 42, 230),
+                Color::from_rgba(250, 204, 21, 195),
+            ) {
+                self.intro_time = 0.0;
+                self.intro_stage_sfx = 0;
+                self.phase = Phase::Intro;
+                return;
+            }
 
+            if sw >= 430.0 {
+                let unlocked_auras = (0..4)
+                    .filter(|&a| is_aura_unlocked(a, self.social.medals_mask))
+                    .count();
+                let aura_lbl = format!(
+                    "AURA {} ({}/4)",
+                    AURA_NAMES[self.social.selected_aura.min(3)],
+                    unlocked_auras
+                );
+                let aura_rect = Rect::new(sw - 292.0, 6.0, 142.0, 25.0);
+                if self.draw_button(
+                    font,
+                    aura_rect,
+                    &aura_lbl,
+                    Color::from_rgba(15, 23, 42, 230),
+                    aura_color(self.social.selected_aura),
+                ) {
+                    for step in 1..=4 {
+                        let cand = (self.social.selected_aura + step) % 4;
+                        if is_aura_unlocked(cand, self.social.medals_mask) {
+                            self.social.selected_aura = cand;
+                            unsafe {
+                                emberfall_set_selected_aura(cand as i32);
+                            }
+                            play_sfx(0);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Sculpted Metallic Title Crest over Key-Art Header
+            let crest_y = 46.0;
             let title = "EMBERFALL";
             let td = measure_ui_text(font, title, 40);
             draw_ui_text(
                 font,
                 title,
                 cx - td.width * 0.5,
-                top_y + 24.0,
+                crest_y + 30.0,
                 40.0,
-                Color::from_rgba(251, 191, 36, 255),
+                Color::from_rgba(253, 224, 71, 255),
+            );
+            let sub_tag = "DAILY HORDE · 90S REDDIT ACTION ROGUELITE";
+            let stdim = measure_ui_text(font, sub_tag, 11);
+            draw_ui_text(
+                font,
+                sub_tag,
+                cx - stdim.width * 0.5,
+                crest_y + 46.0,
+                11.0,
+                Color::from_rgba(226, 232, 240, 235),
             );
 
-            let sub = format!(
+            let panel_w = (sw - 24.0).min(436.0);
+            let px0 = cx - panel_w * 0.5;
+
+            // TODAY'S DUNGEON & BOSS DOSSIER CARD (Glassmorphism + Hairline Isometric Corner Ticks)
+            let dos_y = crest_y + 56.0;
+            let dos_h = 58.0;
+            draw_rectangle(px0, dos_y, panel_w, dos_h, Color::from_rgba(10, 16, 32, 238));
+            draw_rectangle_lines(px0, dos_y, panel_w, dos_h, 1.6, bcol);
+            draw_line(px0 + 4.0, dos_y + 4.0, px0 + 16.0, dos_y + 4.0, 1.5, GOLD);
+            draw_line(px0 + 4.0, dos_y + 4.0, px0 + 4.0, dos_y + 16.0, 1.5, GOLD);
+
+            // Live Today's Boss Portrait inside Dossier
+            draw_rectangle(px0 + 7.0, dos_y + 6.0, 46.0, 46.0, Color::from_rgba(17, 24, 45, 245));
+            draw_rectangle_lines(px0 + 7.0, dos_y + 6.0, 46.0, 46.0, 1.2, bcol);
+            draw_texture_ex(
+                assets.boss_for_biome(self.biome),
+                px0 + 8.0,
+                dos_y + 7.0,
+                WHITE,
+                DrawTextureParams {
+                    dest_size: Some(vec2(44.0, 44.0)),
+                    ..Default::default()
+                },
+            );
+
+            let d_l1 = format!(
                 "#{} · {} · {}",
                 self.day_seed,
                 self.biome.title(),
                 self.modifier.title()
             );
-            let sd = measure_ui_text(font, &sub, 14);
-            draw_ui_text(
-                font,
-                &sub,
-                cx - sd.width * 0.5,
-                top_y + 46.0,
-                14.0,
-                Color::from_rgba(56, 189, 248, 255),
-            );
-
+            draw_ui_text(font, &d_l1, px0 + 61.0, dos_y + 20.0, 12.5, Color::from_rgba(125, 211, 252, 255));
+            let d_l2 = format!("OVERLORD: {}", biome_boss_name(self.biome));
+            draw_ui_text(font, &d_l2, px0 + 61.0, dos_y + 36.0, 12.0, bcol);
             let bless_idx = self.active_blessing();
-            let bdesc = format!(
-                "COMMUNITY BLESSING: {} ({})",
+            let d_l3 = format!(
+                "BLESSING: {} ({})",
                 blessing_name(bless_idx),
                 blessing_effect(bless_idx)
             );
-            let bdd = measure_ui_text(font, &bdesc, 12);
-            draw_ui_text(
-                font,
-                &bdesc,
-                cx - bdd.width * 0.5,
-                top_y + 64.0,
-                12.0,
-                Color::from_rgba(250, 204, 21, 250),
-            );
+            draw_ui_text(font, &d_l3, px0 + 61.0, dos_y + 50.0, 10.5, Color::from_rgba(250, 204, 21, 245));
 
-            // 3 Playable Hero Class & Reddit Faction Cards (with real illustrated sprites!)
-            let cards_y = top_y + 76.0;
-            let total_w = (sw - 24.0).min(430.0);
+            // 3 INTERACTIVE HERO + COMPANION SHOWCASE CARDS (Spring-Physics Lift + Glare)
+            let cards_y = dos_y + dos_h + 10.0;
             let gap = 8.0;
-            let card_w = (total_w - gap * 2.0) / 3.0;
-            let card_h = 128.0;
-            let start_x = cx - total_w * 0.5;
-            let bob = (self.title_time * 3.2).sin() * 4.0;
+            let card_w = (panel_w - gap * 2.0) / 3.0;
+            let card_h = 136.0;
+            let bob = (self.title_time * 3.4).sin() * 3.5;
 
             let classes = [
-                (HeroClass::SunKnight, &assets.hero),
-                (HeroClass::ArcanePyromancer, &assets.hero_mage),
-                (HeroClass::ShadowAssassin, &assets.hero_rogue),
+                (HeroClass::SunKnight, &assets.hero, &assets.pet_solar),
+                (HeroClass::ArcanePyromancer, &assets.hero_mage, &assets.pet_arcane),
+                (HeroClass::ShadowAssassin, &assets.hero_rogue, &assets.pet_shadow),
             ];
 
             if is_key_pressed(KeyCode::Key1) {
@@ -4324,12 +4724,36 @@ impl Game {
                 play_sfx(0);
             }
 
-            for (ci, (hclass, htex)) in classes.iter().enumerate() {
-                let rx = start_x + (ci as f32) * (card_w + gap);
-                let rect = Rect::new(rx, cards_y, card_w, card_h);
+            for (ci, (hclass, htex, ptex)) in classes.iter().enumerate() {
                 let selected = self.hero_class == *hclass;
+                let base_rect = Rect::new(px0 + (ci as f32) * (card_w + gap), cards_y, card_w, card_h);
                 let mp = vec2(mouse_position().0, mouse_position().1);
-                let hovered = rect.contains(mp);
+                let hovered = base_rect.contains(mp);
+
+                // Smooth spring interpolation toward target state
+                let target_s = if selected {
+                    1.0
+                } else if hovered {
+                    0.55
+                } else {
+                    0.0
+                };
+                self.card_springs[ci] += (target_s - self.card_springs[ci]) * (dt * 12.0).min(1.0);
+                let sp = self.card_springs[ci];
+                let lift_y = -sp * 5.0;
+                let rect = Rect::new(base_rect.x, base_rect.y + lift_y, base_rect.w, base_rect.h);
+                let h_acc = hclass.accent();
+
+                // Soft glowing shadow beneath active card
+                if sp > 0.1 {
+                    draw_rectangle(
+                        rect.x - 2.0,
+                        rect.y + 4.0,
+                        rect.w + 4.0,
+                        rect.h,
+                        Color::new(h_acc.r, h_acc.g, h_acc.b, 0.16 * sp),
+                    );
+                }
 
                 draw_rectangle(
                     rect.x,
@@ -4337,34 +4761,68 @@ impl Game {
                     rect.w,
                     rect.h,
                     if selected {
-                        Color::from_rgba(30, 41, 75, 245)
+                        Color::from_rgba(22, 32, 60, 248)
                     } else if hovered {
-                        Color::from_rgba(20, 29, 55, 230)
+                        Color::from_rgba(16, 24, 46, 238)
                     } else {
-                        Color::from_rgba(11, 17, 34, 215)
+                        Color::from_rgba(10, 15, 30, 225)
                     },
+                );
+                // Top glowing accent bar inside selected card
+                draw_rectangle(
+                    rect.x + 2.0,
+                    rect.y + 2.0,
+                    rect.w - 4.0,
+                    3.0,
+                    Color::new(h_acc.r, h_acc.g, h_acc.b, 0.35 + 0.65 * sp),
                 );
                 draw_rectangle_lines(
                     rect.x,
                     rect.y,
                     rect.w,
                     rect.h,
-                    if selected { 2.8 } else { 1.4 },
+                    if selected { 2.6 } else { 1.3 },
                     if selected {
-                        hclass.accent()
+                        h_acc
                     } else {
-                        Color::from_rgba(100, 116, 139, 130)
+                        Color::from_rgba(100, 116, 139, 135)
                     },
                 );
 
-                let spr_sz = 66.0;
+                // Subtle radial aura behind hero sprite
+                if selected {
+                    draw_texture_ex(
+                        &assets.vfx_light,
+                        rect.x + (rect.w - 78.0) * 0.5,
+                        rect.y + 6.0,
+                        Color::new(h_acc.r, h_acc.g, h_acc.b, 0.32),
+                        DrawTextureParams {
+                            dest_size: Some(vec2(78.0, 78.0)),
+                            ..Default::default()
+                        },
+                    );
+                }
+
+                let spr_sz = 68.0 + sp * 4.0;
                 draw_texture_ex(
                     htex,
-                    rect.x + (rect.w - spr_sz) * 0.5,
-                    rect.y + 6.0 + if selected { bob } else { 0.0 },
+                    rect.x + (rect.w - spr_sz) * 0.5 - 4.0,
+                    rect.y + 8.0 + if selected { bob } else { 0.0 },
                     WHITE,
                     DrawTextureParams {
                         dest_size: Some(vec2(spr_sz, spr_sz)),
+                        ..Default::default()
+                    },
+                );
+                // Animated Faction Companion perched in top-right of card!
+                let pet_bob = (self.title_time * 5.2 + ci as f32 * 1.7).sin() * 2.8;
+                draw_texture_ex(
+                    ptex,
+                    rect.x + rect.w - 34.0,
+                    rect.y + 8.0 + pet_bob,
+                    WHITE,
+                    DrawTextureParams {
+                        dest_size: Some(vec2(28.0, 28.0)),
                         ..Default::default()
                     },
                 );
@@ -4375,19 +4833,19 @@ impl Game {
                     font,
                     cname,
                     rect.x + (rect.w - cnd.width) * 0.5,
-                    rect.y + 88.0,
+                    rect.y + 94.0,
                     13.0,
-                    hclass.accent(),
+                    h_acc,
                 );
 
                 let fname = hclass.faction_name();
-                let fnd = measure_ui_text(font, fname, 11);
+                let fnd = measure_ui_text(font, fname, 10);
                 draw_ui_text(
                     font,
                     fname,
                     rect.x + (rect.w - fnd.width) * 0.5,
-                    rect.y + 104.0,
-                    11.0,
+                    rect.y + 109.0,
+                    10.5,
                     Color::from_rgba(203, 213, 225, 240),
                 );
 
@@ -4397,64 +4855,63 @@ impl Game {
                     font,
                     &fpts,
                     rect.x + (rect.w - fpd.width) * 0.5,
-                    rect.y + 120.0,
+                    rect.y + 125.0,
                     11.0,
-                    Color::from_rgba(250, 204, 21, 235),
+                    Color::from_rgba(250, 204, 21, 240),
                 );
 
                 let mut clicked = is_mouse_button_pressed(MouseButton::Left) && hovered;
                 for t in touches() {
-                    if t.phase == TouchPhase::Started && rect.contains(t.position) {
+                    if t.phase == TouchPhase::Started && base_rect.contains(t.position) {
                         clicked = true;
                     }
                 }
-                if clicked {
+                if clicked && self.hero_class != *hclass {
                     self.hero_class = *hclass;
                     play_sfx(0);
+                    play_voice_blip(ci as i32);
                 }
             }
 
+            // Selected Class Loadout Pill + 6-Medal Strip
             let ldesc = self.hero_class.loadout_desc();
-            let ldd = measure_ui_text(font, ldesc, 13);
+            let ldd = measure_ui_text(font, ldesc, 12);
             draw_ui_text(
                 font,
                 ldesc,
                 cx - ldd.width * 0.5,
-                cards_y + card_h + 18.0,
-                13.0,
+                cards_y + card_h + 15.0,
+                12.0,
                 self.hero_class.accent(),
             );
 
-            // Compact 6-Medal Strip
-            let medal_w = 52.0;
+            let medal_w = (panel_w - 25.0) / 6.0;
             let medal_gap = 5.0;
-            let medals_total_w = medal_w * 6.0 + medal_gap * 5.0;
-            let mx0 = cx - medals_total_w * 0.5;
-            let my0 = cards_y + card_h + 24.0;
+            let my0 = cards_y + card_h + 21.0;
             for mi in 0..6 {
                 let unlocked = (self.social.medals_mask & (1 << mi)) != 0;
-                let rx = mx0 + (mi as f32) * (medal_w + medal_gap);
+                let rx = px0 + (mi as f32) * (medal_w + medal_gap);
                 draw_rectangle(
                     rx,
                     my0,
                     medal_w,
-                    18.0,
+                    17.0,
                     if unlocked {
-                        Color::from_rgba(120, 53, 15, 225)
+                        Color::from_rgba(120, 53, 15, 230)
                     } else {
-                        Color::from_rgba(15, 23, 42, 185)
+                        Color::from_rgba(12, 19, 36, 195)
                     },
                 );
                 draw_rectangle_lines(
                     rx,
                     my0,
                     medal_w,
-                    18.0,
+                    17.0,
                     1.0,
                     if unlocked {
-                        Color::from_rgba(250, 204, 21, 240)
+                        Color::from_rgba(250, 204, 21, 245)
                     } else {
-                        Color::from_rgba(71, 85, 105, 140)
+                        Color::from_rgba(71, 85, 105, 130)
                     },
                 );
                 let mlbl = MEDAL_SHORT[mi];
@@ -4463,7 +4920,7 @@ impl Game {
                     font,
                     mlbl,
                     rx + (medal_w - mdim.width) * 0.5,
-                    my0 + 13.0,
+                    my0 + 12.5,
                     10.0,
                     if unlocked {
                         Color::from_rgba(253, 224, 71, 255)
@@ -4473,14 +4930,15 @@ impl Game {
                 );
             }
 
-            let btn_y = my0 + 24.0;
-            let btn_w = ((sw - 36.0).min(380.0) - 10.0) * 0.5;
-            let daily_btn = Rect::new(cx - btn_w - 5.0, btn_y, btn_w, 40.0);
+            // Sculpted Metallic Tactile Launch Buttons
+            let btn_y = my0 + 23.0;
+            let btn_w = (panel_w - 10.0) * 0.5;
+            let daily_btn = Rect::new(px0, btn_y, btn_w, 42.0);
             if self.draw_button(
                 font,
                 daily_btn,
-                "PLAY DAILY (90s)",
-                Color::from_rgba(234, 88, 12, 235),
+                "ENTER DAILY (90s)",
+                Color::from_rgba(217, 70, 15, 245),
                 Color::from_rgba(253, 224, 71, 255),
             ) || is_key_pressed(KeyCode::Space)
                 || is_key_pressed(KeyCode::Enter)
@@ -4488,35 +4946,28 @@ impl Game {
                 self.start_run(false);
             }
 
-            let endless_btn = Rect::new(cx + 5.0, btn_y, btn_w, 40.0);
+            let endless_btn = Rect::new(px0 + btn_w + 10.0, btn_y, btn_w, 42.0);
             if self.draw_button(
                 font,
                 endless_btn,
                 "ENDLESS ABYSS",
-                Color::from_rgba(109, 40, 217, 235),
-                Color::from_rgba(192, 132, 252, 255),
+                Color::from_rgba(18, 94, 138, 240),
+                Color::from_rgba(103, 232, 249, 255),
             ) {
                 self.start_run(true);
             }
 
-            let panel_w = (sw - 28.0).min(380.0);
-            self.draw_social_panel(
-                font,
-                cx - panel_w * 0.5,
-                btn_y + 48.0,
-                panel_w,
-                4,
-            );
+            self.draw_social_panel(font, px0, btn_y + 52.0, panel_w, 3);
 
-            let tip = "1-Thumb Drag · Shoot Barrels · SPACE Dash · Q/E Nova · 1/2/3 Class";
-            let tip_d = measure_ui_text(font, tip, 12);
+            let tip = "Drag / WASD Move · SPACE Dash · Q/E Supernova · C CRT · 1/2/3 Class";
+            let tip_d = measure_ui_text(font, tip, 11);
             draw_ui_text(
                 font,
                 tip,
                 cx - tip_d.width * 0.5,
-                sh - 10.0,
-                12.0,
-                Color::from_rgba(148, 163, 184, 255),
+                sh - 9.0,
+                11.0,
+                Color::from_rgba(148, 163, 184, 240),
             );
             return;
         }

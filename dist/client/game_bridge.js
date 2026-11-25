@@ -389,6 +389,13 @@
       tone(220, 196, 0.30, 'sawtooth', 0.08, 1.0, 0, true, 900);
       tone(164.81, 146.83, 0.42, 'triangle', 0.085, 1.0, 0.18, true, 700);
       tone(110, 92.5, 0.55, 'sawtooth', 0.09, 1.0, 0.32, true, 520);
+    } else if (kind === 14) {
+      // Cinematic Intro Riser + Cathedral Anvil Slam
+      tone(55, 110, 0.65, 'sawtooth', 0.09, 1.0, 0, true, 900);
+      tone(110, 220, 0.65, 'triangle', 0.08, 1.0, 0.08, true, 1600);
+      noiseBurst(0.32, 620, 'lowpass', 0.075, 0.48, true);
+      tone(220, 220, 0.55, 'sawtooth', 0.085, 1.0, 0.50, true, 2400);
+      tone(329.63, 329.63, 0.55, 'triangle', 0.08, 1.0, 0.50, true, 2800);
     }
   }
 
@@ -984,5 +991,5 @@
     name: 'emberfall_bridge'
   });
 
-  load('./emberfall.wasm?v=20261125v8');
+  load('./emberfall.wasm?v=20261125v9');
 })();

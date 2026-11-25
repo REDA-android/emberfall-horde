@@ -23,6 +23,7 @@ pub struct GameAssets {
     pub floor: Texture2D,
     pub floor_volcanic: Texture2D,
     pub floor_frost: Texture2D,
+    pub title_banner: Texture2D,
     pub icons_atlas: Texture2D,
     pub vfx_fire: Texture2D,
     pub vfx_flame: Texture2D,
@@ -48,7 +49,7 @@ impl GameAssets {
         .ok();
         if let Some(ref f) = ui_font {
             let ascii = Font::ascii_character_list();
-            for &sz in &[10u16, 11, 12, 13, 14, 15, 16, 18, 19, 20, 22, 26, 28, 30, 32, 34, 36, 40] {
+            for &sz in &[10u16, 11, 12, 13, 14, 15, 16, 18, 19, 20, 22, 26, 28, 30, 32, 34, 36, 40, 48] {
                 f.populate_font_cache(&ascii, sz);
             }
         }
@@ -70,6 +71,7 @@ impl GameAssets {
             floor: load_tex(include_bytes!("../assets/sprites/arena_floor.png")),
             floor_volcanic: load_tex(include_bytes!("../assets/sprites/floor_volcanic.png")),
             floor_frost: load_tex(include_bytes!("../assets/sprites/floor_frost.png")),
+            title_banner: load_tex(include_bytes!("../assets/sprites/title_banner.png")),
             icons_atlas: load_tex(include_bytes!("../assets/sprites/icons_atlas.png")),
             vfx_fire: load_tex(include_bytes!("../assets/vfx/fire_01.png")),
             vfx_flame: load_tex(include_bytes!("../assets/vfx/flame_01.png")),

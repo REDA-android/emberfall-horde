@@ -184,7 +184,8 @@
   }
 
   function applyBiomeTheme(bIdx) {
-    var b = BIOMES[bIdx % 3] || BIOMES[0];
+    activeBiomeIdx = bIdx % 3;
+    var b = BIOMES[activeBiomeIdx] || BIOMES[0];
     document.body.classList.remove('biome-obsidian', 'biome-volcanic', 'biome-frost');
     document.body.classList.add(b.cls);
     var meta = document.getElementById('meta-theme');
@@ -373,6 +374,75 @@
       } catch (_) {}
       if (meStreakEl) meStreakEl.textContent = '🔥 ' + localStreak + '-Day Streak';
     }
+  }
+
+  var activeBiomeIdx = 0;
+
+  // Live 60fps Canvas Trailer Overlay on Splash Banner (embers / frost crystals / lightning flashes)
+  (function initHeroTrailerCanvas() {
+    var cvs = document.getElementById('hero-fx');
+    if (!cvs || !cvs.getContext) return;
+    var ctx = cvs.getContext('2d');
+    var motes = [];
+    for (var i = 0; i < 24; i++) {
+      motes.push({
+        x: Math.random(),
+        y: Math.random(),
+        s: 1.0 + Math.random() * 2.1,
+        vx: (Math.random() - 0.5) * 0.004,
+        vy: -0.005 - Math.random() * 0.008,
+        p: Math.random() * 6.28
+      });
+    }
+    var flash = 0;
+    function tick() {
+      var w = cvs.clientWidth || 480;
+      var h = cvs.clientHeight || 104;
+      if (cvs.width !== w || cvs.height !== h) {
+        cvs.width = w;
+        cvs.height = h;
+      }
+      ctx.clearRect(0, 0, w, h);
+      if (Math.random() < 0.012) flash = 0.28;
+      if (flash > 0.01) {
+        ctx.fillStyle = activeBiomeIdx === 2
+          ? 'rgba(125,211,252,' + flash.toFixed(3) + ')'
+          : 'rgba(253,224,71,' + flash.toFixed(3) + ')';
+        ctx.fillRect(0, 0, w, h);
+        flash *= 0.86;
+      }
+      var col = activeBiomeIdx === 1 ? '251,146,60' : (activeBiomeIdx === 2 ? '125,211,252' : '251,191,36');
+      for (var j = 0; j < motes.length; j++) {
+        var m = motes[j];
+        m.p += 0.06;
+        m.x += m.vx + Math.sin(m.p) * 0.0012;
+        m.y += activeBiomeIdx === 2 ? -m.vy * 0.7 : m.vy;
+        if (m.y < -0.05) { m.y = 1.05; m.x = Math.random(); }
+        if (m.y > 1.05) { m.y = -0.05; m.x = Math.random(); }
+        if (m.x < 0) m.x += 1;
+        if (m.x > 1) m.x -= 1;
+        var a = 0.35 + 0.45 * Math.abs(Math.sin(m.p));
+        ctx.beginPath();
+        ctx.fillStyle = 'rgba(' + col + ',' + a.toFixed(2) + ')';
+        ctx.arc(m.x * w, m.y * h, m.s, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  })();
+
+  // Subtle Magnetic Hover on Primary CTA (inspired by Kinetics)
+  if (btn) {
+    btn.addEventListener('mousemove', function (e) {
+      var r = btn.getBoundingClientRect();
+      var dx = (e.clientX - (r.left + r.width * 0.5)) * 0.04;
+      var dy = (e.clientY - (r.top + r.height * 0.5)) * 0.10;
+      btn.style.transform = 'translate(' + dx.toFixed(1) + 'px, ' + dy.toFixed(1) + 'px)';
+    });
+    btn.addEventListener('mouseleave', function () {
+      btn.style.transform = '';
+    });
   }
 
   renderData(null);
