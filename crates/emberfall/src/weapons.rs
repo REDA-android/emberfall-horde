@@ -170,9 +170,9 @@ impl HeroClass {
 
     pub fn title(self) -> &'static str {
         match self {
-            Self::SunKnight => "SUN KNIGHT",
-            Self::ArcanePyromancer => "PYROMANCER",
-            Self::ShadowAssassin => "SHADOW ASSASSIN",
+            Self::SunKnight => "AURELIUS",
+            Self::ArcanePyromancer => "SERAPHINA",
+            Self::ShadowAssassin => "NYX",
         }
     }
 

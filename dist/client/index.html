@@ -15,25 +15,78 @@
 
   <canvas id="glcanvas" tabindex="1"></canvas>
 
+  <!-- 1.2s High-Voltage Electric Awakening Cut-In (133503.mp4 Inspired) -->
+  <div class="electric-cutin is-hidden" id="electric-cutin" aria-hidden="true">
+    <canvas class="cutin-canvas" id="cutin-canvas"></canvas>
+    <div class="cutin-banner">
+      <img class="cutin-portrait" id="cutin-portrait" src="./portrait_knight.webp" alt="" />
+      <div class="cutin-text-col">
+        <div class="cutin-eyebrow" id="cutin-champ">AURELIUS AWAKENED</div>
+        <div class="cutin-title">EMBER OVERDRIVE!</div>
+      </div>
+    </div>
+  </div>
+
   <!-- Diegetic Perimeter HUD Layer (92% Unobstructed Combat Viewport) -->
   <div class="hud-layer is-hidden" id="hud-layer">
     <div class="hud-top">
-      <div class="hero-medallion">
-        <div class="hero-crest-badge" id="hud-hero-icon">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-            <path d="M12 2L15 9L22 12L15 15L12 22L9 15L2 12L9 9L12 2Z" fill="currentColor" />
-          </svg>
+      <div class="hero-medallion-v2">
+        <div class="hero-medallion-main">
+          <div class="portrait-frame">
+            <img class="portrait-img" id="hud-portrait" src="./portrait_knight.webp" alt="Champion Portrait" />
+          </div>
+          <div class="hero-meta-col">
+            <div class="hero-lv-row">
+              <span id="hud-champ-name">AURELIUS</span>
+              <span id="hud-lv">LV.1</span>
+              <span id="hud-score">0 PTS</span>
+            </div>
+            <div class="hp-vessels" id="hp-vessels">
+              <span class="hp-vial full"></span>
+              <span class="hp-vial full"></span>
+              <span class="hp-vial full"></span>
+              <span class="hp-vial full"></span>
+              <span class="hp-vial full"></span>
+            </div>
+            <div class="xp-mini-track">
+              <svg class="xp-mini-svg" viewBox="0 0 100 4" preserveAspectRatio="none">
+                <rect id="hud-xp-rect" x="0" y="0" width="0" height="4" fill="#E5B85C" rx="2" />
+              </svg>
+            </div>
+          </div>
         </div>
-        <div class="hero-meta-col">
-          <div class="hero-lv-row">
-            <span id="hud-lv">LV.1</span>
-            <span id="hud-score">0 PTS</span>
-          </div>
-          <div class="xp-mini-track">
-            <svg class="xp-mini-svg" viewBox="0 0 100 4" preserveAspectRatio="none">
-              <rect id="hud-xp-rect" x="0" y="0" width="0" height="4" fill="#E5B85C" rx="2" />
+
+        <!-- 3 Active Circular Skill Badges (SPACE Dash · E Runic Strike · Q Overdrive) -->
+        <div class="skill-badges-row">
+          <button class="skill-badge ready" id="btn-skill-dash" type="button" aria-label="Witch-Time Dash">
+            <svg class="skill-ring-svg" viewBox="0 0 40 40">
+              <circle id="ring-dash" cx="20" cy="20" r="18" fill="none" stroke="#38E8FF" stroke-width="2.2" stroke-dasharray="113" stroke-dashoffset="0" />
             </svg>
-          </div>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+              <path d="M13 3L4 14H12L11 21L20 10H12L13 3Z" fill="currentColor" />
+            </svg>
+            <span class="skill-key">SPC</span>
+          </button>
+
+          <button class="skill-badge ready" id="btn-skill-runic" type="button" aria-label="Signature Runic Strike">
+            <svg class="skill-ring-svg" viewBox="0 0 40 40">
+              <circle id="ring-runic" cx="20" cy="20" r="18" fill="none" stroke="#A855F7" stroke-width="2.2" stroke-dasharray="113" stroke-dashoffset="0" />
+            </svg>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+              <path d="M19 3L21 5L9 17L6 18L7 15L19 3Z" fill="currentColor" />
+            </svg>
+            <span class="skill-key">E</span>
+          </button>
+
+          <button class="skill-badge" id="btn-skill-ult" type="button" aria-label="Ember Overdrive">
+            <svg class="skill-ring-svg" viewBox="0 0 40 40">
+              <circle id="ring-ult" cx="20" cy="20" r="18" fill="none" stroke="#FF4D2D" stroke-width="2.4" stroke-dasharray="113" stroke-dashoffset="113" />
+            </svg>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+              <path d="M12 2C15.5 6.5 19 9.5 19 14A7 7 0 1 1 5 14C5 9.5 8.5 6.5 12 2Z" fill="currentColor" />
+            </svg>
+            <span class="skill-key">Q</span>
+          </button>
         </div>
       </div>
 
@@ -56,7 +109,7 @@
     </div>
 
     <div class="onboarding-hint is-hidden" id="onboarding-hint">
-      WASD / Drag to Move · Space to Dash · Q Ember Overdrive
+      WASD / Drag Move · Space Dash · E Runic Strike · Q Overdrive
     </div>
 
     <!-- Bottom Diablo-Style Liquid Orbs + Elden Ring Boss Bar -->
@@ -106,25 +159,19 @@
     <div class="orbit-bottom-dock">
       <div class="class-grid" id="title-class-grid">
         <button class="class-card selected" data-class="0" type="button">
-          <svg class="class-svg" viewBox="0 0 24 24" fill="none">
-            <path d="M12 2L14.8 8.5L22 9.3L16.5 14L18.2 21L12 17.3L5.8 21L7.5 14L2 9.3L9.2 8.5L12 2Z" fill="currentColor"/>
-          </svg>
-          <span class="class-name">SUN KNIGHT</span>
-          <span class="class-role">Solar · Bulwark</span>
+          <img class="class-portrait-thumb" src="./portrait_knight.webp" alt="Aurelius" />
+          <span class="class-name">AURELIUS</span>
+          <span class="class-role">Solar Vanguard</span>
         </button>
         <button class="class-card" data-class="1" type="button">
-          <svg class="class-svg" viewBox="0 0 24 24" fill="none">
-            <path d="M12 2C15.5 6.5 19 9.5 19 14A7 7 0 1 1 5 14C5 9.5 8.5 6.5 12 2ZM12 10C10.5 12 9.5 13.5 9.5 15A2.5 2.5 0 0 0 14.5 15C14.5 13.5 13.5 12 12 10Z" fill="currentColor"/>
-          </svg>
-          <span class="class-name">PYROMANCER</span>
-          <span class="class-role">Arcane · Nova</span>
+          <img class="class-portrait-thumb" src="./portrait_mage.webp" alt="Seraphina" />
+          <span class="class-name">SERAPHINA</span>
+          <span class="class-role">Rift Pyromancer</span>
         </button>
         <button class="class-card" data-class="2" type="button">
-          <svg class="class-svg" viewBox="0 0 24 24" fill="none">
-            <path d="M19 3L21 5L9 17L6 18L7 15L19 3ZM5 19L8 20L4 22L5 19Z" fill="currentColor"/>
-          </svg>
-          <span class="class-name">ASSASSIN</span>
-          <span class="class-role">Shadow · Lethal</span>
+          <img class="class-portrait-thumb" src="./portrait_rogue.webp" alt="Nyx" />
+          <span class="class-name">NYX</span>
+          <span class="class-role">Umbral Blade</span>
         </button>
       </div>
 

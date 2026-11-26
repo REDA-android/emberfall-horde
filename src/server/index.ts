@@ -68,9 +68,9 @@ const BIOME_BOSSES = [
 ] as const;
 
 const HERO_CLASSES = [
-  { title: 'SUN KNIGHT', faction: 'SOLAR ORDER', emoji: '☀️' },
-  { title: 'PYROMANCER', faction: 'ARCANE CONCLAVE', emoji: '🔮' },
-  { title: 'SHADOW ASSASSIN', faction: 'SHADOW GUILD', emoji: '🗡️' },
+  { title: 'AURELIUS, SOLAR VANGUARD', faction: 'SOLAR ORDER', emoji: '☀️' },
+  { title: 'SERAPHINA, RIFT PYROMANCER', faction: 'ARCANE CONCLAVE', emoji: '🔮' },
+  { title: 'NYX, UMBRAL BLADE', faction: 'SHADOW GUILD', emoji: '🗡️' },
 ] as const;
 
 const BOUNTY_POOL: readonly DailyBountyInfo[] = [

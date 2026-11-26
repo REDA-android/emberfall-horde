@@ -1067,21 +1067,26 @@
         lastRarities = [r0, r1, r2];
         lastBountiesDone = [b0 !== 0, b1 !== 0, b2 !== 0];
       };
+
+      env.emberfall_sync_skills = function (dashCd, runicCd, cutinSec) {
+        try {
+          updateSkillsDom(dashCd, runicCd, cutinSec);
+        } catch (e) {
+          if (typeof console !== 'undefined' && console.error) console.error(e);
+        }
+      };
     },
     version: 1,
     name: 'emberfall_bridge'
   });
 
   // =========================================================================
-  // v0.1.0 DIEGETIC PERIMETER HUD + LIQUID ORBS + GLASSMORPHISM MODALS
+  // v0.2.0 DIEGETIC PERIMETER HUD + RUBY VESSELS + ACTIVE SKILLS + CUT-IN
   // =========================================================================
   var BIOME_CLASSES = ['biome-obsidian', 'biome-volcanic', 'biome-frost'];
   var BIOME_BOSSES = ['MALAKOR, VOID LICH', 'IGNIS REX, MAGMA TITAN', 'SKADI, GLACIAL EMPRESS'];
-  var HERO_SVGS = [
-    '<svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M12 2L14.8 8.5L22 9.3L16.5 14L18.2 21L12 17.3L5.8 21L7.5 14L2 9.3L9.2 8.5L12 2Z" fill="currentColor"/></svg>',
-    '<svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M12 2C15.5 6.5 19 9.5 19 14A7 7 0 1 1 5 14C5 9.5 8.5 6.5 12 2Z" fill="currentColor"/></svg>',
-    '<svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M19 3L21 5L9 17L6 18L7 15L19 3Z" fill="currentColor"/></svg>'
-  ];
+  var CHAMP_PORTRAITS = ['./portrait_knight.webp', './portrait_mage.webp', './portrait_rogue.webp'];
+  var CHAMP_NAMES = ['AURELIUS', 'SERAPHINA', 'NYX'];
   var UPGRADE_META = [
     { name: 'Arcane Slash', desc: 'Sweeping spectral blade arc (+Damage & Area)', synergy: '◆ SYNERGY: +Overclock Haste -> Crimson Reaper' },
     { name: 'Ember Bolts', desc: 'Seeking firebolts pierce the nearest threats', synergy: '◆ SYNERGY: +Chain Lightning -> Storm Sovereign' },
@@ -1101,10 +1106,12 @@
   var selectedHeroClass = 0;
   var selectedEndless = 0;
   var lastPhase = -1;
+  var lastHeroClass = 0;
   var lastChoices = [0, 1, 2];
   var lastRarities = [0, 0, 0];
   var lastBountiesDone = [false, false, false];
   var lastChronicle = '';
+  var cutinVisible = false;
   var hudState = {
     hpPct: 1, emberPct: 0, overdrive: false, combo: 0, wavePhase: 0, biome: 0
   };
@@ -1201,6 +1208,97 @@
     ctx.fillRect(4, h - 4 - fillH, w - 8, fillH);
   }
 
+  function drawCutinLightning(cutinSec) {
+    var cvs = document.getElementById('cutin-canvas');
+    if (!cvs || !cvs.getContext) return;
+    var w = window.innerWidth || 800;
+    var h = window.innerHeight || 600;
+    if (cvs.width !== w || cvs.height !== h) {
+      cvs.width = w;
+      cvs.height = h;
+    }
+    var ctx = cvs.getContext('2d');
+    ctx.clearRect(0, 0, w, h);
+    var alpha = Math.min(1, cutinSec / 0.35);
+    var cx = w * 0.5;
+    var cy = h * 0.5;
+    var colors = ['#38E8FF', '#FCE194', '#FF4D2D', '#C084FC'];
+    for (var b = 0; b < 12; b++) {
+      var ang = (b / 12) * Math.PI * 2 + cutinSec * 6.5;
+      var len = Math.max(w, h) * 0.65;
+      var tx = cx + Math.cos(ang) * len;
+      var ty = cy + Math.sin(ang) * len;
+      var pts = [[cx, cy]];
+      var segs = 8;
+      for (var s = 1; s <= segs; s++) {
+        var t = s / segs;
+        var jx = (s < segs) ? (Math.random() - 0.5) * 48 : 0;
+        var jy = (s < segs) ? (Math.random() - 0.5) * 48 : 0;
+        pts.push([cx + (tx - cx) * t + jx, cy + (ty - cy) * t + jy]);
+      }
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      // Outer plasma halo
+      ctx.globalAlpha = alpha * 0.34;
+      ctx.strokeStyle = colors[b % colors.length];
+      ctx.lineWidth = (b % 2 === 0) ? 9.0 : 5.5;
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      for (var p1 = 1; p1 < pts.length; p1++) ctx.lineTo(pts[p1][0], pts[p1][1]);
+      ctx.stroke();
+      // Crisp white-hot core
+      ctx.globalAlpha = alpha * 0.92;
+      ctx.strokeStyle = (b % 2 === 0) ? '#FFFFFF' : colors[b % colors.length];
+      ctx.lineWidth = (b % 2 === 0) ? 2.4 : 1.6;
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      for (var p2 = 1; p2 < pts.length; p2++) ctx.lineTo(pts[p2][0], pts[p2][1]);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  function updateSkillsDom(dashCd, runicCd, cutinSec) {
+    var ringDash = document.getElementById('ring-dash');
+    if (ringDash) {
+      var dPct = Math.max(0, Math.min(1, (dashCd || 0) / 1.35));
+      ringDash.setAttribute('stroke-dashoffset', String(Math.round(113 * dPct)));
+    }
+    var btnDash = document.getElementById('btn-skill-dash');
+    if (btnDash) {
+      if ((dashCd || 0) <= 0.02) btnDash.classList.add('ready');
+      else btnDash.classList.remove('ready');
+    }
+
+    var ringRunic = document.getElementById('ring-runic');
+    if (ringRunic) {
+      var rPct = Math.max(0, Math.min(1, (runicCd || 0) / 4.5));
+      ringRunic.setAttribute('stroke-dashoffset', String(Math.round(113 * rPct)));
+    }
+    var btnRunic = document.getElementById('btn-skill-runic');
+    if (btnRunic) {
+      if ((runicCd || 0) <= 0.02) btnRunic.classList.add('ready');
+      else btnRunic.classList.remove('ready');
+    }
+
+    var showCutin = (cutinSec || 0) > 0.02 && lastPhase >= 2 && lastPhase <= 4;
+    if (showCutin) {
+      if (!cutinVisible) {
+        cutinVisible = true;
+        var cp = document.getElementById('cutin-portrait');
+        if (cp) cp.setAttribute('src', CHAMP_PORTRAITS[lastHeroClass] || CHAMP_PORTRAITS[0]);
+        var cc = document.getElementById('cutin-champ');
+        if (cc) cc.textContent = (CHAMP_NAMES[lastHeroClass] || CHAMP_NAMES[0]) + ' AWAKENED';
+        setVisible('electric-cutin', true);
+      }
+      drawCutinLightning(cutinSec);
+    } else if (cutinVisible) {
+      cutinVisible = false;
+      setVisible('electric-cutin', false);
+    }
+  }
+
   function animOrbsLoop() {
     hudState.wavePhase += hudState.overdrive ? 0.14 : 0.07;
     drawLiquidOrb('orb-hp', hudState.hpPct, '#EF4444', '#7F1D1D', '#E5B85C', 0);
@@ -1278,6 +1376,8 @@
       document.body.classList.add(bCls);
     }
 
+    var hc = ((heroClass % 3) + 3) % 3;
+    lastHeroClass = hc;
     hudState.hpPct = Math.max(0, Math.min(1, hp / Math.max(1, maxHp)));
     hudState.emberPct = overdriveSec > 0 ? Math.max(0.15, overdriveSec / 6.0) : Math.max(0, Math.min(1, ember / 100));
     hudState.overdrive = overdriveSec > 0;
@@ -1294,6 +1394,10 @@
       setVisible('modal-pause', phase === 3);
       setVisible('modal-levelup', phase === 4);
       setVisible('modal-chronicle', phase === 5);
+      if (phase < 2 || phase > 4) {
+        cutinVisible = false;
+        setVisible('electric-cutin', false);
+      }
 
       if (phase === 0) {
         var sub = document.getElementById('title-seed-sub');
@@ -1328,11 +1432,26 @@
     }
 
     if (phase >= 2 && phase <= 4) {
-      var hIcon = document.getElementById('hud-hero-icon');
-      if (hIcon && hIcon.getAttribute('data-hc') !== String(heroClass % 3)) {
-        hIcon.setAttribute('data-hc', String(heroClass % 3));
-        hIcon.innerHTML = HERO_SVGS[heroClass % 3] || HERO_SVGS[0];
+      var hPort = document.getElementById('hud-portrait');
+      if (hPort && hPort.getAttribute('data-hc') !== String(hc)) {
+        hPort.setAttribute('data-hc', String(hc));
+        hPort.setAttribute('src', CHAMP_PORTRAITS[hc] || CHAMP_PORTRAITS[0]);
       }
+      var hName = document.getElementById('hud-champ-name');
+      if (hName) hName.textContent = CHAMP_NAMES[hc] || CHAMP_NAMES[0];
+
+      var vessels = document.getElementById('hp-vessels');
+      if (vessels && vessels.children) {
+        var vialsFloat = hudState.hpPct * 5.0;
+        for (var vi = 0; vi < vessels.children.length; vi++) {
+          var vEl = vessels.children[vi];
+          var cls = 'hp-vial';
+          if (vialsFloat >= vi + 0.72) cls = 'hp-vial full';
+          else if (vialsFloat >= vi + 0.25) cls = 'hp-vial half';
+          if (vEl.className !== cls) vEl.className = cls;
+        }
+      }
+
       var hLv = document.getElementById('hud-lv');
       if (hLv) hLv.textContent = 'LV.' + lv;
       var hSc = document.getElementById('hud-score');
@@ -1358,9 +1477,19 @@
       var emLbl = document.getElementById('orb-ember-label');
       if (emLbl) emLbl.textContent = overdriveSec > 0 ? overdriveSec.toFixed(1) + 's BURN' : Math.floor(ember) + '% EMBER';
       var emBtn = document.getElementById('btn-overdrive-orb');
+      var ultReady = ember >= 99 || overdriveSec > 0;
       if (emBtn) {
-        if (ember >= 99 || overdriveSec > 0) emBtn.classList.add('ready');
+        if (ultReady) emBtn.classList.add('ready');
         else emBtn.classList.remove('ready');
+      }
+      var ringUlt = document.getElementById('ring-ult');
+      if (ringUlt) {
+        ringUlt.setAttribute('stroke-dashoffset', String(Math.round(113 * (1 - hudState.emberPct))));
+      }
+      var btnSkillUlt = document.getElementById('btn-skill-ult');
+      if (btnSkillUlt) {
+        if (ultReady) btnSkillUlt.classList.add('overdrive-ready');
+        else btnSkillUlt.classList.remove('overdrive-ready');
       }
 
       var cBadge = document.getElementById('carnage-badge');
@@ -1423,6 +1552,7 @@
       classCards.forEach(function (c) { c.classList.remove('selected'); });
       card.classList.add('selected');
       selectedHeroClass = Number(card.getAttribute('data-class')) || 0;
+      callCmd('ef_cmd_select_hero', selectedHeroClass);
     });
   });
 
@@ -1451,8 +1581,28 @@
     callCmd('ef_cmd_skip_intro');
   });
 
+  var btnSkillDash = document.getElementById('btn-skill-dash');
+  if (btnSkillDash) btnSkillDash.addEventListener('click', function () {
+    unlockAudio();
+    callCmd('ef_cmd_dash');
+  });
+
+  var btnSkillRunic = document.getElementById('btn-skill-runic');
+  if (btnSkillRunic) btnSkillRunic.addEventListener('click', function () {
+    unlockAudio();
+    callCmd('ef_cmd_runic_strike');
+  });
+
+  var btnSkillUlt = document.getElementById('btn-skill-ult');
+  if (btnSkillUlt) btnSkillUlt.addEventListener('click', function () {
+    unlockAudio();
+    callCmd('trigger_overdrive');
+    callCmd('ef_cmd_trigger_overdrive');
+  });
+
   var btnOverdrive = document.getElementById('btn-overdrive-orb');
   if (btnOverdrive) btnOverdrive.addEventListener('click', function () {
+    unlockAudio();
     callCmd('trigger_overdrive');
     callCmd('ef_cmd_trigger_overdrive');
   });
@@ -1493,5 +1643,5 @@
     });
   });
 
-  load('./emberfall.wasm?v=20261126v12');
+  load('./emberfall.wasm?v=20261126v20');
 })();

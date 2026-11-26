@@ -105,6 +105,7 @@ extern "C" {
         b1: u32,
         b2: u32,
     );
+    fn emberfall_sync_skills(dash_cd: f32, runic_cd: f32, cutin_sec: f32);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -252,11 +253,16 @@ unsafe fn emberfall_sync_choices(
     _b2: u32,
 ) {
 }
+#[cfg(not(target_arch = "wasm32"))]
+unsafe fn emberfall_sync_skills(_dash_cd: f32, _runic_cd: f32, _cutin_sec: f32) {}
 
 #[derive(Clone, Copy)]
 enum JsCmd {
+    SelectHero(i32),
     StartRun(i32, i32),
     SkipIntro,
+    Dash,
+    RunicStrike,
     TriggerOverdrive,
     PickUpgrade(i32),
     TogglePause,
@@ -278,6 +284,10 @@ fn push_js_cmd(cmd: JsCmd) {
 }
 
 #[no_mangle]
+pub extern "C" fn ef_cmd_select_hero(hero_class: i32) {
+    push_js_cmd(JsCmd::SelectHero(hero_class));
+}
+#[no_mangle]
 pub extern "C" fn ef_cmd_start_run(hero_class: i32, endless: i32) {
     push_js_cmd(JsCmd::StartRun(hero_class, endless));
 }
@@ -288,6 +298,14 @@ pub extern "C" fn ef_cmd_skip_intro() {
 #[no_mangle]
 pub extern "C" fn skip_intro() {
     push_js_cmd(JsCmd::SkipIntro);
+}
+#[no_mangle]
+pub extern "C" fn ef_cmd_dash() {
+    push_js_cmd(JsCmd::Dash);
+}
+#[no_mangle]
+pub extern "C" fn ef_cmd_runic_strike() {
+    push_js_cmd(JsCmd::RunicStrike);
 }
 #[no_mangle]
 pub extern "C" fn ef_cmd_trigger_overdrive() {
@@ -907,6 +925,7 @@ struct Game {
     cam_zoom: f32,
     onboarding_moved: bool,
     onboarding_dashed: bool,
+    runic_cd: f32,
 }
 
 struct RunicPillar {
@@ -1095,6 +1114,7 @@ impl Game {
             cam_zoom: 0.84,
             onboarding_moved: false,
             onboarding_dashed: false,
+            runic_cd: 0.0,
         }
     }
 
@@ -1409,6 +1429,7 @@ impl Game {
         self.cam_zoom = 1.0;
         self.onboarding_moved = false;
         self.onboarding_dashed = false;
+        self.runic_cd = 0.0;
 
         self.particles.clear();
         self.float_texts.clear();
@@ -1592,6 +1613,42 @@ impl Game {
         self.damage_enemies_in_radius(self.hero_pos, nova_r, nova_dmg, 240.0);
     }
 
+    fn trigger_runic_strike(&mut self) {
+        if self.runic_cd > 0.0 || self.phase != Phase::Playing {
+            return;
+        }
+        self.runic_cd = 4.5;
+        self.ult_charge = (self.ult_charge + 0.10).min(1.0);
+        self.hero_attack_swing = 1.0;
+        self.hero_squash = 0.28;
+        self.add_trauma(0.45);
+        self.shockwave = self.shockwave.max(0.75);
+        let (title, col, rad, mult) = match self.hero_class {
+            HeroClass::SunKnight => ("SOLAR JUDGEMENT!", Color::from_rgba(250, 204, 21, 255), 245.0, 1.15),
+            HeroClass::ArcanePyromancer => ("RIFT PYRONOVA!", Color::from_rgba(168, 85, 247, 255), 270.0, 1.05),
+            HeroClass::ShadowAssassin => ("UMBRAL EXECUTION!", Color::from_rgba(56, 232, 255, 255), 255.0, 1.25),
+        };
+        play_sfx(3);
+        self.spawn_burst(self.hero_pos, 28, col, VfxKind::Magic, 320.0);
+        self.slashes.push(SlashArc {
+            pos: self.hero_pos,
+            angle: self.hero_aim_angle,
+            radius: rad * 0.72,
+            life: 0.24,
+            max_life: 0.24,
+            color: col,
+        });
+        self.float_texts.push(FloatText {
+            pos: self.hero_pos + vec2(0.0, -44.0),
+            text: title.to_string(),
+            color: col,
+            life: 1.0,
+            scale: 21.0,
+        });
+        let dmg = (110.0 + (self.level as f32) * 12.0) * mult;
+        self.damage_enemies_in_radius(self.hero_pos, rad, dmg, 380.0);
+    }
+
     fn trigger_ultimate(&mut self) {
         if self.ult_charge < 1.0 || self.phase != Phase::Playing || self.overdrive_timer > 0.0 {
             return;
@@ -1599,7 +1656,7 @@ impl Game {
         self.ult_charge = 0.0;
         self.ult_fx = 1.0;
         self.ult_pos = self.hero_pos;
-        self.overdrive_cutin_timer = 1.0;
+        self.overdrive_cutin_timer = 1.2;
         self.overdrive_timer = 6.0;
         self.overdrive_meteor_cd = 0.25;
         self.overdrive_count += 1;
@@ -2216,14 +2273,20 @@ impl Game {
         if is_key_down(KeyCode::D) || is_key_down(KeyCode::Right) {
             mv.x += 1.0;
         }
-        if is_key_pressed(KeyCode::Space) || is_mouse_button_pressed(MouseButton::Right) {
+        if is_key_pressed(KeyCode::Space)
+            || is_key_pressed(KeyCode::LeftShift)
+            || is_mouse_button_pressed(MouseButton::Right)
+        {
             self.trigger_dash();
         }
-        if is_key_pressed(KeyCode::Q) || is_key_pressed(KeyCode::E) {
+        if is_key_pressed(KeyCode::E) || is_key_pressed(KeyCode::K) {
+            self.trigger_runic_strike();
+        }
+        if is_key_pressed(KeyCode::Q) || is_key_pressed(KeyCode::L) {
             self.trigger_ultimate();
         }
 
-        // Web Gamepad API support (inspired by fornwall/gamepads): Left Stick + A/B/RT
+        // Web Gamepad API support: Left Stick + A(Dash) / X(Runic Strike) / B or RB(Overdrive)
         let gp_x = (unsafe { emberfall_get_gamepad_axis(0) } as f32) / 1000.0;
         let gp_y = (unsafe { emberfall_get_gamepad_axis(1) } as f32) / 1000.0;
         if gp_x.abs() > 0.15 || gp_y.abs() > 0.15 {
@@ -2232,6 +2295,9 @@ impl Game {
         }
         if unsafe { emberfall_get_gamepad_btn(0) } == 1 || unsafe { emberfall_get_gamepad_btn(7) } == 1 {
             self.trigger_dash();
+        }
+        if unsafe { emberfall_get_gamepad_btn(2) } == 1 || unsafe { emberfall_get_gamepad_btn(4) } == 1 {
+            self.trigger_runic_strike();
         }
         if unsafe { emberfall_get_gamepad_btn(1) } == 1 || unsafe { emberfall_get_gamepad_btn(5) } == 1 {
             self.trigger_ultimate();
@@ -2342,6 +2408,7 @@ impl Game {
         self.elapsed += dt;
         self.hero_invuln = (self.hero_invuln - hero_dt).max(0.0);
         self.dash_cd = (self.dash_cd - hero_dt).max(0.0);
+        self.runic_cd = (self.runic_cd - hero_dt).max(0.0);
         self.boss_banner_timer = (self.boss_banner_timer - raw_dt).max(0.0);
         self.evo_banner_timer = (self.evo_banner_timer - raw_dt).max(0.0);
         self.trauma = (self.trauma - raw_dt * 1.8).max(0.0);
@@ -4430,6 +4497,14 @@ impl Game {
         };
         for cmd in cmds {
             match cmd {
+                JsCmd::SelectHero(hc) => {
+                    self.hero_class = match hc {
+                        1 => HeroClass::ArcanePyromancer,
+                        2 => HeroClass::ShadowAssassin,
+                        _ => HeroClass::SunKnight,
+                    };
+                    play_sfx(0);
+                }
                 JsCmd::StartRun(hc, endless) => {
                     self.hero_class = match hc {
                         1 => HeroClass::ArcanePyromancer,
@@ -4442,6 +4517,14 @@ impl Game {
                     if self.phase == Phase::Intro {
                         self.start_run(self.intro_pending_endless);
                     }
+                }
+                JsCmd::Dash => {
+                    if self.phase == Phase::Playing {
+                        self.trigger_dash();
+                    }
+                }
+                JsCmd::RunicStrike => {
+                    self.trigger_runic_strike();
                 }
                 JsCmd::TriggerOverdrive => {
                     self.trigger_ultimate();
@@ -4620,6 +4703,7 @@ impl Game {
                 if self.bounties[1].2 { 1 } else { 0 },
                 if self.bounties[2].2 { 1 } else { 0 },
             );
+            emberfall_sync_skills(self.dash_cd, self.runic_cd, self.overdrive_cutin_timer);
         }
     }
 
