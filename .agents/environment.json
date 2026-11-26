@@ -1,0 +1,14 @@
+{
+  "name": "emberfall-horde",
+  "setupScript": "/home/antigravity/env-setup.sh",
+  "toolchain": {
+    "rustTarget": "wasm32-unknown-unknown",
+    "node": "22.x",
+    "tools": ["cargo", "wasm-opt", "ffmpeg", "npm", "devvit"]
+  },
+  "commands": {
+    "typecheck": "npm run typecheck",
+    "test": "cd crates/emberfall && cargo test",
+    "build": "npm run build && wasm-opt -Oz --all-features dist/client/emberfall.wasm -o dist/client/emberfall.wasm"
+  }
+}

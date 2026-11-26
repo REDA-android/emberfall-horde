@@ -508,7 +508,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
       return;
     }
 
-    if (pathname === '/api/init' && method === 'GET') {
+    if ((pathname === '/api/init' || pathname === '/api/state') && method === 'GET') {
       const sub = context.subredditName ?? 'emberfall';
       const seed = getUtcDateString();
       let username: string | null = null;
@@ -896,6 +896,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         buildEmojis?: string;
         rank?: string;
         myRank?: number;
+        chronicle?: string;
       }>(req);
       if (!body || !context.postId) {
         sendJson(res, 400, { ok: false, error: 'Missing post context' });
@@ -938,6 +939,10 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         typeof body.buildEmojis === 'string' && body.buildEmojis.trim().length > 0
           ? body.buildEmojis.trim().slice(0, 64)
           : '⚔️🔥';
+      const chronicle =
+        typeof body.chronicle === 'string' && body.chronicle.trim().length > 0
+          ? body.chronicle.trim().slice(0, 240)
+          : '';
 
       const guardKey = shareGuardKey(context.postId, seed, username);
       const prevRaw = await redis.get(guardKey);
@@ -961,16 +966,22 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
       const bossBadge = bossSlain ? `💀 ${bossName} SLAIN` : '🛡️ Survived';
       const rankBadge = myRankVal > 0 ? ` · #${myRankVal} Today` : '';
       const streakBadge = ` · 🔥 ${streakVal}-Day Streak`;
-      const text = [
+      const lines = [
         `**╔══ 🔥 EMBERFALL: DAILY HORDE #${seed} ══╗**`,
         `🏆 **RANK ${rank}**${rankBadge}${streakBadge}`,
         `${heroInfo.emoji} **${heroInfo.title}** (*${heroInfo.faction}*) · Lv.**${level}** · **${score.toLocaleString('en-US')} PTS** · **${kills}** Kills`,
+      ];
+      if (chronicle) {
+        lines.push(`📜 *Blood Chronicle:* "${chronicle}"`);
+      }
+      lines.push(
         `⚔️ Build & Bounties: ${buildEmojis}`,
         `🌍 Arena: **${biome.name}** (*${mutatorName}*) · ${bossBadge}`,
         `🏰 Subreddit Siege: \`[${siegeBar}]\` **${bossKillsToday}/${SIEGE_TARGET}** · ⚔️ Factions: ☀️ ${fp0}% | 🔮 ${fp1}% | 🗡️ ${fp2}%`,
         `🗳️ Tomorrow (*${tomorrowBiome.name}*): **${tomorrowMutName}** leading (${tomorrowVotes.totalVotes} votes)`,
-        `**╚══** *Can your Faction beat my build? Hit Enter Dungeon above!* **══╝**`,
-      ].join('\n\n');
+        `**╚══** *Can your Faction beat my build? Enter the Abyss above!* **══╝**`,
+      );
+      const text = lines.join('\n\n');
 
       await reddit.submitComment({
         id: context.postId,

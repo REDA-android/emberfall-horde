@@ -791,7 +791,8 @@
             mutatorName: mutatorName,
             buildEmojis: buildEmojis,
             rank: computeRank(score, bossSlain === 1),
-            myRank: initData.myRank
+            myRank: initData.myRank,
+            chronicle: lastChronicle
           })
         })
           .then(function (r) {
@@ -986,10 +987,408 @@
       env.emberfall_get_submit_state = function () {
         return submitState | 0;
       };
+
+      env.emberfall_sync_hud = function (
+        phase, biome, heroClass, hp, maxHp, ember, overdriveSec,
+        xp, xpNext, lv, score, kills, combo, timeRem,
+        bossHp, bossMaxHp, bossTrail, ghostDelta, muted, crt,
+        rankPtr, rankLen, chronPtr, chronLen
+      ) {
+        updateHudDom(
+          phase, biome, heroClass, hp, maxHp, ember, overdriveSec,
+          xp, xpNext, lv, score, kills, combo, timeRem,
+          bossHp, bossMaxHp, bossTrail, ghostDelta, muted, crt,
+          readUtf8(rankPtr, rankLen), readUtf8(chronPtr, chronLen)
+        );
+      };
+
+      env.emberfall_sync_choices = function (c0, c1, c2, r0, r1, r2, b0, b1, b2) {
+        lastChoices = [c0, c1, c2];
+        lastRarities = [r0, r1, r2];
+        lastBountiesDone = [b0 !== 0, b1 !== 0, b2 !== 0];
+      };
     },
     version: 1,
     name: 'emberfall_bridge'
   });
 
-  load('./emberfall.wasm?v=20261126v10');
+  // =========================================================================
+  // v0.1.0 DIEGETIC PERIMETER HUD + LIQUID ORBS + GLASSMORPHISM MODALS
+  // =========================================================================
+  var BIOME_CLASSES = ['biome-obsidian', 'biome-volcanic', 'biome-frost'];
+  var BIOME_BOSSES = ['MALAKOR, VOID LICH', 'IGNIS REX, MAGMA TITAN', 'SKADI, GLACIAL EMPRESS'];
+  var HERO_EMOJIS = ['☀️', '🔮', '🗡️'];
+  var UPGRADE_META = [
+    { name: 'Arcane Slash', desc: 'Sweeping spectral blade arc (+Damage & Area)' },
+    { name: 'Ember Bolts', desc: 'Seeking firebolts pierce the nearest threats' },
+    { name: 'Chain Lightning', desc: 'Arcing storm bolts jump across the horde' },
+    { name: 'Runic Orbit', desc: 'Spinning obsidian blades shred close foes' },
+    { name: 'Nova Dash', desc: 'Dash triggers an explosive shockwave on arrival' },
+    { name: 'Overclock Haste', desc: 'Accelerates all weapon cooldowns & cast speed' },
+    { name: 'Soul Magnet', desc: 'Pulls XP gems & relics from afar (+20% XP)' },
+    { name: 'Vampiric Ward', desc: '+25 Max HP, +35 Heal & life-steal ward' }
+  ];
+  var RARITY_META = [
+    { cls: 'rarity-rare', label: 'RARE BOON' },
+    { cls: 'rarity-epic', label: 'EPIC RUNIC' },
+    { cls: 'rarity-mythic', label: 'MYTHIC AWAKENING' }
+  ];
+
+  var selectedHeroClass = 0;
+  var selectedEndless = 0;
+  var lastPhase = -1;
+  var lastChoices = [0, 1, 2];
+  var lastRarities = [0, 0, 0];
+  var lastBountiesDone = [false, false, false];
+  var lastChronicle = '';
+  var hudState = {
+    hpPct: 1, emberPct: 0, overdrive: false, combo: 0, wavePhase: 0, biome: 0
+  };
+  var onboardingHidden = false;
+  var onboardingStartTs = 0;
+
+  function setVisible(id, show) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    if (show) el.classList.remove('is-hidden');
+    else el.classList.add('is-hidden');
+  }
+
+  function callCmd(fnName, a, b) {
+    try {
+      if (typeof wasm_exports !== 'undefined' && wasm_exports && typeof wasm_exports[fnName] === 'function') {
+        wasm_exports[fnName](a || 0, b || 0);
+      }
+    } catch (_) {}
+  }
+
+  function drawLiquidOrb(canvasId, pct, colTop, colBot, glowCol, phaseOff) {
+    var cvs = document.getElementById(canvasId);
+    if (!cvs || !cvs.getContext) return;
+    var ctx = cvs.getContext('2d');
+    var w = cvs.width;
+    var h = cvs.height;
+    var cx = w * 0.5;
+    var cy = h * 0.5;
+    var r = w * 0.45;
+    ctx.clearRect(0, 0, w, h);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.clip();
+
+    ctx.fillStyle = 'rgba(9, 10, 15, 0.92)';
+    ctx.fillRect(0, 0, w, h);
+
+    var levelY = cy + r - pct * (r * 2);
+    var grad = ctx.createLinearGradient(0, levelY - 10, 0, cy + r);
+    grad.addColorStop(0, colTop);
+    grad.addColorStop(1, colBot);
+
+    ctx.beginPath();
+    ctx.moveTo(0, h);
+    for (var x = 0; x <= w; x += 4) {
+      var wave = Math.sin(x * 0.08 + hudState.wavePhase + phaseOff) * (pct > 0.03 && pct < 0.98 ? 4.2 : 0.8);
+      ctx.lineTo(x, levelY + wave);
+    }
+    ctx.lineTo(w, h);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // Specular glass highlight
+    var glass = ctx.createRadialGradient(cx - r * 0.32, cy - r * 0.35, 2, cx, cy, r);
+    glass.addColorStop(0, 'rgba(255,255,255,0.34)');
+    glass.addColorStop(0.45, 'rgba(255,255,255,0.05)');
+    glass.addColorStop(1, 'rgba(0,0,0,0.45)');
+    ctx.fillStyle = glass;
+    ctx.fillRect(0, 0, w, h);
+    ctx.restore();
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = glowCol;
+    ctx.stroke();
+  }
+
+  function drawCarnageThermometer() {
+    var cvs = document.getElementById('carnage-canvas');
+    if (!cvs || !cvs.getContext) return;
+    var ctx = cvs.getContext('2d');
+    var w = cvs.width;
+    var h = cvs.height;
+    ctx.clearRect(0, 0, w, h);
+
+    var pct = hudState.overdrive ? 1.0 : Math.min(1.0, hudState.combo / 50.0);
+    var fillH = Math.max(0, (h - 8) * pct);
+    var grad = ctx.createLinearGradient(0, h, 0, 0);
+    if (hudState.overdrive) {
+      grad.addColorStop(0, '#FF4D2D');
+      grad.addColorStop(0.5, '#E5B85C');
+      grad.addColorStop(1, '#FCE194');
+    } else {
+      grad.addColorStop(0, '#9D4EDD');
+      grad.addColorStop(0.6, '#FF4D2D');
+      grad.addColorStop(1, '#E5B85C');
+    }
+    ctx.fillStyle = grad;
+    ctx.fillRect(4, h - 4 - fillH, w - 8, fillH);
+  }
+
+  function animOrbsLoop() {
+    hudState.wavePhase += hudState.overdrive ? 0.14 : 0.07;
+    drawLiquidOrb('orb-hp', hudState.hpPct, '#EF4444', '#7F1D1D', '#E5B85C', 0);
+    drawLiquidOrb(
+      'orb-ember',
+      hudState.emberPct,
+      hudState.overdrive ? '#FCE194' : '#FF7A2D',
+      hudState.overdrive ? '#FF4D2D' : '#9D4EDD',
+      hudState.emberPct >= 0.99 || hudState.overdrive ? '#FCE194' : 'rgba(229,184,92,0.55)',
+      2.1
+    );
+    drawCarnageThermometer();
+    requestAnimationFrame(animOrbsLoop);
+  }
+  requestAnimationFrame(animOrbsLoop);
+
+  function renderUpgradeModal() {
+    var grid = document.getElementById('upgrade-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
+    for (var i = 0; i < 3; i++) {
+      (function (idx) {
+        var uIdx = lastChoices[idx] || 0;
+        var rIdx = Math.max(0, Math.min(2, lastRarities[idx] || 0));
+        var meta = UPGRADE_META[uIdx] || UPGRADE_META[0];
+        var rar = RARITY_META[rIdx] || RARITY_META[0];
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'upgrade-card ' + rar.cls;
+        btn.innerHTML =
+          '<div class="rarity-tag">' + rar.label + ' [' + (idx + 1) + ']</div>' +
+          '<div class="up-title">' + meta.name + '</div>' +
+          '<div class="up-desc">' + meta.desc + '</div>';
+        btn.addEventListener('click', function () {
+          callCmd('ef_cmd_pick_upgrade', idx);
+        });
+        grid.appendChild(btn);
+      })(i);
+    }
+  }
+
+  function updateHudDom(
+    phase, biome, heroClass, hp, maxHp, ember, overdriveSec,
+    xp, xpNext, lv, score, kills, combo, timeRem,
+    bossHp, bossMaxHp, bossTrail, ghostDelta, muted, crt,
+    rankStr, chronStr
+  ) {
+    var bCls = BIOME_CLASSES[biome % 3] || 'biome-obsidian';
+    if (!document.body.classList.contains(bCls)) {
+      document.body.classList.remove('biome-obsidian', 'biome-volcanic', 'biome-frost');
+      document.body.classList.add(bCls);
+    }
+
+    hudState.hpPct = Math.max(0, Math.min(1, hp / Math.max(1, maxHp)));
+    hudState.emberPct = overdriveSec > 0 ? Math.max(0.15, overdriveSec / 6.0) : Math.max(0, Math.min(1, ember / 100));
+    hudState.overdrive = overdriveSec > 0;
+    hudState.combo = combo;
+    hudState.biome = biome;
+    if (chronStr) lastChronicle = chronStr;
+
+    if (phase !== lastPhase) {
+      lastPhase = phase;
+      setVisible('modal-title', phase === 0);
+      setVisible('btn-skip-intro', phase === 1);
+      setVisible('hud-layer', phase === 2 || phase === 3 || phase === 4);
+      setVisible('modal-pause', phase === 3);
+      setVisible('modal-levelup', phase === 4);
+      setVisible('modal-chronicle', phase === 5);
+
+      if (phase === 0) {
+        var sub = document.getElementById('title-seed-sub');
+        if (sub) sub.textContent = 'DAILY SANCTUARY · #' + (initData.seed || utcSeed(0));
+        var tBoss = document.getElementById('title-boss-line');
+        if (tBoss) tBoss.textContent = 'OVERLORD: ' + (BIOME_BOSSES[biome % 3] || BIOME_BOSSES[0]);
+        var tMut = document.getElementById('title-mutator-line');
+        var mIdx = initData.mutatorOverride >= 0 ? initData.mutatorOverride : defaultMutatorIdx(initData.seed || utcSeed(0));
+        if (tMut) tMut.textContent = 'Active Mutator: ' + (MODIFIERS[mIdx] || MODIFIERS[0]);
+      } else if (phase === 2) {
+        if (!onboardingStartTs) onboardingStartTs = Date.now();
+      } else if (phase === 3) {
+        var pb = document.getElementById('pause-bounties');
+        if (pb) {
+          pb.innerHTML = [0, 1, 2].map(function (bi) {
+            return '<li>' + (lastBountiesDone[bi] ? '✅ ' : '🎯 ') + 'Daily Bounty #' + (bi + 1) + ' (+750 PTS)</li>';
+          }).join('');
+        }
+      } else if (phase === 4) {
+        renderUpgradeModal();
+      } else if (phase === 5) {
+        var cs = document.getElementById('chronicle-score');
+        if (cs) cs.textContent = Number(score || 0).toLocaleString('en-US') + ' PTS';
+        var cst = document.getElementById('chronicle-stats');
+        if (cst) cst.textContent = kills + ' Kills · Lv.' + lv + ' · 🔥 ' + Math.max(1, initData.streak) + '-Day Streak';
+        var cr = document.getElementById('chronicle-rank');
+        if (cr) cr.textContent = rankStr || computeRank(score, bossHp <= 0 && bossMaxHp > 0);
+        var ct = document.getElementById('chronicle-text');
+        if (ct && lastChronicle) ct.textContent = '"' + lastChronicle + '"';
+      }
+    }
+
+    if (phase >= 2 && phase <= 4) {
+      var hIcon = document.getElementById('hud-hero-icon');
+      if (hIcon) hIcon.textContent = HERO_EMOJIS[heroClass % 3] || '☀️';
+      var hLv = document.getElementById('hud-lv');
+      if (hLv) hLv.textContent = 'LV.' + lv;
+      var hSc = document.getElementById('hud-score');
+      if (hSc) hSc.textContent = Number(score || 0).toLocaleString('en-US') + ' PTS';
+      var xpRect = document.getElementById('hud-xp-rect');
+      if (xpRect) xpRect.setAttribute('width', String(Math.round((xp / Math.max(1, xpNext)) * 100)));
+
+      var secs = Math.max(0, Math.floor(timeRem));
+      var tmEl = document.getElementById('hud-timer');
+      if (tmEl) tmEl.textContent = String(Math.floor(secs / 60)).padStart(2, '0') + ':' + String(secs % 60).padStart(2, '0');
+      var kEl = document.getElementById('hud-kills');
+      if (kEl) kEl.textContent = kills + ' 💀';
+
+      var mBtn = document.getElementById('btn-mute');
+      if (mBtn) mBtn.textContent = muted ? '🔇' : '🔊';
+      var pmBtn = document.getElementById('btn-pause-mute');
+      if (pmBtn) pmBtn.textContent = muted ? '🔇 Audio: OFF' : '🔊 Audio: ON';
+      var pcBtn = document.getElementById('btn-pause-crt');
+      if (pcBtn) pcBtn.textContent = crt ? '📺 CRT: ON' : '📺 CRT: OFF';
+
+      var hpLbl = document.getElementById('orb-hp-label');
+      if (hpLbl) hpLbl.textContent = Math.ceil(hp) + ' / ' + Math.ceil(maxHp);
+      var emLbl = document.getElementById('orb-ember-label');
+      if (emLbl) emLbl.textContent = overdriveSec > 0 ? overdriveSec.toFixed(1) + 's BURN' : Math.floor(ember) + '% EMBER';
+      var emBtn = document.getElementById('btn-overdrive-orb');
+      if (emBtn) {
+        if (ember >= 99 || overdriveSec > 0) emBtn.classList.add('ready');
+        else emBtn.classList.remove('ready');
+      }
+
+      var cBadge = document.getElementById('carnage-badge');
+      if (cBadge) {
+        cBadge.textContent = 'x' + Math.max(1, combo);
+        if (overdriveSec > 0 || combo >= 25) cBadge.classList.add('overdrive');
+        else cBadge.classList.remove('overdrive');
+      }
+
+      var hasBoss = bossMaxHp > 0 && bossHp > 0;
+      setVisible('boss-bar-wrap', hasBoss);
+      if (hasBoss) {
+        var bn = document.getElementById('boss-bar-name');
+        if (bn) bn.textContent = BIOME_BOSSES[biome % 3] || BIOME_BOSSES[0];
+        var bhp = document.getElementById('boss-bar-hp');
+        var pct = Math.max(0, Math.min(1, bossHp / bossMaxHp));
+        if (bhp) bhp.textContent = Math.ceil(pct * 100) + '%';
+        var bFill = document.getElementById('boss-bar-fill');
+        if (bFill) bFill.setAttribute('width', String(Math.round(394 * pct)));
+        var bTrail = document.getElementById('boss-bar-trail');
+        if (bTrail) bTrail.setAttribute('width', String(Math.round(394 * Math.max(pct, Math.min(1, bossTrail)))));
+      }
+
+      var gdEl = document.getElementById('hud-ghost-delta');
+      if (gdEl) {
+        if (initData.topGhost && initData.leaderboard && initData.leaderboard.length > 0) {
+          gdEl.classList.remove('is-hidden');
+          gdEl.textContent = (ghostDelta >= 0 ? '+' : '') + ghostDelta + ' PTS VS #1';
+          if (ghostDelta < 0) gdEl.classList.add('behind');
+          else gdEl.classList.remove('behind');
+        } else {
+          gdEl.classList.add('is-hidden');
+        }
+      }
+
+      if (!onboardingHidden && onboardingStartTs > 0) {
+        var ob = document.getElementById('onboarding-hint');
+        if (ob) {
+          if (Date.now() - onboardingStartTs < 6500) ob.classList.remove('is-hidden');
+          else { ob.classList.add('faded'); onboardingHidden = true; }
+        }
+      }
+    }
+
+    if (phase === 5) {
+      var stEl = document.getElementById('chronicle-status');
+      if (stEl) stEl.textContent = lastStatusMsg || '';
+    }
+  }
+
+  // Bind DOM controls
+  var classCards = document.querySelectorAll('#title-class-grid .class-card');
+  classCards.forEach(function (card) {
+    card.addEventListener('click', function () {
+      classCards.forEach(function (c) { c.classList.remove('selected'); });
+      card.classList.add('selected');
+      selectedHeroClass = Number(card.getAttribute('data-class')) || 0;
+    });
+  });
+
+  var modeDaily = document.getElementById('mode-daily');
+  var modeEndless = document.getElementById('mode-endless');
+  if (modeDaily) modeDaily.addEventListener('click', function () {
+    selectedEndless = 0;
+    modeDaily.classList.add('selected');
+    if (modeEndless) modeEndless.classList.remove('selected');
+  });
+  if (modeEndless) modeEndless.addEventListener('click', function () {
+    selectedEndless = 1;
+    modeEndless.classList.add('selected');
+    if (modeDaily) modeDaily.classList.remove('selected');
+  });
+
+  var btnEnterAbyss = document.getElementById('btn-enter-abyss');
+  if (btnEnterAbyss) btnEnterAbyss.addEventListener('click', function () {
+    unlockAudio();
+    callCmd('ef_cmd_start_run', selectedHeroClass, selectedEndless);
+  });
+
+  var btnSkipIntro = document.getElementById('btn-skip-intro');
+  if (btnSkipIntro) btnSkipIntro.addEventListener('click', function () {
+    callCmd('ef_cmd_skip_intro');
+  });
+
+  var btnOverdrive = document.getElementById('btn-overdrive-orb');
+  if (btnOverdrive) btnOverdrive.addEventListener('click', function () {
+    callCmd('ef_cmd_trigger_overdrive');
+  });
+
+  var btnMute = document.getElementById('btn-mute');
+  if (btnMute) btnMute.addEventListener('click', function () { callCmd('ef_cmd_toggle_mute'); });
+
+  var btnPause = document.getElementById('btn-pause');
+  if (btnPause) btnPause.addEventListener('click', function () { callCmd('ef_cmd_toggle_pause'); });
+
+  var btnResume = document.getElementById('btn-resume');
+  if (btnResume) btnResume.addEventListener('click', function () { callCmd('ef_cmd_toggle_pause'); });
+
+  var btnPauseResume = document.getElementById('btn-pause-resume');
+  if (btnPauseResume) btnPauseResume.addEventListener('click', function () { callCmd('ef_cmd_toggle_pause'); });
+
+  var btnPauseMute = document.getElementById('btn-pause-mute');
+  if (btnPauseMute) btnPauseMute.addEventListener('click', function () { callCmd('ef_cmd_toggle_mute'); });
+
+  var btnPauseCrt = document.getElementById('btn-pause-crt');
+  if (btnPauseCrt) btnPauseCrt.addEventListener('click', function () { callCmd('ef_cmd_toggle_crt'); });
+
+  var btnShare = document.getElementById('btn-share-reddit');
+  if (btnShare) btnShare.addEventListener('click', function () { callCmd('ef_cmd_share'); });
+
+  var btnReplay = document.getElementById('btn-replay-daily');
+  if (btnReplay) btnReplay.addEventListener('click', function () { callCmd('ef_cmd_replay'); });
+
+  var voteBtns = document.querySelectorAll('#chronicle-votes .vote-card');
+  voteBtns.forEach(function (vb) {
+    vb.addEventListener('click', function () {
+      voteBtns.forEach(function (v) { v.classList.remove('voted'); });
+      vb.classList.add('voted');
+      callCmd('ef_cmd_vote', Number(vb.getAttribute('data-mut')) || 0);
+    });
+  });
+
+  load('./emberfall.wasm?v=20261126v11');
 })();

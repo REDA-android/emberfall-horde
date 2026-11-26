@@ -378,52 +378,70 @@
 
   var activeBiomeIdx = 0;
 
-  // Live 60fps Canvas Trailer Overlay on Splash Banner (embers / frost crystals / lightning flashes)
-  (function initHeroTrailerCanvas() {
-    var cvs = document.getElementById('hero-fx');
+  // Live 60fps Living Sanctuary Canvas (rotating runic seal, biome embers, volumetric mist)
+  (function initSanctuaryCanvas() {
+    var cvs = document.getElementById('splash-bg-fx');
     if (!cvs || !cvs.getContext) return;
     var ctx = cvs.getContext('2d');
     var motes = [];
-    for (var i = 0; i < 24; i++) {
+    for (var i = 0; i < 36; i++) {
       motes.push({
         x: Math.random(),
         y: Math.random(),
-        s: 1.0 + Math.random() * 2.1,
-        vx: (Math.random() - 0.5) * 0.004,
-        vy: -0.005 - Math.random() * 0.008,
+        s: 1.1 + Math.random() * 2.2,
+        vx: (Math.random() - 0.5) * 0.0025,
+        vy: -0.0035 - Math.random() * 0.006,
         p: Math.random() * 6.28
       });
     }
-    var flash = 0;
+    var angle = 0;
     function tick() {
-      var w = cvs.clientWidth || 480;
-      var h = cvs.clientHeight || 104;
+      var w = window.innerWidth || 480;
+      var h = window.innerHeight || 720;
       if (cvs.width !== w || cvs.height !== h) {
         cvs.width = w;
         cvs.height = h;
       }
       ctx.clearRect(0, 0, w, h);
-      if (Math.random() < 0.012) flash = 0.28;
-      if (flash > 0.01) {
-        ctx.fillStyle = activeBiomeIdx === 2
-          ? 'rgba(125,211,252,' + flash.toFixed(3) + ')'
-          : 'rgba(253,224,71,' + flash.toFixed(3) + ')';
-        ctx.fillRect(0, 0, w, h);
-        flash *= 0.86;
+      angle += 0.0035;
+
+      // Subtle rotating runic sanctuary circle in background
+      var cx = w * 0.5;
+      var cy = h * 0.44;
+      var rad = Math.min(w, h) * 0.36;
+      var runeCol = activeBiomeIdx === 1 ? '255,77,45' : (activeBiomeIdx === 2 ? '56,232,255' : '229,184,92');
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(angle);
+      ctx.strokeStyle = 'rgba(' + runeCol + ',0.11)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(0, 0, rad, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(0, 0, rad * 0.78, 0, Math.PI * 2);
+      ctx.stroke();
+      for (var k = 0; k < 6; k++) {
+        var a0 = (k * Math.PI) / 3;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a0) * rad * 0.78, Math.sin(a0) * rad * 0.78);
+        ctx.lineTo(Math.cos(a0) * rad, Math.sin(a0) * rad);
+        ctx.stroke();
       }
-      var col = activeBiomeIdx === 1 ? '251,146,60' : (activeBiomeIdx === 2 ? '125,211,252' : '251,191,36');
+      ctx.restore();
+
       for (var j = 0; j < motes.length; j++) {
         var m = motes[j];
-        m.p += 0.06;
-        m.x += m.vx + Math.sin(m.p) * 0.0012;
-        m.y += activeBiomeIdx === 2 ? -m.vy * 0.7 : m.vy;
+        m.p += 0.05;
+        m.x += m.vx + Math.sin(m.p) * 0.0009;
+        m.y += activeBiomeIdx === 2 ? -m.vy * 0.65 : m.vy;
         if (m.y < -0.05) { m.y = 1.05; m.x = Math.random(); }
         if (m.y > 1.05) { m.y = -0.05; m.x = Math.random(); }
         if (m.x < 0) m.x += 1;
         if (m.x > 1) m.x -= 1;
-        var a = 0.35 + 0.45 * Math.abs(Math.sin(m.p));
+        var a = 0.25 + 0.48 * Math.abs(Math.sin(m.p));
         ctx.beginPath();
-        ctx.fillStyle = 'rgba(' + col + ',' + a.toFixed(2) + ')';
+        ctx.fillStyle = 'rgba(' + runeCol + ',' + a.toFixed(2) + ')';
         ctx.arc(m.x * w, m.y * h, m.s, 0, Math.PI * 2);
         ctx.fill();
       }
