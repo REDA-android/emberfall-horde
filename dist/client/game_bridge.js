@@ -991,5 +991,5 @@
     name: 'emberfall_bridge'
   });
 
-  load('./emberfall.wasm?v=20261125v9');
+  load('./emberfall.wasm?v=20261126v10');
 })();

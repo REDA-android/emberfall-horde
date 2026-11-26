@@ -731,7 +731,10 @@ struct Game {
     title_time: f32,
     intro_time: f32,
     intro_stage_sfx: u8,
-    card_springs: [f32; 3],
+    intro_last_blip_char: usize,
+    intro_pending_endless: bool,
+    intro_seen: bool,
+    title_modal: u8,
     social: SocialState,
 }
 
@@ -749,7 +752,7 @@ impl Game {
         let b_arr = generate_daily_bounties(&day_seed);
 
         Self {
-            phase: Phase::Intro,
+            phase: Phase::Title,
             day_seed,
             modifier,
             biome,
@@ -864,9 +867,28 @@ impl Game {
             title_time: 0.0,
             intro_time: 0.0,
             intro_stage_sfx: 0,
-            card_springs: [1.0, 0.0, 0.0],
+            intro_last_blip_char: 0,
+            intro_pending_endless: false,
+            intro_seen: false,
+            title_modal: 0,
             social: SocialState::default(),
         }
+    }
+
+    fn launch_cutscene(&mut self, endless: bool, force_full: bool) {
+        self.intro_pending_endless = endless;
+        self.intro_stage_sfx = 0;
+        self.intro_last_blip_char = 0;
+        self.title_modal = 0;
+        if !self.intro_seen || force_full {
+            self.intro_time = 0.0;
+            self.intro_seen = true;
+        } else {
+            // Fast 3.5s Sunset Cliff stage-intro card on subsequent runs!
+            self.intro_time = 18.5;
+            self.intro_stage_sfx = 5;
+        }
+        self.phase = Phase::Intro;
     }
 
     fn hero_texture<'a>(&self, assets: &'a GameAssets) -> &'a Texture2D {
@@ -4235,286 +4257,699 @@ impl Game {
         );
     }
 
+    fn draw_cover_bg(tex: &Texture2D, sw: f32, sh: f32, zoom: f32, pan: Vec2, tint: Color) {
+        let tw = tex.width().max(1.0);
+        let th = tex.height().max(1.0);
+        let scale = (sw / tw).max(sh / th) * zoom;
+        let dw = tw * scale;
+        let dh = th * scale;
+        draw_texture_ex(
+            tex,
+            (sw - dw) * 0.5 + pan.x,
+            (sh - dh) * 0.5 + pan.y,
+            tint,
+            DrawTextureParams {
+                dest_size: Some(vec2(dw, dh)),
+                ..Default::default()
+            },
+        );
+    }
+
+    fn draw_comic_bubble(
+        font: Option<&Font>,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        full_text: &str,
+        reveal_chars: usize,
+        tail_x: f32,
+        tail_down: bool,
+    ) {
+        // Chunky pixel-art white comic speech bubble with thick black ink border + shadow
+        draw_rectangle(x + 4.0, y + 4.0, w, h, Color::from_rgba(4, 6, 12, 175));
+        draw_rectangle(x, y, w, h, Color::from_rgba(248, 250, 252, 255));
+        draw_rectangle_lines(x, y, w, h, 3.0, Color::from_rgba(12, 16, 24, 255));
+
+        let tx = tail_x.clamp(x + 22.0, x + w - 22.0);
+        if tail_down {
+            draw_triangle(
+                vec2(tx - 10.0, y + h - 2.0),
+                vec2(tx + 10.0, y + h - 2.0),
+                vec2(tx - 4.0, y + h + 15.0),
+                Color::from_rgba(12, 16, 24, 255),
+            );
+            draw_triangle(
+                vec2(tx - 7.0, y + h - 3.0),
+                vec2(tx + 7.0, y + h - 3.0),
+                vec2(tx - 3.0, y + h + 11.0),
+                Color::from_rgba(248, 250, 252, 255),
+            );
+        } else {
+            draw_triangle(
+                vec2(tx - 10.0, y + 2.0),
+                vec2(tx + 10.0, y + 2.0),
+                vec2(tx - 4.0, y - 15.0),
+                Color::from_rgba(12, 16, 24, 255),
+            );
+            draw_triangle(
+                vec2(tx - 7.0, y + 3.0),
+                vec2(tx + 7.0, y + 3.0),
+                vec2(tx - 3.0, y - 11.0),
+                Color::from_rgba(248, 250, 252, 255),
+            );
+        }
+
+        // Word-wrap typewriter text neatly inside bubble
+        let visible: String = full_text.chars().take(reveal_chars).collect();
+        let font_sz = if w < 300.0 { 13u16 } else { 15u16 };
+        let max_line_w = w - 24.0;
+        let mut lines: Vec<String> = Vec::new();
+        let mut cur = String::new();
+        for word in visible.split_whitespace() {
+            let cand = if cur.is_empty() {
+                word.to_string()
+            } else {
+                format!("{} {}", cur, word)
+            };
+            if measure_ui_text(font, &cand, font_sz).width > max_line_w && !cur.is_empty() {
+                lines.push(cur);
+                cur = word.to_string();
+            } else {
+                cur = cand;
+            }
+        }
+        if !cur.is_empty() {
+            lines.push(cur);
+        }
+        let line_h = font_sz as f32 + 5.0;
+        let start_ty = y + 24.0;
+        for (li, line) in lines.iter().take(4).enumerate() {
+            draw_text_ex(
+                line,
+                x + 12.0,
+                start_ty + (li as f32) * line_h,
+                TextParams {
+                    font,
+                    font_size: font_sz,
+                    color: Color::from_rgba(15, 23, 42, 255),
+                    ..Default::default()
+                },
+            );
+        }
+    }
+
     fn draw_ui(&mut self, assets: &GameAssets) {
         let sw = screen_width();
         let sh = screen_height();
         let font = assets.ui_font.as_ref();
 
         // =========================================================================
-        // 0. CINEMATIC OPENING SEQUENCE (5.2s skippable 60fps widescreen intro!)
+        // 0. 22-SECOND 5-SCENE ANIMATED COMIC-BOOK STORY CUTSCENE (Mustache Protocol Style!)
         // =========================================================================
         if self.phase == Phase::Intro {
             let dt = get_frame_time().min(0.05);
             self.intro_time += dt;
             let t = self.intro_time;
-
-            // Trigger staged WebAudio SFX once user unlocks audio or during playback
-            if self.intro_stage_sfx == 0 && t >= 0.05 {
-                self.intro_stage_sfx = 1;
-                play_sfx(14);
-            } else if self.intro_stage_sfx == 1 && t >= 1.55 {
-                self.intro_stage_sfx = 2;
-                play_sfx(6);
-            } else if self.intro_stage_sfx == 2 && t >= 3.25 {
-                self.intro_stage_sfx = 3;
-                play_sfx(5);
-            }
-
-            // Deep obsidian backdrop
-            draw_rectangle(0.0, 0.0, sw, sh, Color::from_rgba(4, 6, 14, 248));
-
-            // Slow Ken-Burns zoom on panoramic Dark-Fantasy Key-Art Banner
-            let zoom = 1.04 + t * 0.032;
-            let bw = sw.max(sh * 2.4) * zoom;
-            let bh = bw * (180.0 / 480.0);
-            let banner_alpha = (t / 0.9).clamp(0.0, 1.0) * 0.58;
-            draw_texture_ex(
-                &assets.title_banner,
-                (sw - bw) * 0.5,
-                (sh - bh) * 0.36,
-                Color::new(1.0, 0.96, 0.90, banner_alpha),
-                DrawTextureParams {
-                    dest_size: Some(vec2(bw, bh)),
-                    ..Default::default()
-                },
-            );
-            // Dark gradient vignette overlays
-            draw_rectangle(0.0, 0.0, sw, sh * 0.22, Color::from_rgba(3, 5, 12, 235));
-            draw_rectangle(0.0, sh * 0.74, sw, sh * 0.26, Color::from_rgba(3, 5, 12, 242));
-
-            // Procedural rising ember sparks across the cinema frame
-            for i in 0..28 {
-                let fi = i as f32;
-                let px = ((fi * 97.3 + t * (18.0 + (i % 5) as f32 * 7.0)) % sw).abs();
-                let py = sh - ((fi * 61.7 + t * (55.0 + (i % 4) as f32 * 22.0)) % sh);
-                let sz = 2.0 + (fi % 3.0) * 1.3;
-                let pulse = 0.45 + ((t * 5.0 + fi).sin() * 0.35);
-                draw_circle(px, py, sz, Color::new(0.99, 0.58, 0.18, pulse));
-            }
-
             let cx = sw * 0.5;
-            let cy = sh * 0.48;
+            let cy = sh * 0.5;
             let bcol = biome_boss_color(self.biome);
+            let bname = biome_boss_name(self.biome);
+            let hero_tex = self.hero_texture(assets);
+            let pet_tex = assets.pet_for_class(self.hero_class);
+            let boss_tex = assets.boss_for_biome(self.biome);
+            let boss_voice = 3 + (self.biome.to_index() as i32);
 
-            // Rotating arcane Hairline geometry sigil behind showcase
-            let sigil_r = (sw.min(sh) * 0.27).min(148.0);
-            draw_poly_lines(
-                cx,
-                cy - 8.0,
-                8,
-                sigil_r,
-                t * 18.0,
-                1.4,
-                Color::new(bcol.r, bcol.g, bcol.b, 0.38),
-            );
-            draw_poly_lines(
-                cx,
-                cy - 8.0,
-                6,
-                sigil_r * 0.78,
-                -t * 26.0,
-                1.1,
-                Color::from_rgba(250, 204, 21, 95),
-            );
+            // Scene 1 (0.0s .. 4.5s): Cozy Citadel War Room + White Comic Speech Bubble + Red ALERT!
+            if t < 4.5 {
+                if self.intro_stage_sfx < 1 {
+                    self.intro_stage_sfx = 1;
+                    self.intro_last_blip_char = 0;
+                    play_sfx(14);
+                }
+                Self::draw_cover_bg(
+                    &assets.scene_warroom,
+                    sw,
+                    sh,
+                    1.02 + t * 0.012,
+                    Vec2::ZERO,
+                    WHITE,
+                );
+                // Flickering lantern warmth pulse
+                let glow_a = 0.06 + (t * 7.0).sin().abs() * 0.05;
+                draw_rectangle(0.0, 0.0, sw, sh, Color::new(1.0, 0.65, 0.25, glow_a));
 
-            // ACT I (0.0s .. 1.6s): Citadel Gate & UTC Seed Seal
-            if t < 1.65 {
-                let a = if t < 1.25 {
-                    (t / 0.45).clamp(0.0, 1.0)
-                } else {
-                    ((1.65 - t) / 0.4).clamp(0.0, 1.0)
-                };
-                let k1 = "REDDIT DAILY CITADEL CHRONICLE";
-                let k1d = measure_ui_text(font, k1, 14);
-                draw_ui_text(
-                    font,
-                    k1,
-                    cx - k1d.width * 0.5,
-                    cy - 24.0,
-                    14.0,
-                    Color::new(0.98, 0.75, 0.15, a),
+                // Hero & Companion inside the War Room
+                let h_sz = (sh * 0.34).clamp(110.0, 175.0);
+                let hx = cx - (sw * 0.14).min(110.0);
+                let hy = sh * 0.66;
+                draw_texture_ex(
+                    hero_tex,
+                    hx - h_sz * 0.5,
+                    hy - h_sz * 0.5 + (t * 3.0).sin() * 2.5,
+                    WHITE,
+                    DrawTextureParams {
+                        dest_size: Some(vec2(h_sz, h_sz)),
+                        ..Default::default()
+                    },
                 );
-                let k2 = format!("DUNGEON #{} · {}", self.day_seed, self.biome.title());
-                let k2d = measure_ui_text(font, &k2, 26);
-                draw_ui_text(
-                    font,
-                    &k2,
-                    cx - k2d.width * 0.5,
-                    cy + 12.0,
-                    26.0,
-                    Color::new(1.0, 1.0, 1.0, a),
+                let p_sz = h_sz * 0.44;
+                draw_texture_ex(
+                    pet_tex,
+                    hx - h_sz * 0.62,
+                    hy - h_sz * 0.52 + (t * 5.5).sin() * 5.0,
+                    WHITE,
+                    DrawTextureParams {
+                        dest_size: Some(vec2(p_sz, p_sz)),
+                        ..Default::default()
+                    },
                 );
-                let line_w = (sw * 0.55).min(320.0) * a;
-                draw_line(
-                    cx - line_w * 0.5,
-                    cy + 26.0,
-                    cx + line_w * 0.5,
-                    cy + 26.0,
-                    1.6,
-                    Color::new(bcol.r, bcol.g, bcol.b, a),
+
+                // Red "BREAKING ALERT" flash on the wall Scrying Mirror at 3.2s!
+                if t >= 3.1 {
+                    if self.intro_stage_sfx < 2 {
+                        self.intro_stage_sfx = 2;
+                        play_sfx(6);
+                    }
+                    let mw = (sw * 0.26).clamp(130.0, 220.0);
+                    let mh = mw * 0.62;
+                    let mx = cx - mw * 0.5;
+                    let my = sh * 0.28 - mh * 0.5;
+                    let flash = if ((t * 10.0) as i32) % 2 == 0 {
+                        Color::from_rgba(220, 38, 38, 240)
+                    } else {
+                        Color::from_rgba(127, 29, 29, 240)
+                    };
+                    draw_rectangle(mx, my, mw, mh, flash);
+                    draw_rectangle_lines(mx, my, mw, mh, 3.0, Color::from_rgba(253, 224, 71, 255));
+                    let al = "ALERT!";
+                    let ad = measure_ui_text(font, al, 24);
+                    draw_ui_text(font, al, cx - ad.width * 0.5, my + mh * 0.5 + 8.0, 24.0, WHITE);
+                }
+
+                // Crisp White Comic Speech Bubble (bottom-right)
+                let line = format!(
+                    "COMMANDER, THE CITADEL IS CALM... WAIT! THE SCRYING MIRROR FOR #{} IS FLASHING!",
+                    self.day_seed
                 );
+                let chars = ((t - 0.35).max(0.0) * 28.0) as usize;
+                if chars > self.intro_last_blip_char + 4 && chars <= line.len() {
+                    self.intro_last_blip_char = chars;
+                    play_voice_blip(self.hero_class.to_index() as i32);
+                }
+                let bw = (sw - 36.0).min(380.0);
+                let bh = 86.0;
+                let bx = (cx + 12.0).min(sw - bw - 18.0).max(18.0);
+                let by = sh * 0.64;
+                Self::draw_comic_bubble(font, bx, by, bw, bh, &line, chars, hx + 18.0, false);
             }
-            // ACT II (1.55s .. 3.30s): Today's Boss Dramatic Reveal!
-            else if t < 3.30 {
-                let lt = t - 1.55;
-                let a = if lt < 1.35 {
-                    (lt / 0.32).clamp(0.0, 1.0)
+            // Scene 2 (4.5s .. 9.0s): Scrying Mirror Live Broadcast + Laser Blast + Hero Shock!
+            else if t < 9.0 {
+                let lt = t - 4.5;
+                if self.intro_stage_sfx < 3 {
+                    self.intro_stage_sfx = 3;
+                    self.intro_last_blip_char = 0;
+                    play_sfx(3);
+                }
+                let shake = if lt > 2.5 && lt < 3.4 {
+                    vec2((lt * 95.0).sin() * 9.0, (lt * 115.0).cos() * 7.0)
                 } else {
-                    ((1.75 - lt) / 0.4).clamp(0.0, 1.0)
+                    Vec2::ZERO
                 };
-                // Spring overshoot scale on Boss arrival
-                let spring_s = if lt < 0.28 {
-                    0.55 + (lt / 0.28) * 0.58
-                } else {
-                    1.13 - ((lt - 0.28) / 0.35).clamp(0.0, 1.0) * 0.13
-                };
-                let bsz = 154.0 * spring_s;
+                Self::draw_cover_bg(
+                    &assets.scene_warroom,
+                    sw,
+                    sh,
+                    1.38,
+                    vec2(-sw * 0.08, sh * 0.06) + shake,
+                    Color::from_rgba(195, 200, 220, 255),
+                );
+
+                // Giant Framed Arcane Broadcast Monitor on the left-center
+                let tv_w = (sw * 0.56).clamp(240.0, 460.0);
+                let tv_h = tv_w * 0.58;
+                let tv_x = (sw * 0.06).max(16.0) + shake.x;
+                let tv_y = sh * 0.16 + shake.y;
+                draw_rectangle(tv_x - 6.0, tv_y - 6.0, tv_w + 12.0, tv_h + 12.0, Color::from_rgba(15, 23, 42, 255));
+                draw_rectangle(tv_x, tv_y, tv_w, tv_h, Color::from_rgba(18, 12, 34, 255));
+                draw_rectangle_lines(tv_x - 4.0, tv_y - 4.0, tv_w + 8.0, tv_h + 8.0, 3.0, Color::from_rgba(250, 204, 21, 235));
+
+                // Boss Silhouette/Portrait inside Live Broadcast
+                let bsz = tv_h * 0.72;
                 draw_texture_ex(
                     &assets.vfx_light,
-                    cx - bsz * 0.65,
-                    cy - bsz * 0.65 - 18.0,
-                    Color::new(bcol.r, bcol.g, bcol.b, 0.42 * a),
+                    tv_x + tv_w * 0.5 - bsz * 0.7,
+                    tv_y + tv_h * 0.44 - bsz * 0.7,
+                    Color::new(bcol.r, bcol.g, bcol.b, 0.5),
                     DrawTextureParams {
-                        dest_size: Some(vec2(bsz * 1.3, bsz * 1.3)),
+                        dest_size: Some(vec2(bsz * 1.4, bsz * 1.4)),
                         ..Default::default()
                     },
                 );
                 draw_texture_ex(
-                    assets.boss_for_biome(self.biome),
-                    cx - bsz * 0.5,
-                    cy - bsz * 0.5 - 18.0,
-                    Color::new(1.0, 1.0, 1.0, a),
+                    boss_tex,
+                    tv_x + tv_w * 0.5 - bsz * 0.5,
+                    tv_y + tv_h * 0.44 - bsz * 0.5 + (lt * 8.0).sin() * 3.0,
+                    WHITE,
                     DrawTextureParams {
                         dest_size: Some(vec2(bsz, bsz)),
                         ..Default::default()
                     },
                 );
-                let tag = "TODAY'S OVERLORD AWAKENS";
-                let td = measure_ui_text(font, tag, 12);
-                draw_ui_text(
-                    font,
-                    tag,
-                    cx - td.width * 0.5,
-                    cy + 68.0,
-                    12.0,
-                    Color::new(0.98, 0.80, 0.15, a),
+                // Top-right LIVE badge + Bottom Red Breaking News Ticker
+                draw_rectangle(tv_x + tv_w - 64.0, tv_y + 8.0, 56.0, 20.0, Color::from_rgba(220, 38, 38, 255));
+                draw_ui_text(font, "LIVE", tv_x + tv_w - 50.0, tv_y + 22.0, 12.0, WHITE);
+                draw_rectangle(tv_x, tv_y + tv_h - 28.0, tv_w, 28.0, Color::from_rgba(220, 38, 38, 245));
+                draw_rectangle(tv_x + 4.0, tv_y + tv_h - 24.0, tv_w - 8.0, 20.0, Color::from_rgba(248, 250, 252, 245));
+                let tick = format!("BREAKING: {} INVADES {}!", bname, self.biome.title());
+                draw_text_ex(
+                    &tick,
+                    tv_x + 10.0,
+                    tv_y + tv_h - 10.0,
+                    TextParams {
+                        font,
+                        font_size: 11,
+                        color: Color::from_rgba(185, 28, 28, 255),
+                        ..Default::default()
+                    },
                 );
-                let bname = biome_boss_name(self.biome);
-                let bnd = measure_ui_text(font, bname, 26);
-                draw_ui_text(
-                    font,
+
+                // Purple/Crimson Energy Laser Blast zapping across screen at lt = 2.5s!
+                if lt >= 2.5 && lt <= 3.6 {
+                    if self.intro_stage_sfx < 4 {
+                        self.intro_stage_sfx = 4;
+                        play_sfx(4);
+                    }
+                    let beam_p = ((lt - 2.5) / 0.25).clamp(0.0, 1.0);
+                    let p0 = vec2(tv_x + tv_w * 0.5, tv_y + tv_h * 0.42);
+                    let p1 = p0.lerp(vec2(sw * 0.82, sh * 0.66), beam_p);
+                    draw_line(p0.x, p0.y, p1.x, p1.y, 18.0, Color::new(bcol.r, bcol.g, bcol.b, 0.72));
+                    draw_line(p0.x, p0.y, p1.x, p1.y, 7.0, Color::from_rgba(255, 255, 255, 240));
+                    draw_circle(p1.x, p1.y, 26.0, Color::new(bcol.r, bcol.g, bcol.b, 0.85));
+                }
+
+                // Hero & Companion watching in foreground right, recoiling with yellow comic shock lines!
+                let h_sz = (sh * 0.36).clamp(115.0, 185.0);
+                let hx = sw * 0.78 + shake.x * 0.5;
+                let hy = sh * 0.70;
+                draw_texture_ex(
+                    hero_tex,
+                    hx - h_sz * 0.5,
+                    hy - h_sz * 0.5,
+                    WHITE,
+                    DrawTextureParams {
+                        dest_size: Some(vec2(h_sz, h_sz)),
+                        flip_x: true,
+                        ..Default::default()
+                    },
+                );
+                if lt >= 2.6 {
+                    // Yellow comic gasp shock lines around Hero!
+                    for k in 0..3 {
+                        let a = -2.4 + (k as f32) * 0.55;
+                        let r0 = h_sz * 0.48;
+                        let r1 = h_sz * 0.68;
+                        draw_line(
+                            hx + a.cos() * r0,
+                            hy - 18.0 + a.sin() * r0,
+                            hx + a.cos() * r1,
+                            hy - 18.0 + a.sin() * r1,
+                            4.0,
+                            Color::from_rgba(253, 224, 71, 255),
+                        );
+                    }
+                }
+
+                let line = format!(
+                    "BREAKING ALERT! {} IS CORRUPTING THE SUBREDDIT WITH {}!",
                     bname,
-                    cx - bnd.width * 0.5,
-                    cy + 95.0,
-                    26.0,
-                    Color::new(bcol.r, bcol.g, bcol.b, a),
+                    self.modifier.title()
                 );
+                let chars = ((lt - 0.2).max(0.0) * 32.0) as usize;
+                if chars > self.intro_last_blip_char + 4 && chars <= line.len() {
+                    self.intro_last_blip_char = chars;
+                    play_sfx_pitched(8, 0.85);
+                }
+                let bw = (sw * 0.42).clamp(220.0, 340.0);
+                let bx = (sw - bw - 16.0).max(16.0);
+                Self::draw_comic_bubble(font, bx, sh * 0.14, bw, 84.0, &line, chars, tv_x + tv_w - 14.0, true);
             }
-            // ACT III (3.25s .. 5.20s): 3 Heroes + Companions Assemble & EMBERFALL Logo Slam!
+            // Scene 3 (9.0s .. 13.5s): Full-Screen Villain Monologue Takeover!
+            else if t < 13.5 {
+                let lt = t - 9.0;
+                if self.intro_stage_sfx < 5 {
+                    self.intro_stage_sfx = 5;
+                    self.intro_last_blip_char = 0;
+                    play_sfx(6);
+                    play_voice_blip(boss_voice);
+                }
+                // Dark dramatic villain broadcast grid + scanlines
+                draw_rectangle(0.0, 0.0, sw, sh, Color::from_rgba(14, 10, 26, 255));
+                for sy in (0..(sh as i32)).step_by(6) {
+                    draw_line(0.0, sy as f32, sw, sy as f32, 1.0, Color::from_rgba(255, 255, 255, 10));
+                }
+                draw_rectangle(0.0, 0.0, sw, 46.0, Color::from_rgba(185, 28, 28, 235));
+                draw_ui_text(font, "BREAKING NEWS  ·  LIVE OVERLORD BROADCAST", 18.0, 30.0, 17.0, WHITE);
+
+                // Menacing Daily Boss laughing center-stage + 2 flanking minions!
+                let laugh_y = (lt * 24.0).sin().abs() * 7.0;
+                let bsz = (sh * 0.50).clamp(165.0, 260.0);
+                draw_texture_ex(
+                    &assets.vfx_light,
+                    cx - bsz * 0.8,
+                    cy - bsz * 0.85,
+                    Color::new(bcol.r, bcol.g, bcol.b, 0.48),
+                    DrawTextureParams {
+                        dest_size: Some(vec2(bsz * 1.6, bsz * 1.6)),
+                        ..Default::default()
+                    },
+                );
+                // Flanking minions
+                let m_sz = bsz * 0.46;
+                let m_off = (sw * 0.24).clamp(115.0, 220.0);
+                draw_texture_ex(
+                    &assets.wraith,
+                    cx - m_off - m_sz * 0.5,
+                    cy + 20.0 + (lt * 5.0).sin() * 8.0,
+                    WHITE,
+                    DrawTextureParams {
+                        dest_size: Some(vec2(m_sz, m_sz)),
+                        ..Default::default()
+                    },
+                );
+                draw_texture_ex(
+                    &assets.imp,
+                    cx + m_off - m_sz * 0.5,
+                    cy + 26.0 + (lt * 6.0).cos() * 8.0,
+                    WHITE,
+                    DrawTextureParams {
+                        dest_size: Some(vec2(m_sz, m_sz)),
+                        flip_x: true,
+                        ..Default::default()
+                    },
+                );
+                // Main Boss
+                draw_texture_ex(
+                    boss_tex,
+                    cx - bsz * 0.5,
+                    cy - bsz * 0.55 - laugh_y,
+                    WHITE,
+                    DrawTextureParams {
+                        dest_size: Some(vec2(bsz, bsz)),
+                        ..Default::default()
+                    },
+                );
+
+                // Sweeping purple/flame beam across bottom ticker
+                if lt > 2.6 {
+                    let bx_end = sw * ((lt - 2.6) / 1.4).clamp(0.0, 1.0);
+                    draw_line(cx, cy - 10.0, bx_end, sh - 60.0, 14.0, bcol);
+                    draw_line(cx, cy - 10.0, bx_end, sh - 60.0, 5.0, WHITE);
+                }
+
+                // Bottom News Bar (exact Mustache Protocol GLOBAL CRISIS style!)
+                draw_rectangle(0.0, sh - 54.0, sw, 54.0, Color::from_rgba(12, 16, 26, 250));
+                draw_rectangle(14.0, sh - 44.0, sw - 28.0, 32.0, Color::from_rgba(248, 250, 252, 255));
+                draw_rectangle(14.0, sh - 44.0, 88.0, 32.0, Color::from_rgba(220, 38, 38, 255));
+                draw_ui_text(font, "ALERT", 28.0, sh - 22.0, 15.0, WHITE);
+                let gtxt = format!("GLOBAL CRISIS: {} HORDE UNDER ATTACK.", self.biome.title());
+                draw_text_ex(
+                    &gtxt,
+                    112.0,
+                    sh - 22.0,
+                    TextParams {
+                        font,
+                        font_size: 14,
+                        color: Color::from_rgba(15, 23, 42, 255),
+                        ..Default::default()
+                    },
+                );
+
+                let line = match self.biome {
+                    DailyBiome::ObsidianSanctuary => "SAY GOODBYE TO YOUR DAILY STREAK, MORTALS! HAHAHAHA!",
+                    DailyBiome::VolcanicRift => "THE RIFT WILL CONSUME EVERY FACTION IN MOLTEN ASH! HAHA!",
+                    DailyBiome::FrostAbyss => "FREEZE IN ETERNAL WINTER! NO REDDITOR SURVIVES TODAY!",
+                };
+                let chars = ((lt - 0.15).max(0.0) * 28.0) as usize;
+                if chars > self.intro_last_blip_char + 5 && chars <= line.len() {
+                    self.intro_last_blip_char = chars;
+                    play_voice_blip(boss_voice);
+                }
+                let bw = (sw - 36.0).min(360.0);
+                let bx = (cx + 40.0).min(sw - bw - 16.0).max(16.0);
+                Self::draw_comic_bubble(font, bx, 58.0, bw, 76.0, line, chars, cx + 30.0, true);
+            }
+            // Scene 4 (13.5s .. 18.5s): Shattered Armory Courtyard + GOLDEN LIGHTNING PILLAR TRANSFORMATION!
+            else if t < 18.5 {
+                let lt = t - 13.5;
+                if self.intro_stage_sfx < 6 {
+                    self.intro_stage_sfx = 6;
+                    self.intro_last_blip_char = 0;
+                    play_sfx(10);
+                }
+                let transforming = lt >= 2.3;
+                let shake = if transforming && lt < 3.4 {
+                    vec2((lt * 110.0).sin() * 11.0, (lt * 90.0).cos() * 9.0)
+                } else {
+                    Vec2::ZERO
+                };
+                Self::draw_cover_bg(&assets.scene_courtyard, sw, sh, 1.04, shake, WHITE);
+
+                let h_sz = (sh * 0.36).clamp(115.0, 180.0);
+                let hx = cx + shake.x * 0.4;
+                let hy = sh * 0.72 + shake.y * 0.4;
+
+                // Ground shadow
+                draw_ellipse(hx, hy + h_sz * 0.38, h_sz * 0.36, 12.0, 0.0, Color::from_rgba(0, 0, 0, 150));
+
+                // HUGE GOLDEN LIGHTNING PILLAR FROM THE SKY (exact 00:33-00:35 Mustache Protocol moment!)
+                if transforming {
+                    if self.intro_stage_sfx < 7 {
+                        self.intro_stage_sfx = 7;
+                        play_sfx(4);
+                        play_sfx(5);
+                        play_sfx(3);
+                    }
+                    let beam_t = ((lt - 2.3) / 1.4).clamp(0.0, 1.0);
+                    let beam_w = if lt < 3.6 {
+                        (h_sz * 1.05) * (1.0 - (beam_t * 0.25))
+                    } else {
+                        (h_sz * 0.8) * (1.0 - ((lt - 3.6) / 0.8).clamp(0.0, 1.0))
+                    };
+                    if beam_w > 2.0 {
+                        draw_rectangle(
+                            hx - beam_w * 0.65,
+                            0.0,
+                            beam_w * 1.3,
+                            hy + h_sz * 0.4,
+                            Color::from_rgba(251, 146, 60, 165),
+                        );
+                        draw_rectangle(
+                            hx - beam_w * 0.44,
+                            0.0,
+                            beam_w * 0.88,
+                            hy + h_sz * 0.4,
+                            Color::from_rgba(253, 224, 71, 220),
+                        );
+                        draw_rectangle(
+                            hx - beam_w * 0.22,
+                            0.0,
+                            beam_w * 0.44,
+                            hy + h_sz * 0.4,
+                            Color::from_rgba(255, 255, 240, 245),
+                        );
+                        // Jagged ground shockwave lightning spikes!
+                        for side in [-1.0f32, 1.0f32] {
+                            let sx = hx + side * beam_w * 0.55;
+                            let sy = hy + h_sz * 0.34;
+                            draw_triangle(
+                                vec2(sx, sy),
+                                vec2(sx + side * 56.0, sy - 42.0 + (lt * 40.0).sin() * 12.0),
+                                vec2(sx + side * 26.0, sy + 6.0),
+                                Color::from_rgba(253, 224, 71, 240),
+                            );
+                        }
+                    }
+                    if lt < 2.55 {
+                        let fa = (1.0 - (lt - 2.3) / 0.25).clamp(0.0, 1.0) * 0.72;
+                        draw_rectangle(0.0, 0.0, sw, sh, Color::new(1.0, 0.96, 0.75, fa));
+                    }
+                }
+
+                // Empowered Hero + Glowing Golden Aura + Companion!
+                let aura_sz = h_sz * if transforming { 1.65 } else { 1.05 };
+                draw_texture_ex(
+                    &assets.vfx_light,
+                    hx - aura_sz * 0.5,
+                    hy - aura_sz * 0.5,
+                    Color::from_rgba(253, 224, 71, if transforming { 200 } else { 70 }),
+                    DrawTextureParams {
+                        dest_size: Some(vec2(aura_sz, aura_sz)),
+                        ..Default::default()
+                    },
+                );
+                let pop_s = if transforming && lt < 2.9 { 1.12 } else { 1.0 };
+                let d_sz = h_sz * pop_s;
+                draw_texture_ex(
+                    hero_tex,
+                    hx - d_sz * 0.5,
+                    hy - d_sz * 0.5,
+                    WHITE,
+                    DrawTextureParams {
+                        dest_size: Some(vec2(d_sz, d_sz)),
+                        ..Default::default()
+                    },
+                );
+                let p_sz = h_sz * 0.45;
+                draw_texture_ex(
+                    pet_tex,
+                    hx - h_sz * 0.65,
+                    hy - h_sz * 0.5 + (lt * 7.0).sin() * 6.0,
+                    WHITE,
+                    DrawTextureParams {
+                        dest_size: Some(vec2(p_sz, p_sz)),
+                        ..Default::default()
+                    },
+                );
+
+                // Speech bubble BEFORE transformation slam
+                if !transforming {
+                    let line = format!(
+                        "SOMEONE NEEDS TO STEP UP AND DEFEND THE SUBREDDIT! FOR {}!",
+                        self.hero_class.faction_name()
+                    );
+                    let chars = ((lt - 0.1).max(0.0) * 34.0) as usize;
+                    if chars > self.intro_last_blip_char + 4 && chars <= line.len() {
+                        self.intro_last_blip_char = chars;
+                        play_voice_blip(self.hero_class.to_index() as i32);
+                    }
+                    let bw = (sw - 36.0).min(380.0);
+                    Self::draw_comic_bubble(
+                        font,
+                        cx - bw * 0.5,
+                        sh * 0.14,
+                        bw,
+                        78.0,
+                        &line,
+                        chars,
+                        hx,
+                        true,
+                    );
+                } else {
+                    let bnr = format!("{} POWER AWAKENED!", self.hero_class.title());
+                    let bd = measure_ui_text(font, &bnr, 24);
+                    draw_ui_text(
+                        font,
+                        &bnr,
+                        cx - bd.width * 0.5,
+                        sh * 0.18,
+                        24.0,
+                        Color::from_rgba(253, 224, 71, 255),
+                    );
+                }
+            }
+            // Scene 5 (18.5s .. 22.0s): EPIC SUNSET CLIFF STAGE INTRO CARD (exact 00:39-00:41!)
             else {
-                let lt = t - 3.25;
-                let a = (lt / 0.28).clamp(0.0, 1.0);
-                // Screen flash on logo anvil slam
-                if lt < 0.22 {
-                    let fa = (1.0 - lt / 0.22) * 0.45;
-                    draw_rectangle(0.0, 0.0, sw, sh, Color::new(1.0, 0.90, 0.65, fa));
+                let lt = t - 18.5;
+                if self.intro_stage_sfx < 8 {
+                    self.intro_stage_sfx = 8;
+                    play_sfx(12);
                 }
+                Self::draw_cover_bg(
+                    &assets.scene_cliff,
+                    sw,
+                    sh,
+                    1.02 + lt * 0.012,
+                    Vec2::ZERO,
+                    WHITE,
+                );
+                // Hero & Companion standing heroically on the flat dark cliff peak!
+                let h_sz = (sh * 0.34).clamp(110.0, 175.0);
+                let hx = cx;
+                let hy = sh * 0.45;
+                draw_ellipse(hx, hy + h_sz * 0.42, h_sz * 0.32, 10.0, 0.0, Color::from_rgba(0, 0, 0, 150));
+                draw_texture_ex(
+                    hero_tex,
+                    hx - h_sz * 0.5,
+                    hy - h_sz * 0.5,
+                    WHITE,
+                    DrawTextureParams {
+                        dest_size: Some(vec2(h_sz, h_sz)),
+                        ..Default::default()
+                    },
+                );
+                let p_sz = h_sz * 0.42;
+                draw_texture_ex(
+                    pet_tex,
+                    hx + h_sz * 0.38,
+                    hy - h_sz * 0.42 + (lt * 5.0).sin() * 5.0,
+                    WHITE,
+                    DrawTextureParams {
+                        dest_size: Some(vec2(p_sz, p_sz)),
+                        ..Default::default()
+                    },
+                );
 
-                // 3 Heroes + 3 Faction Companions heroically flanked
-                let spread = (sw * 0.24).min(112.0) * (0.65 + 0.35 * a);
-                let hero_y = cy - 16.0;
-                let trio = [
-                    (-spread, &assets.hero, &assets.pet_solar, true),
-                    (0.0, &assets.hero_mage, &assets.pet_arcane, false),
-                    (spread, &assets.hero_rogue, &assets.pet_shadow, false),
-                ];
-                for (dx, htex, ptex, flip) in trio.iter() {
-                    let hx = cx + *dx;
-                    let hsz = if *dx == 0.0 { 104.0 } else { 90.0 };
-                    draw_texture_ex(
-                        htex,
-                        hx - hsz * 0.5,
-                        hero_y - hsz * 0.5,
-                        Color::new(1.0, 1.0, 1.0, a),
-                        DrawTextureParams {
-                            dest_size: Some(vec2(hsz, hsz)),
-                            flip_x: *flip,
-                            ..Default::default()
-                        },
-                    );
-                    let bob = (t * 6.0 + *dx).sin() * 4.0;
-                    draw_texture_ex(
-                        ptex,
-                        hx + (if *dx < 0.0 { -34.0 } else { 10.0 }),
-                        hero_y - 54.0 + bob,
-                        Color::new(1.0, 1.0, 1.0, a),
-                        DrawTextureParams {
-                            dest_size: Some(vec2(38.0, 38.0)),
-                            ..Default::default()
-                        },
-                    );
-                }
-
-                let logo = "EMBERFALL";
-                let ld = measure_ui_text(font, logo, 48);
+                // Dark vignette strip at bottom for crisp readable lore quote
+                draw_rectangle(0.0, sh * 0.72, sw, sh * 0.28, Color::from_rgba(4, 6, 12, 185));
+                let stage_hdr = format!("DAY #{}  ·  {}", self.day_seed, self.biome.title());
+                let shd = measure_ui_text(font, &stage_hdr, 22);
                 draw_ui_text(
                     font,
-                    logo,
-                    cx - ld.width * 0.5,
-                    cy - 78.0,
-                    48.0,
-                    Color::new(0.99, 0.78, 0.18, a),
+                    &stage_hdr,
+                    cx - shd.width * 0.5,
+                    sh * 0.80,
+                    22.0,
+                    Color::from_rgba(250, 204, 21, 255),
                 );
-                let sub = "DAILY HORDE · CHOOSE YOUR ORDER";
-                let sd = measure_ui_text(font, sub, 15);
+                let quote = "A true champion isn't measured by their gear, but by the horde they survive.";
+                let qd = measure_ui_text(font, quote, 14);
                 draw_ui_text(
                     font,
-                    sub,
-                    cx - sd.width * 0.5,
-                    cy + 68.0,
-                    15.0,
-                    Color::new(0.94, 0.97, 1.0, a),
+                    quote,
+                    cx - qd.width * 0.5,
+                    sh * 0.86,
+                    14.0,
+                    Color::from_rgba(241, 245, 249, 245),
                 );
+
+                // Bottom-right entering progress bar (exact 00:40 LOADING 100% style!)
+                let pct = (lt / 3.3).clamp(0.0, 1.0);
+                let bw = 128.0;
+                let bx = sw - bw - 20.0;
+                let by = sh - 30.0;
+                draw_rectangle(bx, by, bw, 7.0, Color::from_rgba(30, 41, 59, 230));
+                draw_rectangle(bx, by, bw * pct, 7.0, Color::from_rgba(250, 204, 21, 255));
+                let ltxt = format!("ENTERING ARENA {}%", (pct * 100.0) as u32);
+                let ld = measure_ui_text(font, &ltxt, 11);
+                draw_ui_text(font, &ltxt, sw - ld.width - 20.0, by - 6.0, 11.0, Color::from_rgba(253, 224, 71, 245));
             }
 
-            // Cinema Letterbox Bars (top & bottom) + Hairline gold trim + Progress bar + SKIP pill
-            let bar_h = (sh * 0.085).clamp(32.0, 54.0);
-            draw_rectangle(0.0, 0.0, sw, bar_h, Color::from_rgba(2, 4, 10, 255));
-            draw_rectangle(0.0, sh - bar_h, sw, bar_h, Color::from_rgba(2, 4, 10, 255));
-            draw_line(0.0, bar_h, sw, bar_h, 1.2, Color::from_rgba(250, 204, 21, 140));
-            draw_line(0.0, sh - bar_h, sw, sh - bar_h, 1.2, Color::from_rgba(250, 204, 21, 140));
-
-            let prog = (t / 5.2).clamp(0.0, 1.0);
-            draw_rectangle(0.0, sh - 3.0, sw * prog, 3.0, Color::from_rgba(251, 191, 36, 245));
-
-            let skip_lbl = "TAP / SPACE TO SKIP INTRO »";
-            let skd = measure_ui_text(font, skip_lbl, 12);
-            draw_ui_text(
+            // Crisp Top-Right SKIP Button (Always accessible during the 22s cutscene!)
+            let skip_rect = Rect::new(sw - 118.0, 12.0, 104.0, 30.0);
+            let skip_clicked = self.draw_button(
                 font,
-                skip_lbl,
-                sw - skd.width - 16.0,
-                sh - bar_h * 0.5 + 4.0,
-                12.0,
-                Color::from_rgba(203, 213, 225, 220),
+                skip_rect,
+                "SKIP >>",
+                Color::from_rgba(12, 16, 28, 225),
+                Color::from_rgba(250, 204, 21, 220),
             );
+            // Subtle bottom cinema progress bar across full 22s
+            draw_rectangle(0.0, sh - 3.0, sw * (t / 22.0).clamp(0.0, 1.0), 3.0, Color::from_rgba(250, 204, 21, 220));
 
-            let any_touch = touches().iter().any(|tc| tc.phase == TouchPhase::Started);
-            let skip = t >= 5.2
-                || (t > 0.18
-                    && (is_mouse_button_pressed(MouseButton::Left)
-                        || any_touch
-                        || is_key_pressed(KeyCode::Space)
-                        || is_key_pressed(KeyCode::Enter)
-                        || is_key_pressed(KeyCode::Escape)));
-            if skip {
-                self.phase = Phase::Title;
-                play_sfx(0);
+            let key_skip = t > 0.35
+                && (is_key_pressed(KeyCode::Space)
+                    || is_key_pressed(KeyCode::Enter)
+                    || is_key_pressed(KeyCode::Escape));
+            if t >= 22.0 || skip_clicked || key_skip {
+                let endless = self.intro_pending_endless;
+                self.start_run(endless);
             }
             return;
         }
 
         // =========================================================================
-        // 1. REDESIGNED STUDIO TITLE SCREEN (MetalForge + Hairline + Kinetics UI)
+        // 1. ICONIC MUSTACHE-PROTOCOL-STYLE TITLE SCREEN (Clean Full-Bleed Art + 3D Gold Logo!)
         // =========================================================================
         if self.phase == Phase::Title {
             let dt = get_frame_time().min(0.05);
@@ -4522,453 +4957,449 @@ impl Game {
             let cx = sw * 0.5;
             let bcol = biome_boss_color(self.biome);
 
-            // Deep obsidian glass overlay over live arena
-            draw_rectangle(0.0, 0.0, sw, sh, Color::from_rgba(5, 8, 18, 226));
+            // 1. Full-Bleed 16-Bit Pixel-Art Citadel Harbor Background (gentle alive pan!)
+            let pan = vec2((self.title_time * 0.35).sin() * 8.0, (self.title_time * 0.25).cos() * 4.0);
+            Self::draw_cover_bg(&assets.title_bg, sw, sh, 1.05, pan, WHITE);
 
-            // Panoramic Key-Art Hero Backdrop Header with slow breathing pan
-            let pan_w = sw.max(460.0) * 1.04;
-            let pan_h = (sh * 0.24).clamp(118.0, 168.0);
-            let pan_x = (sw - pan_w) * 0.5 + (self.title_time * 0.5).sin() * 8.0;
-            draw_texture_ex(
-                &assets.title_banner,
-                pan_x,
-                0.0,
-                Color::from_rgba(255, 245, 232, 165),
-                DrawTextureParams {
-                    dest_size: Some(vec2(pan_w, pan_h)),
-                    ..Default::default()
-                },
-            );
-            // Smooth bottom fade of key-art header + Hairline biome-tinted rule
-            draw_rectangle(0.0, pan_h - 36.0, sw, 36.0, Color::from_rgba(5, 8, 18, 200));
-            draw_line(0.0, pan_h, sw, pan_h, 1.5, Color::new(bcol.r, bcol.g, bcol.b, 0.65));
-
-            // Subtle floating ember motes on Title Screen
-            for i in 0..14 {
+            // Subtle rising golden harbor embers / twinkling stars
+            for i in 0..16 {
                 let fi = i as f32;
-                let mx = ((fi * 83.0 + self.title_time * 14.0) % sw).abs();
-                let my = ((fi * 53.0 - self.title_time * 24.0).rem_euclid(sh)).abs();
-                draw_circle(mx, my, 1.7, Color::new(bcol.r, bcol.g, bcol.b, 0.35));
+                let mx = ((fi * 91.0 + self.title_time * 12.0) % sw).abs();
+                let my = ((fi * 59.0 - self.title_time * 22.0).rem_euclid(sh)).abs();
+                let a = 0.25 + ((self.title_time * 4.0 + fi).sin().abs() * 0.45);
+                draw_circle(mx, my, 1.8, Color::new(1.0, 0.78, 0.28, a));
             }
+            // Light atmospheric bottom scrim so buttons pop cleanly
+            draw_rectangle(0.0, sh * 0.56, sw, sh * 0.44, Color::from_rgba(6, 9, 18, 130));
 
-            // Top Glass Utility Bar: Player Pill (Left) + Replay Intro / Aura / CRT / Audio (Right)
-            draw_rectangle(0.0, 0.0, sw, 38.0, Color::from_rgba(4, 7, 16, 210));
-            draw_line(0.0, 38.0, sw, 38.0, 1.0, Color::from_rgba(255, 255, 255, 28));
-
-            let user_lbl = if self.social.username.is_empty() {
+            // 2. Clean Top Attribution Subtitle (exact "Googlebook | Henry Cavill" placement!)
+            let user_tag = if self.social.username.is_empty() {
                 "u/Guest".to_string()
             } else {
                 format!("u/{}", self.social.username)
             };
-            let info_lbl = format!(
-                "{} · {}d STREAK · PB {}",
-                user_lbl,
-                self.social.streak,
-                self.social.personal_best.max(0)
-            );
+            let top_sub = format!("Reddit Daily Horde  |  #{}  ·  {}", self.day_seed, user_tag);
+            let tsd = measure_ui_text(font, &top_sub, 15);
             draw_ui_text(
                 font,
-                &info_lbl,
-                12.0,
-                24.0,
-                12.0,
-                Color::from_rgba(226, 232, 240, 245),
+                &top_sub,
+                cx - tsd.width * 0.5,
+                (sh * 0.13).max(34.0),
+                15.0,
+                Color::from_rgba(248, 250, 252, 245),
             );
 
-            let mute_rect = Rect::new(sw - 74.0, 6.0, 64.0, 25.0);
-            if self.draw_button(
-                font,
-                mute_rect,
-                if self.muted { "MUTE" } else { "AUDIO" },
-                Color::from_rgba(15, 23, 42, 230),
-                if self.muted {
-                    Color::from_rgba(244, 63, 94, 200)
-                } else {
-                    Color::from_rgba(74, 222, 128, 210)
-                },
-            ) {
-                self.toggle_mute();
-            }
-
-            let intro_btn = Rect::new(sw - 144.0, 6.0, 64.0, 25.0);
-            if self.draw_button(
-                font,
-                intro_btn,
-                "INTRO",
-                Color::from_rgba(15, 23, 42, 230),
-                Color::from_rgba(250, 204, 21, 195),
-            ) {
-                self.intro_time = 0.0;
-                self.intro_stage_sfx = 0;
-                self.phase = Phase::Intro;
-                return;
-            }
-
-            if sw >= 430.0 {
-                let unlocked_auras = (0..4)
-                    .filter(|&a| is_aura_unlocked(a, self.social.medals_mask))
-                    .count();
-                let aura_lbl = format!(
-                    "AURA {} ({}/4)",
-                    AURA_NAMES[self.social.selected_aura.min(3)],
-                    unlocked_auras
-                );
-                let aura_rect = Rect::new(sw - 292.0, 6.0, 142.0, 25.0);
-                if self.draw_button(
-                    font,
-                    aura_rect,
-                    &aura_lbl,
-                    Color::from_rgba(15, 23, 42, 230),
-                    aura_color(self.social.selected_aura),
-                ) {
-                    for step in 1..=4 {
-                        let cand = (self.social.selected_aura + step) % 4;
-                        if is_aura_unlocked(cand, self.social.medals_mask) {
-                            self.social.selected_aura = cand;
-                            unsafe {
-                                emberfall_set_selected_aura(cand as i32);
-                            }
-                            play_sfx(0);
-                            break;
-                        }
-                    }
-                }
-            }
-
-            // Sculpted Metallic Title Crest over Key-Art Header
-            let crest_y = 46.0;
-            let title = "EMBERFALL";
-            let td = measure_ui_text(font, title, 40);
-            draw_ui_text(
-                font,
-                title,
-                cx - td.width * 0.5,
-                crest_y + 30.0,
-                40.0,
-                Color::from_rgba(253, 224, 71, 255),
-            );
-            let sub_tag = "DAILY HORDE · 90S REDDIT ACTION ROGUELITE";
-            let stdim = measure_ui_text(font, sub_tag, 11);
-            draw_ui_text(
-                font,
-                sub_tag,
-                cx - stdim.width * 0.5,
-                crest_y + 46.0,
-                11.0,
-                Color::from_rgba(226, 232, 240, 235),
-            );
-
-            let panel_w = (sw - 24.0).min(436.0);
-            let px0 = cx - panel_w * 0.5;
-
-            // TODAY'S DUNGEON & BOSS DOSSIER CARD (Glassmorphism + Hairline Isometric Corner Ticks)
-            let dos_y = crest_y + 56.0;
-            let dos_h = 58.0;
-            draw_rectangle(px0, dos_y, panel_w, dos_h, Color::from_rgba(10, 16, 32, 238));
-            draw_rectangle_lines(px0, dos_y, panel_w, dos_h, 1.6, bcol);
-            draw_line(px0 + 4.0, dos_y + 4.0, px0 + 16.0, dos_y + 4.0, 1.5, GOLD);
-            draw_line(px0 + 4.0, dos_y + 4.0, px0 + 4.0, dos_y + 16.0, 1.5, GOLD);
-
-            // Live Today's Boss Portrait inside Dossier
-            draw_rectangle(px0 + 7.0, dos_y + 6.0, 46.0, 46.0, Color::from_rgba(17, 24, 45, 245));
-            draw_rectangle_lines(px0 + 7.0, dos_y + 6.0, 46.0, 46.0, 1.2, bcol);
+            // 3. MASSIVE 3D BEVELED GOLD EMBERFALL LOGO (centered, gently breathing!)
+            let logo_w = (sw * 0.72).clamp(270.0, 490.0);
+            let logo_h = logo_w * (assets.logo_emberfall.height() / assets.logo_emberfall.width().max(1.0));
+            let logo_y = (sh * 0.16).max(46.0) + (self.title_time * 2.2).sin() * 3.5;
             draw_texture_ex(
-                assets.boss_for_biome(self.biome),
-                px0 + 8.0,
-                dos_y + 7.0,
+                &assets.logo_emberfall,
+                cx - logo_w * 0.5,
+                logo_y,
                 WHITE,
                 DrawTextureParams {
-                    dest_size: Some(vec2(44.0, 44.0)),
+                    dest_size: Some(vec2(logo_w, logo_h)),
                     ..Default::default()
                 },
             );
 
-            let d_l1 = format!(
-                "#{} · {} · {}",
-                self.day_seed,
-                self.biome.title(),
-                self.modifier.title()
-            );
-            draw_ui_text(font, &d_l1, px0 + 61.0, dos_y + 20.0, 12.5, Color::from_rgba(125, 211, 252, 255));
-            let d_l2 = format!("OVERLORD: {}", biome_boss_name(self.biome));
-            draw_ui_text(font, &d_l2, px0 + 61.0, dos_y + 36.0, 12.0, bcol);
-            let bless_idx = self.active_blessing();
-            let d_l3 = format!(
-                "BLESSING: {} ({})",
-                blessing_name(bless_idx),
-                blessing_effect(bless_idx)
-            );
-            draw_ui_text(font, &d_l3, px0 + 61.0, dos_y + 50.0, 10.5, Color::from_rgba(250, 204, 21, 245));
+            // 4. ULTRA-CLEAN CENTERED ACTION STACK (Zero Clutter — Exact Mustache Protocol Layout!)
+            let btn_stack_w = (sw - 40.0).min(316.0);
+            let bx0 = cx - btn_stack_w * 0.5;
+            let primary_y = (logo_y + logo_h + 26.0).min(sh - 148.0);
 
-            // 3 INTERACTIVE HERO + COMPANION SHOWCASE CARDS (Spring-Physics Lift + Glare)
-            let cards_y = dos_y + dos_h + 10.0;
+            // Main Glowing Sky-Blue CTA Button ("START DAILY RUN" — with Hero Emblem perched on left!)
+            let primary_rect = Rect::new(bx0, primary_y, btn_stack_w, 48.0);
+            let start_daily = self.title_modal == 0
+                && (self.draw_button(
+                    font,
+                    primary_rect,
+                    "START DAILY RUN",
+                    Color::from_rgba(37, 132, 224, 248),
+                    Color::from_rgba(147, 219, 255, 255),
+                ) || is_key_pressed(KeyCode::Space)
+                    || is_key_pressed(KeyCode::Enter));
+            // Perched Hero Icon on left edge of primary button (tribute to Mustache badge at 00:03!)
+            draw_texture_ex(
+                self.hero_texture(assets),
+                primary_rect.x - 10.0,
+                primary_rect.y - 6.0 + (self.title_time * 4.0).sin() * 2.0,
+                WHITE,
+                DrawTextureParams {
+                    dest_size: Some(vec2(52.0, 52.0)),
+                    ..Default::default()
+                },
+            );
+            if start_daily {
+                self.launch_cutscene(false, false);
+                return;
+            }
+
+            // Clean Secondary Row right below: [ HERO: SUN KNIGHT ] [ 🏆 ] [ ⚙ ]
+            let sec_y = primary_y + 58.0;
+            let icon_w = 42.0;
             let gap = 8.0;
-            let card_w = (panel_w - gap * 2.0) / 3.0;
-            let card_h = 136.0;
-            let bob = (self.title_time * 3.4).sin() * 3.5;
+            let hero_btn_w = btn_stack_w - icon_w * 2.0 - gap * 2.0;
 
-            let classes = [
-                (HeroClass::SunKnight, &assets.hero, &assets.pet_solar),
-                (HeroClass::ArcanePyromancer, &assets.hero_mage, &assets.pet_arcane),
-                (HeroClass::ShadowAssassin, &assets.hero_rogue, &assets.pet_shadow),
-            ];
-
-            if is_key_pressed(KeyCode::Key1) {
-                self.hero_class = HeroClass::SunKnight;
-                play_sfx(0);
-            } else if is_key_pressed(KeyCode::Key2) {
-                self.hero_class = HeroClass::ArcanePyromancer;
-                play_sfx(0);
-            } else if is_key_pressed(KeyCode::Key3) {
-                self.hero_class = HeroClass::ShadowAssassin;
+            let hero_lbl = format!("HERO: {}", self.hero_class.title());
+            let hero_btn = Rect::new(bx0, sec_y, hero_btn_w, 38.0);
+            if self.title_modal == 0
+                && self.draw_button(
+                    font,
+                    hero_btn,
+                    &hero_lbl,
+                    Color::from_rgba(16, 22, 38, 232),
+                    self.hero_class.accent(),
+                )
+            {
+                self.title_modal = 1;
                 play_sfx(0);
             }
 
-            for (ci, (hclass, htex, ptex)) in classes.iter().enumerate() {
-                let selected = self.hero_class == *hclass;
-                let base_rect = Rect::new(px0 + (ci as f32) * (card_w + gap), cards_y, card_w, card_h);
-                let mp = vec2(mouse_position().0, mouse_position().1);
-                let hovered = base_rect.contains(mp);
+            let rank_btn = Rect::new(bx0 + hero_btn_w + gap, sec_y, icon_w, 38.0);
+            if self.title_modal == 0
+                && self.draw_button(
+                    font,
+                    rank_btn,
+                    "#1",
+                    Color::from_rgba(16, 22, 38, 232),
+                    Color::from_rgba(250, 204, 21, 220),
+                )
+            {
+                self.title_modal = 2;
+                play_sfx(0);
+            }
 
-                // Smooth spring interpolation toward target state
-                let target_s = if selected {
-                    1.0
-                } else if hovered {
-                    0.55
+            let cfg_btn = Rect::new(bx0 + hero_btn_w + gap * 2.0 + icon_w, sec_y, icon_w, 38.0);
+            if self.title_modal == 0
+                && self.draw_button(
+                    font,
+                    cfg_btn,
+                    "...",
+                    Color::from_rgba(16, 22, 38, 232),
+                    Color::from_rgba(148, 163, 184, 210),
+                )
+            {
+                self.title_modal = 3;
+                play_sfx(0);
+            }
+
+            // Keyboard 1/2/3 quick-switch Hero Class even on clean Title Screen
+            if self.title_modal == 0 {
+                if is_key_pressed(KeyCode::Key1) {
+                    self.hero_class = HeroClass::SunKnight;
+                    play_sfx(0);
+                    play_voice_blip(0);
+                } else if is_key_pressed(KeyCode::Key2) {
+                    self.hero_class = HeroClass::ArcanePyromancer;
+                    play_sfx(0);
+                    play_voice_blip(1);
+                } else if is_key_pressed(KeyCode::Key3) {
+                    self.hero_class = HeroClass::ShadowAssassin;
+                    play_sfx(0);
+                    play_voice_blip(2);
+                }
+            }
+
+            // Ultra-slim non-intrusive bottom live Daily Banner (Biome · Boss · Streak)
+            draw_rectangle(0.0, sh - 28.0, sw, 28.0, Color::from_rgba(5, 8, 18, 200));
+            draw_line(0.0, sh - 28.0, sw, sh - 28.0, 1.0, Color::new(bcol.r, bcol.g, bcol.b, 0.55));
+            let bstrip = format!(
+                "{}  ·  BOSS: {}  ·  {}  ·  STREAK {}d",
+                self.biome.title(),
+                biome_boss_name(self.biome),
+                self.modifier.title(),
+                self.social.streak
+            );
+            let bsd = measure_ui_text(font, &bstrip, 11);
+            draw_ui_text(
+                font,
+                &bstrip,
+                cx - bsd.width * 0.5,
+                sh - 10.0,
+                11.0,
+                Color::from_rgba(226, 232, 240, 240),
+            );
+
+            // =================================================================
+            // CLEAN MODAL OVERLAYS (Opened on demand from HERO / #1 / ... buttons)
+            // =================================================================
+            if self.title_modal != 0 {
+                draw_rectangle(0.0, 0.0, sw, sh, Color::from_rgba(4, 7, 16, 224));
+                let mw = (sw - 28.0).min(440.0);
+                let mx = cx - mw * 0.5;
+                let my = (sh * 0.08).max(24.0);
+
+                if self.title_modal == 1 {
+                    // MODAL 1: HERO, COMPANION & FACTION ORDER PICKER
+                    let mh = 340.0;
+                    draw_rectangle(mx, my, mw, mh, Color::from_rgba(10, 16, 32, 248));
+                    draw_rectangle_lines(mx, my, mw, mh, 2.2, self.hero_class.accent());
+                    let h = "CHOOSE HERO & FACTION ORDER";
+                    let hd = measure_ui_text(font, h, 18);
+                    draw_ui_text(font, h, cx - hd.width * 0.5, my + 28.0, 18.0, GOLD);
+
+                    let cgap = 8.0;
+                    let cw = (mw - 24.0 - cgap * 2.0) / 3.0;
+                    let ch = 148.0;
+                    let cy0 = my + 44.0;
+                    let classes = [
+                        (HeroClass::SunKnight, &assets.hero, &assets.pet_solar),
+                        (HeroClass::ArcanePyromancer, &assets.hero_mage, &assets.pet_arcane),
+                        (HeroClass::ShadowAssassin, &assets.hero_rogue, &assets.pet_shadow),
+                    ];
+                    let bob = (self.title_time * 3.4).sin() * 3.0;
+                    for (ci, (hclass, htex, ptex)) in classes.iter().enumerate() {
+                        let selected = self.hero_class == *hclass;
+                        let r = Rect::new(mx + 12.0 + (ci as f32) * (cw + cgap), cy0, cw, ch);
+                        let mp = vec2(mouse_position().0, mouse_position().1);
+                        let hov = r.contains(mp);
+                        let acc = hclass.accent();
+                        draw_rectangle(
+                            r.x,
+                            r.y,
+                            r.w,
+                            r.h,
+                            if selected {
+                                Color::from_rgba(24, 36, 66, 248)
+                            } else {
+                                Color::from_rgba(14, 20, 38, 235)
+                            },
+                        );
+                        draw_rectangle_lines(
+                            r.x,
+                            r.y,
+                            r.w,
+                            r.h,
+                            if selected { 2.6 } else { 1.3 },
+                            if selected { acc } else { Color::from_rgba(100, 116, 139, 150) },
+                        );
+                        draw_texture_ex(
+                            htex,
+                            r.x + (r.w - 72.0) * 0.5 - 4.0,
+                            r.y + 8.0 + if selected { bob } else { 0.0 },
+                            WHITE,
+                            DrawTextureParams {
+                                dest_size: Some(vec2(72.0, 72.0)),
+                                ..Default::default()
+                            },
+                        );
+                        draw_texture_ex(
+                            ptex,
+                            r.x + r.w - 34.0,
+                            r.y + 8.0 + (self.title_time * 5.0 + ci as f32).sin() * 2.5,
+                            WHITE,
+                            DrawTextureParams {
+                                dest_size: Some(vec2(28.0, 28.0)),
+                                ..Default::default()
+                            },
+                        );
+                        let cn = hclass.title();
+                        let cnd = measure_ui_text(font, cn, 12);
+                        draw_ui_text(font, cn, r.x + (r.w - cnd.width) * 0.5, r.y + 98.0, 12.0, acc);
+                        let fnm = hclass.faction_name();
+                        let fnd = measure_ui_text(font, fnm, 10);
+                        draw_ui_text(font, fnm, r.x + (r.w - fnd.width) * 0.5, r.y + 114.0, 10.0, Color::from_rgba(203, 213, 225, 240));
+                        let fp = format!("{} PTS", self.social.faction_scores[ci]);
+                        let fpd = measure_ui_text(font, &fp, 11);
+                        draw_ui_text(font, &fp, r.x + (r.w - fpd.width) * 0.5, r.y + 132.0, 11.0, GOLD);
+
+                        let mut clicked = is_mouse_button_pressed(MouseButton::Left) && hov;
+                        for tc in touches() {
+                            if tc.phase == TouchPhase::Started && r.contains(tc.position) {
+                                clicked = true;
+                            }
+                        }
+                        if clicked {
+                            self.hero_class = *hclass;
+                            play_sfx(0);
+                            play_voice_blip(ci as i32);
+                        }
+                    }
+
+                    let ld = self.hero_class.loadout_desc();
+                    let ldd = measure_ui_text(font, ld, 12);
+                    draw_ui_text(font, ld, cx - ldd.width * 0.5, cy0 + ch + 22.0, 12.0, self.hero_class.accent());
+
+                    // Aura Selector button inside Hero modal
+                    let unlocked_auras = (0..4)
+                        .filter(|&a| is_aura_unlocked(a, self.social.medals_mask))
+                        .count();
+                    let aura_lbl = format!(
+                        "AURA: {} ({}/4)",
+                        AURA_NAMES[self.social.selected_aura.min(3)],
+                        unlocked_auras
+                    );
+                    if self.draw_button(
+                        font,
+                        Rect::new(mx + 16.0, cy0 + ch + 34.0, mw - 32.0, 34.0),
+                        &aura_lbl,
+                        Color::from_rgba(18, 26, 48, 235),
+                        aura_color(self.social.selected_aura),
+                    ) {
+                        for step in 1..=4 {
+                            let cand = (self.social.selected_aura + step) % 4;
+                            if is_aura_unlocked(cand, self.social.medals_mask) {
+                                self.social.selected_aura = cand;
+                                unsafe {
+                                    emberfall_set_selected_aura(cand as i32);
+                                }
+                                play_sfx(0);
+                                break;
+                            }
+                        }
+                    }
+
+                    // Bottom Action Buttons: CONFIRM & PLAY / CLOSE
+                    let bw = (mw - 40.0) * 0.5;
+                    if self.draw_button(
+                        font,
+                        Rect::new(mx + 16.0, my + mh - 50.0, bw, 38.0),
+                        "START DAILY RUN",
+                        Color::from_rgba(37, 132, 224, 245),
+                        Color::from_rgba(147, 219, 255, 255),
+                    ) {
+                        self.launch_cutscene(false, false);
+                        return;
+                    }
+                    if self.draw_button(
+                        font,
+                        Rect::new(mx + 24.0 + bw, my + mh - 50.0, bw, 38.0),
+                        "BACK",
+                        Color::from_rgba(30, 41, 59, 235),
+                        Color::from_rgba(148, 163, 184, 220),
+                    ) || is_key_pressed(KeyCode::Escape)
+                    {
+                        self.title_modal = 0;
+                        play_sfx(0);
+                    }
+                } else if self.title_modal == 2 {
+                    // MODAL 2: SUBREDDIT FACTION WAR, BOSS SIEGE, MEDALS & LEADERBOARD
+                    let mh = 360.0;
+                    draw_rectangle(mx, my, mw, mh, Color::from_rgba(10, 16, 32, 248));
+                    draw_rectangle_lines(mx, my, mw, mh, 2.2, GOLD);
+                    let h = "SUBREDDIT WAR & DAILY RANKS";
+                    let hd = measure_ui_text(font, h, 18);
+                    draw_ui_text(font, h, cx - hd.width * 0.5, my + 28.0, 18.0, GOLD);
+
+                    let bless_idx = self.active_blessing();
+                    let bl = format!(
+                        "TODAY'S BLESSING: {} ({})",
+                        blessing_name(bless_idx),
+                        blessing_effect(bless_idx)
+                    );
+                    let bld = measure_ui_text(font, &bl, 11);
+                    draw_ui_text(font, &bl, cx - bld.width * 0.5, my + 48.0, 11.0, Color::from_rgba(253, 224, 71, 245));
+
+                    self.draw_social_panel(font, mx + 14.0, my + 60.0, mw - 28.0, 5);
+
+                    // 6-Medal Achievement Strip
+                    let medal_w = (mw - 28.0 - 25.0) / 6.0;
+                    let m_y = my + mh - 76.0;
+                    for (mi, mlbl) in MEDAL_SHORT.iter().enumerate() {
+                        let unlocked = (self.social.medals_mask & (1 << mi)) != 0;
+                        let rx = mx + 14.0 + (mi as f32) * (medal_w + 5.0);
+                        draw_rectangle(
+                            rx,
+                            m_y,
+                            medal_w,
+                            18.0,
+                            if unlocked { Color::from_rgba(120, 53, 15, 235) } else { Color::from_rgba(15, 23, 42, 210) },
+                        );
+                        draw_rectangle_lines(
+                            rx,
+                            m_y,
+                            medal_w,
+                            18.0,
+                            1.0,
+                            if unlocked { GOLD } else { Color::from_rgba(71, 85, 105, 140) },
+                        );
+                        let mdim = measure_ui_text(font, mlbl, 10);
+                        draw_ui_text(
+                            font,
+                            mlbl,
+                            rx + (medal_w - mdim.width) * 0.5,
+                            m_y + 13.0,
+                            10.0,
+                            if unlocked { Color::from_rgba(253, 224, 71, 255) } else { Color::from_rgba(100, 116, 139, 190) },
+                        );
+                    }
+
+                    if self.draw_button(
+                        font,
+                        Rect::new(cx - 100.0, my + mh - 48.0, 200.0, 36.0),
+                        "CLOSE",
+                        Color::from_rgba(30, 41, 59, 240),
+                        Color::from_rgba(250, 204, 21, 230),
+                    ) || is_key_pressed(KeyCode::Escape)
+                    {
+                        self.title_modal = 0;
+                        play_sfx(0);
+                    }
                 } else {
-                    0.0
-                };
-                self.card_springs[ci] += (target_s - self.card_springs[ci]) * (dt * 12.0).min(1.0);
-                let sp = self.card_springs[ci];
-                let lift_y = -sp * 5.0;
-                let rect = Rect::new(base_rect.x, base_rect.y + lift_y, base_rect.w, base_rect.h);
-                let h_acc = hclass.accent();
+                    // MODAL 3: OPTIONS, ENDLESS MODE, CRT & REPLAY STORY INTRO
+                    let mh = 290.0;
+                    draw_rectangle(mx, my, mw, mh, Color::from_rgba(10, 16, 32, 248));
+                    draw_rectangle_lines(mx, my, mw, mh, 2.2, Color::from_rgba(125, 211, 252, 240));
+                    let h = "GAME OPTIONS & MODES";
+                    let hd = measure_ui_text(font, h, 18);
+                    draw_ui_text(font, h, cx - hd.width * 0.5, my + 28.0, 18.0, Color::from_rgba(125, 211, 252, 255));
 
-                // Soft glowing shadow beneath active card
-                if sp > 0.1 {
-                    draw_rectangle(
-                        rect.x - 2.0,
-                        rect.y + 4.0,
-                        rect.w + 4.0,
-                        rect.h,
-                        Color::new(h_acc.r, h_acc.g, h_acc.b, 0.16 * sp),
-                    );
-                }
-
-                draw_rectangle(
-                    rect.x,
-                    rect.y,
-                    rect.w,
-                    rect.h,
-                    if selected {
-                        Color::from_rgba(22, 32, 60, 248)
-                    } else if hovered {
-                        Color::from_rgba(16, 24, 46, 238)
-                    } else {
-                        Color::from_rgba(10, 15, 30, 225)
-                    },
-                );
-                // Top glowing accent bar inside selected card
-                draw_rectangle(
-                    rect.x + 2.0,
-                    rect.y + 2.0,
-                    rect.w - 4.0,
-                    3.0,
-                    Color::new(h_acc.r, h_acc.g, h_acc.b, 0.35 + 0.65 * sp),
-                );
-                draw_rectangle_lines(
-                    rect.x,
-                    rect.y,
-                    rect.w,
-                    rect.h,
-                    if selected { 2.6 } else { 1.3 },
-                    if selected {
-                        h_acc
-                    } else {
-                        Color::from_rgba(100, 116, 139, 135)
-                    },
-                );
-
-                // Subtle radial aura behind hero sprite
-                if selected {
-                    draw_texture_ex(
-                        &assets.vfx_light,
-                        rect.x + (rect.w - 78.0) * 0.5,
-                        rect.y + 6.0,
-                        Color::new(h_acc.r, h_acc.g, h_acc.b, 0.32),
-                        DrawTextureParams {
-                            dest_size: Some(vec2(78.0, 78.0)),
-                            ..Default::default()
-                        },
-                    );
-                }
-
-                let spr_sz = 68.0 + sp * 4.0;
-                draw_texture_ex(
-                    htex,
-                    rect.x + (rect.w - spr_sz) * 0.5 - 4.0,
-                    rect.y + 8.0 + if selected { bob } else { 0.0 },
-                    WHITE,
-                    DrawTextureParams {
-                        dest_size: Some(vec2(spr_sz, spr_sz)),
-                        ..Default::default()
-                    },
-                );
-                // Animated Faction Companion perched in top-right of card!
-                let pet_bob = (self.title_time * 5.2 + ci as f32 * 1.7).sin() * 2.8;
-                draw_texture_ex(
-                    ptex,
-                    rect.x + rect.w - 34.0,
-                    rect.y + 8.0 + pet_bob,
-                    WHITE,
-                    DrawTextureParams {
-                        dest_size: Some(vec2(28.0, 28.0)),
-                        ..Default::default()
-                    },
-                );
-
-                let cname = hclass.title();
-                let cnd = measure_ui_text(font, cname, 13);
-                draw_ui_text(
-                    font,
-                    cname,
-                    rect.x + (rect.w - cnd.width) * 0.5,
-                    rect.y + 94.0,
-                    13.0,
-                    h_acc,
-                );
-
-                let fname = hclass.faction_name();
-                let fnd = measure_ui_text(font, fname, 10);
-                draw_ui_text(
-                    font,
-                    fname,
-                    rect.x + (rect.w - fnd.width) * 0.5,
-                    rect.y + 109.0,
-                    10.5,
-                    Color::from_rgba(203, 213, 225, 240),
-                );
-
-                let fpts = format!("{} PTS", self.social.faction_scores[ci]);
-                let fpd = measure_ui_text(font, &fpts, 11);
-                draw_ui_text(
-                    font,
-                    &fpts,
-                    rect.x + (rect.w - fpd.width) * 0.5,
-                    rect.y + 125.0,
-                    11.0,
-                    Color::from_rgba(250, 204, 21, 240),
-                );
-
-                let mut clicked = is_mouse_button_pressed(MouseButton::Left) && hovered;
-                for t in touches() {
-                    if t.phase == TouchPhase::Started && base_rect.contains(t.position) {
-                        clicked = true;
+                    let bw = mw - 44.0;
+                    let bx = mx + 22.0;
+                    if self.draw_button(
+                        font,
+                        Rect::new(bx, my + 46.0, bw, 38.0),
+                        "PLAY ENDLESS ABYSS",
+                        Color::from_rgba(109, 40, 217, 235),
+                        Color::from_rgba(192, 132, 252, 255),
+                    ) {
+                        self.launch_cutscene(true, false);
+                        return;
+                    }
+                    if self.draw_button(
+                        font,
+                        Rect::new(bx, my + 92.0, bw, 38.0),
+                        "WATCH FULL STORY INTRO (22s)",
+                        Color::from_rgba(217, 119, 6, 235),
+                        Color::from_rgba(253, 224, 71, 255),
+                    ) {
+                        self.launch_cutscene(false, true);
+                        return;
+                    }
+                    let hw = (bw - 10.0) * 0.5;
+                    if self.draw_button(
+                        font,
+                        Rect::new(bx, my + 140.0, hw, 36.0),
+                        if self.muted { "AUDIO: OFF" } else { "AUDIO: ON" },
+                        Color::from_rgba(18, 26, 48, 235),
+                        if self.muted { Color::from_rgba(244, 63, 94, 220) } else { Color::from_rgba(74, 222, 128, 220) },
+                    ) {
+                        self.toggle_mute();
+                    }
+                    if self.draw_button(
+                        font,
+                        Rect::new(bx + hw + 10.0, my + 140.0, hw, 36.0),
+                        if self.crt_enabled { "CRT: ON" } else { "CRT: OFF" },
+                        Color::from_rgba(18, 26, 48, 235),
+                        if self.crt_enabled { Color::from_rgba(103, 232, 249, 240) } else { Color::from_rgba(148, 163, 184, 200) },
+                    ) {
+                        self.toggle_crt();
+                    }
+                    if self.draw_button(
+                        font,
+                        Rect::new(cx - 100.0, my + mh - 50.0, 200.0, 36.0),
+                        "BACK",
+                        Color::from_rgba(30, 41, 59, 240),
+                        Color::from_rgba(148, 163, 184, 220),
+                    ) || is_key_pressed(KeyCode::Escape)
+                    {
+                        self.title_modal = 0;
+                        play_sfx(0);
                     }
                 }
-                if clicked && self.hero_class != *hclass {
-                    self.hero_class = *hclass;
-                    play_sfx(0);
-                    play_voice_blip(ci as i32);
-                }
             }
-
-            // Selected Class Loadout Pill + 6-Medal Strip
-            let ldesc = self.hero_class.loadout_desc();
-            let ldd = measure_ui_text(font, ldesc, 12);
-            draw_ui_text(
-                font,
-                ldesc,
-                cx - ldd.width * 0.5,
-                cards_y + card_h + 15.0,
-                12.0,
-                self.hero_class.accent(),
-            );
-
-            let medal_w = (panel_w - 25.0) / 6.0;
-            let medal_gap = 5.0;
-            let my0 = cards_y + card_h + 21.0;
-            for mi in 0..6 {
-                let unlocked = (self.social.medals_mask & (1 << mi)) != 0;
-                let rx = px0 + (mi as f32) * (medal_w + medal_gap);
-                draw_rectangle(
-                    rx,
-                    my0,
-                    medal_w,
-                    17.0,
-                    if unlocked {
-                        Color::from_rgba(120, 53, 15, 230)
-                    } else {
-                        Color::from_rgba(12, 19, 36, 195)
-                    },
-                );
-                draw_rectangle_lines(
-                    rx,
-                    my0,
-                    medal_w,
-                    17.0,
-                    1.0,
-                    if unlocked {
-                        Color::from_rgba(250, 204, 21, 245)
-                    } else {
-                        Color::from_rgba(71, 85, 105, 130)
-                    },
-                );
-                let mlbl = MEDAL_SHORT[mi];
-                let mdim = measure_ui_text(font, mlbl, 10);
-                draw_ui_text(
-                    font,
-                    mlbl,
-                    rx + (medal_w - mdim.width) * 0.5,
-                    my0 + 12.5,
-                    10.0,
-                    if unlocked {
-                        Color::from_rgba(253, 224, 71, 255)
-                    } else {
-                        Color::from_rgba(100, 116, 139, 190)
-                    },
-                );
-            }
-
-            // Sculpted Metallic Tactile Launch Buttons
-            let btn_y = my0 + 23.0;
-            let btn_w = (panel_w - 10.0) * 0.5;
-            let daily_btn = Rect::new(px0, btn_y, btn_w, 42.0);
-            if self.draw_button(
-                font,
-                daily_btn,
-                "ENTER DAILY (90s)",
-                Color::from_rgba(217, 70, 15, 245),
-                Color::from_rgba(253, 224, 71, 255),
-            ) || is_key_pressed(KeyCode::Space)
-                || is_key_pressed(KeyCode::Enter)
-            {
-                self.start_run(false);
-            }
-
-            let endless_btn = Rect::new(px0 + btn_w + 10.0, btn_y, btn_w, 42.0);
-            if self.draw_button(
-                font,
-                endless_btn,
-                "ENDLESS ABYSS",
-                Color::from_rgba(18, 94, 138, 240),
-                Color::from_rgba(103, 232, 249, 255),
-            ) {
-                self.start_run(true);
-            }
-
-            self.draw_social_panel(font, px0, btn_y + 52.0, panel_w, 3);
-
-            let tip = "Drag / WASD Move · SPACE Dash · Q/E Supernova · C CRT · 1/2/3 Class";
-            let tip_d = measure_ui_text(font, tip, 11);
-            draw_ui_text(
-                font,
-                tip,
-                cx - tip_d.width * 0.5,
-                sh - 9.0,
-                11.0,
-                Color::from_rgba(148, 163, 184, 240),
-            );
             return;
         }
 
