@@ -1050,12 +1050,16 @@
         bossHp, bossMaxHp, bossTrail, ghostDelta, muted, crt,
         rankPtr, rankLen, chronPtr, chronLen
       ) {
-        updateHudDom(
-          phase, biome, heroClass, hp, maxHp, ember, overdriveSec,
-          xp, xpNext, lv, score, kills, combo, timeRem,
-          bossHp, bossMaxHp, bossTrail, ghostDelta, muted, crt,
-          readUtf8(rankPtr, rankLen), readUtf8(chronPtr, chronLen)
-        );
+        try {
+          updateHudDom(
+            phase, biome, heroClass, hp, maxHp, ember, overdriveSec,
+            xp, xpNext, lv, score, kills, combo, timeRem,
+            bossHp, bossMaxHp, bossTrail, ghostDelta, muted, crt,
+            readUtf8(rankPtr, rankLen), readUtf8(chronPtr, chronLen)
+          );
+        } catch (e) {
+          if (typeof console !== 'undefined' && console.error) console.error(e);
+        }
       };
 
       env.emberfall_sync_choices = function (c0, c1, c2, r0, r1, r2, b0, b1, b2) {
@@ -1073,16 +1077,20 @@
   // =========================================================================
   var BIOME_CLASSES = ['biome-obsidian', 'biome-volcanic', 'biome-frost'];
   var BIOME_BOSSES = ['MALAKOR, VOID LICH', 'IGNIS REX, MAGMA TITAN', 'SKADI, GLACIAL EMPRESS'];
-  var HERO_EMOJIS = ['☀️', '🔮', '🗡️'];
+  var HERO_SVGS = [
+    '<svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M12 2L14.8 8.5L22 9.3L16.5 14L18.2 21L12 17.3L5.8 21L7.5 14L2 9.3L9.2 8.5L12 2Z" fill="currentColor"/></svg>',
+    '<svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M12 2C15.5 6.5 19 9.5 19 14A7 7 0 1 1 5 14C5 9.5 8.5 6.5 12 2Z" fill="currentColor"/></svg>',
+    '<svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M19 3L21 5L9 17L6 18L7 15L19 3Z" fill="currentColor"/></svg>'
+  ];
   var UPGRADE_META = [
-    { name: 'Arcane Slash', desc: 'Sweeping spectral blade arc (+Damage & Area)' },
-    { name: 'Ember Bolts', desc: 'Seeking firebolts pierce the nearest threats' },
-    { name: 'Chain Lightning', desc: 'Arcing storm bolts jump across the horde' },
-    { name: 'Runic Orbit', desc: 'Spinning obsidian blades shred close foes' },
-    { name: 'Nova Dash', desc: 'Dash triggers an explosive shockwave on arrival' },
-    { name: 'Overclock Haste', desc: 'Accelerates all weapon cooldowns & cast speed' },
-    { name: 'Soul Magnet', desc: 'Pulls XP gems & relics from afar (+20% XP)' },
-    { name: 'Vampiric Ward', desc: '+25 Max HP, +35 Heal & life-steal ward' }
+    { name: 'Arcane Slash', desc: 'Sweeping spectral blade arc (+Damage & Area)', synergy: '◆ SYNERGY: +Overclock Haste -> Crimson Reaper' },
+    { name: 'Ember Bolts', desc: 'Seeking firebolts pierce the nearest threats', synergy: '◆ SYNERGY: +Chain Lightning -> Storm Sovereign' },
+    { name: 'Chain Lightning', desc: 'Arcing storm bolts jump across the horde', synergy: '◆ SYNERGY: +Ember Bolts -> Storm Sovereign' },
+    { name: 'Runic Orbit', desc: 'Spinning obsidian blades shred close foes', synergy: '◆ SYNERGY: +Nova Dash -> Inferno Vortex' },
+    { name: 'Nova Dash', desc: 'Dash triggers an explosive shockwave on arrival', synergy: '◆ SYNERGY: +Runic Orbit -> Inferno Vortex' },
+    { name: 'Overclock Haste', desc: 'Accelerates all weapon cooldowns & cast speed', synergy: '◆ SYNERGY: +Arcane Slash -> Crimson Reaper' },
+    { name: 'Soul Magnet', desc: 'Pulls XP gems & relics from afar (+20% XP)', synergy: '◆ PASSIVE: +20% Faster Ascension' },
+    { name: 'Vampiric Ward', desc: '+25 Max HP, +35 Heal & life-steal ward', synergy: '◆ PASSIVE: Blood Sustenance' }
   ];
   var RARITY_META = [
     { cls: 'rarity-rare', label: 'RARE BOON' },
