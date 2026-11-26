@@ -272,9 +272,83 @@
     }
   }
 
+  var choirNodes = null;
+
+  function ensureChoirDrone() {
+    if (isMuted || !musicActive) return;
+    var ctx = ensureAudioCtx();
+    if (!ctx || choirNodes) return;
+    try {
+      var sub = ctx.createOscillator();
+      var choir1 = ctx.createOscillator();
+      var choir2 = ctx.createOscillator();
+      var vowel1 = ctx.createBiquadFilter();
+      var vowel2 = ctx.createBiquadFilter();
+      var subGain = ctx.createGain();
+      var choirGain = ctx.createGain();
+
+      sub.type = 'sine';
+      sub.frequency.value = 36.71; // D1 deep sub-bass drone
+      choir1.type = 'sawtooth';
+      choir1.frequency.value = 146.83; // D3
+      choir2.type = 'sawtooth';
+      choir2.frequency.value = 220.25; // A3 fifth detuned
+
+      vowel1.type = 'bandpass';
+      vowel1.frequency.value = 520;
+      vowel1.Q.value = 4.2;
+      vowel2.type = 'bandpass';
+      vowel2.frequency.value = 1120;
+      vowel2.Q.value = 5.0;
+
+      subGain.gain.value = 0.032;
+      choirGain.gain.value = 0.018;
+
+      sub.connect(subGain);
+      subGain.connect(masterBus || ctx.destination);
+
+      choir1.connect(vowel1);
+      choir2.connect(vowel1);
+      choir1.connect(vowel2);
+      choir2.connect(vowel2);
+      vowel1.connect(choirGain);
+      vowel2.connect(choirGain);
+      choirGain.connect(masterBus || ctx.destination);
+      if (reverbBus) choirGain.connect(reverbBus);
+
+      sub.start();
+      choir1.start();
+      choir2.start();
+      choirNodes = { sub: sub, choir1: choir1, choir2: choir2, vowel1: vowel1, vowel2: vowel2, choirGain: choirGain, subGain: subGain };
+    } catch (_) {}
+  }
+
+  function updateChoirIntensity(combo, overdrive) {
+    if (!choirNodes || !audioCtx) return;
+    try {
+      var intensity = overdrive ? 1.0 : Math.min(1.0, (combo || 0) / 40.0);
+      var now = audioCtx.currentTime;
+      choirNodes.vowel1.frequency.setTargetAtTime(520 + intensity * 340, now, 0.15);
+      choirNodes.vowel2.frequency.setTargetAtTime(1120 + intensity * 580, now, 0.15);
+      choirNodes.choirGain.gain.setTargetAtTime(isMuted ? 0.0001 : (0.016 + intensity * 0.022), now, 0.15);
+      choirNodes.subGain.gain.setTargetAtTime(isMuted ? 0.0001 : (0.028 + intensity * 0.020), now, 0.15);
+    } catch (_) {}
+  }
+
+  function stopChoirDrone() {
+    if (!choirNodes) return;
+    try {
+      choirNodes.sub.stop();
+      choirNodes.choir1.stop();
+      choirNodes.choir2.stop();
+    } catch (_) {}
+    choirNodes = null;
+  }
+
   function startSequencer() {
     stopSequencer();
     if (!musicActive) return;
+    ensureChoirDrone();
     var bpm = bossMusicPhase === 2 ? 152 : (bossMusicPhase === 1 ? 140 : (BIOME_THEMES[currentBiomeIdx % 3] || BIOME_THEMES[0]).bpm);
     var stepMs = Math.max(85, Math.round((60000 / bpm) / 2)); // 8th-note steps
     seqTimer = setInterval(stepSequencer, stepMs);
@@ -285,6 +359,7 @@
       clearInterval(seqTimer);
       seqTimer = null;
     }
+    stopChoirDrone();
   }
 
   function setBossMusic(phase) {
@@ -297,29 +372,22 @@
 
   function playVoiceBlip(speakerKind) {
     if (isMuted) return;
-    // 16-bit retro expressive voice blips for Banter Box portraits
     if (speakerKind === 0) {
-      // Sun Knight: warm heroic baritone
       tone(210, 260, 0.065, 'triangle', 0.075, 1.0, 0, true, 1200);
       tone(245, 295, 0.06, 'triangle', 0.065, 1.0, 0.07, true, 1200);
     } else if (speakerKind === 1) {
-      // Pyromancer: bright arcane chime voice
       tone(340, 420, 0.06, 'sine', 0.07, 1.0, 0, true, 2200);
       tone(420, 510, 0.055, 'triangle', 0.06, 1.0, 0.065, true, 2200);
     } else if (speakerKind === 2) {
-      // Shadow Assassin: quick sharp whisper-synth
       tone(290, 210, 0.05, 'sawtooth', 0.055, 1.0, 0, true, 1400);
       tone(320, 250, 0.05, 'sawtooth', 0.05, 1.0, 0.055, true, 1400);
     } else if (speakerKind === 3) {
-      // Malakor Void Lich: eerie deep necrotic voice
       tone(110, 88, 0.11, 'sawtooth', 0.085, 1.0, 0, true, 620);
       tone(98, 78, 0.12, 'sawtooth', 0.08, 1.0, 0.09, true, 540);
     } else if (speakerKind === 4) {
-      // Ignis Rex Magma Titan: seismic volcanic rumble
       tone(82, 58, 0.14, 'sawtooth', 0.095, 1.0, 0, true, 420);
       tone(73, 52, 0.14, 'square', 0.07, 1.0, 0.10, true, 360);
     } else {
-      // Skadi Glacial Empress: resonant crystalline chime voice
       tone(523, 659, 0.09, 'sine', 0.075, 1.0, 0, true, 3200);
       tone(659, 587, 0.10, 'triangle', 0.065, 1.0, 0.08, true, 3000);
     }
@@ -327,70 +395,58 @@
 
   function playSfxPitched(kind, pitchMul) {
     if (isMuted) return;
+    var jitter = 0.94 + Math.random() * 0.12;
+    var pm = (pitchMul || 1.0) * jitter;
     if (kind === 0) {
-      // Crisp UI select chime
       tone(440, 659, 0.085, 'triangle', 0.08, pitchMul, 0, true, 2800);
       tone(659, 880, 0.09, 'sine', 0.055, pitchMul, 0.04, true, 3200);
     } else if (kind === 1) {
-      // Weapon shot / slash
-      tone(540, 185, 0.085, 'sawtooth', 0.045, pitchMul, 0, false, 2000);
+      tone(540, 185, 0.085, 'sawtooth', 0.045, pm, 0, false, 2000);
       noiseBurst(0.045, 1900, 'highpass', 0.025, 0, false);
     } else if (kind === 2) {
-      // Enemy hit thud
-      tone(210, 68, 0.075, 'square', 0.046, pitchMul, 0, false, 900);
+      tone(210, 68, 0.075, 'square', 0.046, pm, 0, false, 900);
       noiseBurst(0.038, 650, 'bandpass', 0.028, 0, false);
     } else if (kind === 3) {
-      // Chain lightning / Void storm crackle
-      tone(1320, 360, 0.14, 'sawtooth', 0.062, pitchMul, 0, true, 3400);
+      tone(1320, 360, 0.14, 'sawtooth', 0.062, pm, 0, true, 3400);
       noiseBurst(0.11, 2900, 'highpass', 0.052, 0, true);
     } else if (kind === 4) {
-      // Barrel / Supernova heavy impact explosion
-      tone(165, 38, 0.28, 'sawtooth', 0.115, pitchMul, 0, true, 620);
+      tone(165, 38, 0.28, 'sawtooth', 0.115, pm, 0, true, 620);
       noiseBurst(0.24, 480, 'lowpass', 0.095, 0, true);
     } else if (kind === 5) {
-      // Level-Up / Bounty fanfare chord
       tone(523.25, 523.25, 0.14, 'triangle', 0.09, pitchMul, 0, true, 3200);
       tone(659.25, 659.25, 0.16, 'triangle', 0.09, pitchMul, 0.065, true, 3200);
       tone(783.99, 1046.5, 0.28, 'sine', 0.105, pitchMul, 0.13, true, 3600);
     } else if (kind === 6) {
-      // Boss alert cathedral war horn
       tone(110, 73.4, 0.56, 'sawtooth', 0.125, pitchMul, 0, true, 780);
       tone(55, 46, 0.60, 'triangle', 0.135, pitchMul, 0.02, true, 420);
       noiseBurst(0.35, 340, 'lowpass', 0.055, 0.04, true);
     } else if (kind === 7) {
-      // Hero hurt
-      tone(175, 54, 0.19, 'sawtooth', 0.115, pitchMul, 0, false, 700);
+      tone(175, 54, 0.19, 'sawtooth', 0.115, pm, 0, false, 700);
       noiseBurst(0.09, 420, 'bandpass', 0.062, 0, false);
     } else if (kind === 8) {
-      // XP gem combo-pitched sparkle
       tone(880, 1320, 0.065, 'sine', 0.05, pitchMul, 0, true, 0);
     } else if (kind === 9) {
-      // Runic chest / Blood shrine mystical arpeggio
       tone(392, 587, 0.17, 'triangle', 0.088, pitchMul, 0, true, 2800);
       tone(587, 880, 0.24, 'sine', 0.085, pitchMul, 0.075, true, 3400);
     } else if (kind === 10) {
-      // Inferno Dash airy whoosh + ember crack
       noiseBurst(0.15, 1650, 'bandpass', 0.075, 0, true);
-      tone(360, 115, 0.14, 'triangle', 0.07, pitchMul, 0, false, 1400);
+      tone(360, 115, 0.14, 'triangle', 0.07, pm, 0, false, 1400);
     } else if (kind === 11) {
-      // Witch-Time Perfect Dodge (time-warp dive + cathedral crystal shimmer)
       tone(660, 130, 0.36, 'sine', 0.115, 1.0, 0, true, 0);
       tone(1320, 1760, 0.28, 'triangle', 0.082, 1.0, 0.05, true, 0);
       tone(987.77, 1480, 0.25, 'sine', 0.065, 1.0, 0.11, true, 0);
     } else if (kind === 12) {
-      // Epic Victory Jingle (4-note triumphant brass/synth fanfare)
-      tone(523.25, 523.25, 0.15, 'sawtooth', 0.075, 1.0, 0, true, 2400);
-      tone(659.25, 659.25, 0.15, 'sawtooth', 0.075, 1.0, 0.11, true, 2400);
-      tone(783.99, 783.99, 0.18, 'sawtooth', 0.082, 1.0, 0.22, true, 2600);
-      tone(1046.5, 1046.5, 0.52, 'triangle', 0.11, 1.0, 0.35, true, 3200);
-      tone(523.25, 523.25, 0.52, 'sawtooth', 0.07, 1.0, 0.35, true, 1600);
+      // SSS Triumphant Cathedral Brass Fanfare
+      tone(523.25, 523.25, 0.16, 'sawtooth', 0.08, 1.0, 0, true, 2600);
+      tone(659.25, 659.25, 0.16, 'sawtooth', 0.08, 1.0, 0.11, true, 2600);
+      tone(783.99, 783.99, 0.18, 'sawtooth', 0.088, 1.0, 0.22, true, 2800);
+      tone(1046.5, 1046.5, 0.62, 'triangle', 0.12, 1.0, 0.35, true, 3400);
+      tone(523.25, 523.25, 0.62, 'sawtooth', 0.075, 1.0, 0.35, true, 1800);
     } else if (kind === 13) {
-      // Dramatic Defeat Chord
       tone(220, 196, 0.30, 'sawtooth', 0.08, 1.0, 0, true, 900);
       tone(164.81, 146.83, 0.42, 'triangle', 0.085, 1.0, 0.18, true, 700);
       tone(110, 92.5, 0.55, 'sawtooth', 0.09, 1.0, 0.32, true, 520);
     } else if (kind === 14) {
-      // Cinematic Intro Riser + Cathedral Anvil Slam
       tone(55, 110, 0.65, 'sawtooth', 0.09, 1.0, 0, true, 900);
       tone(110, 220, 0.65, 'triangle', 0.08, 1.0, 0.08, true, 1600);
       noiseBurst(0.32, 620, 'lowpass', 0.075, 0.48, true);
@@ -1169,7 +1225,8 @@
         btn.innerHTML =
           '<div class="rarity-tag">' + rar.label + ' [' + (idx + 1) + ']</div>' +
           '<div class="up-title">' + meta.name + '</div>' +
-          '<div class="up-desc">' + meta.desc + '</div>';
+          '<div class="up-desc">' + meta.desc + '</div>' +
+          '<div class="up-synergy">' + meta.synergy + '</div>';
         btn.addEventListener('click', function () {
           callCmd('ef_cmd_pick_upgrade', idx);
         });
@@ -1178,12 +1235,35 @@
     }
   }
 
+  function refreshChronicleVotesAndFeed() {
+    var voteShort = ['BLOOD', 'ARCANE', 'SWARM', 'TITAN'];
+    var vBtns = document.querySelectorAll('#chronicle-votes .vote-card');
+    vBtns.forEach(function (vb, idx) {
+      var cnt = (initData.tomorrowMutatorVotes && initData.tomorrowMutatorVotes[idx]) || 0;
+      vb.textContent = cnt > 0 ? voteShort[idx] + ' (' + cnt + ')' : voteShort[idx];
+      if (initData.myTomorrowVote === idx) vb.classList.add('voted');
+      else vb.classList.remove('voted');
+    });
+    var sfEl = document.getElementById('chronicle-siege-feed');
+    if (sfEl) {
+      if (initData.siegeFeed && initData.siegeFeed.length > 0) {
+        sfEl.textContent = 'LIVE SIEGE: ' + initData.siegeFeed.slice(0, 3).map(function (e) {
+          return 'u/' + e.username + (e.slain ? ' [SLAIN]' : ' [STRIKE]');
+        }).join(' · ');
+      } else {
+        sfEl.textContent = 'COMMUNITY SIEGE: ' + initData.bossKillsToday + ' / ' + initData.siegeTarget + ' OVERLORDS SLAIN';
+      }
+    }
+  }
+
   function updateHudDom(
     phase, biome, heroClass, hp, maxHp, ember, overdriveSec,
     xp, xpNext, lv, score, kills, combo, timeRem,
-    bossHp, bossMaxHp, bossTrail, ghostDelta, muted, crt,
+    bossHp, bossMaxHp, bossTrail, ghostDelta, muted, crtFlags,
     rankStr, chronStr
   ) {
+    var crt = (crtFlags & 1) !== 0;
+    var onboardingDoneByInput = (crtFlags & 2) !== 0;
     var bCls = BIOME_CLASSES[biome % 3] || 'biome-obsidian';
     if (!document.body.classList.contains(bCls)) {
       document.body.classList.remove('biome-obsidian', 'biome-volcanic', 'biome-frost');
@@ -1196,6 +1276,7 @@
     hudState.combo = combo;
     hudState.biome = biome;
     if (chronStr) lastChronicle = chronStr;
+    updateChoirIntensity(combo, overdriveSec > 0);
 
     if (phase !== lastPhase) {
       lastPhase = phase;
@@ -1210,17 +1291,17 @@
         var sub = document.getElementById('title-seed-sub');
         if (sub) sub.textContent = 'DAILY SANCTUARY · #' + (initData.seed || utcSeed(0));
         var tBoss = document.getElementById('title-boss-line');
-        if (tBoss) tBoss.textContent = 'OVERLORD: ' + (BIOME_BOSSES[biome % 3] || BIOME_BOSSES[0]);
+        if (tBoss) tBoss.textContent = BIOME_BOSSES[biome % 3] || BIOME_BOSSES[0];
         var tMut = document.getElementById('title-mutator-line');
         var mIdx = initData.mutatorOverride >= 0 ? initData.mutatorOverride : defaultMutatorIdx(initData.seed || utcSeed(0));
-        if (tMut) tMut.textContent = 'Active Mutator: ' + (MODIFIERS[mIdx] || MODIFIERS[0]);
+        if (tMut) tMut.textContent = 'ACTIVE MUTATOR: ' + (MODIFIERS[mIdx] || MODIFIERS[0]) + ' · 60 FPS';
       } else if (phase === 2) {
         if (!onboardingStartTs) onboardingStartTs = Date.now();
       } else if (phase === 3) {
         var pb = document.getElementById('pause-bounties');
         if (pb) {
           pb.innerHTML = [0, 1, 2].map(function (bi) {
-            return '<li>' + (lastBountiesDone[bi] ? '✅ ' : '🎯 ') + 'Daily Bounty #' + (bi + 1) + ' (+750 PTS)</li>';
+            return '<li>' + (lastBountiesDone[bi] ? '[DONE] ' : '[ACTIVE] ') + 'Daily Bounty #' + (bi + 1) + ' (+750 PTS)</li>';
           }).join('');
         }
       } else if (phase === 4) {
@@ -1229,17 +1310,21 @@
         var cs = document.getElementById('chronicle-score');
         if (cs) cs.textContent = Number(score || 0).toLocaleString('en-US') + ' PTS';
         var cst = document.getElementById('chronicle-stats');
-        if (cst) cst.textContent = kills + ' Kills · Lv.' + lv + ' · 🔥 ' + Math.max(1, initData.streak) + '-Day Streak';
+        if (cst) cst.textContent = kills + ' Slain · Lv.' + lv + ' · ' + Math.max(1, initData.streak) + '-Day Streak';
         var cr = document.getElementById('chronicle-rank');
         if (cr) cr.textContent = rankStr || computeRank(score, bossHp <= 0 && bossMaxHp > 0);
         var ct = document.getElementById('chronicle-text');
         if (ct && lastChronicle) ct.textContent = '"' + lastChronicle + '"';
+        refreshChronicleVotesAndFeed();
       }
     }
 
     if (phase >= 2 && phase <= 4) {
       var hIcon = document.getElementById('hud-hero-icon');
-      if (hIcon) hIcon.textContent = HERO_EMOJIS[heroClass % 3] || '☀️';
+      if (hIcon && hIcon.getAttribute('data-hc') !== String(heroClass % 3)) {
+        hIcon.setAttribute('data-hc', String(heroClass % 3));
+        hIcon.innerHTML = HERO_SVGS[heroClass % 3] || HERO_SVGS[0];
+      }
       var hLv = document.getElementById('hud-lv');
       if (hLv) hLv.textContent = 'LV.' + lv;
       var hSc = document.getElementById('hud-score');
@@ -1251,14 +1336,14 @@
       var tmEl = document.getElementById('hud-timer');
       if (tmEl) tmEl.textContent = String(Math.floor(secs / 60)).padStart(2, '0') + ':' + String(secs % 60).padStart(2, '0');
       var kEl = document.getElementById('hud-kills');
-      if (kEl) kEl.textContent = kills + ' 💀';
+      if (kEl) kEl.textContent = kills + ' SLAIN';
 
       var mBtn = document.getElementById('btn-mute');
-      if (mBtn) mBtn.textContent = muted ? '🔇' : '🔊';
+      if (mBtn) mBtn.textContent = muted ? 'MUTE' : 'AUDIO';
       var pmBtn = document.getElementById('btn-pause-mute');
-      if (pmBtn) pmBtn.textContent = muted ? '🔇 Audio: OFF' : '🔊 Audio: ON';
+      if (pmBtn) pmBtn.textContent = muted ? 'AUDIO: OFF' : 'AUDIO: ON';
       var pcBtn = document.getElementById('btn-pause-crt');
-      if (pcBtn) pcBtn.textContent = crt ? '📺 CRT: ON' : '📺 CRT: OFF';
+      if (pcBtn) pcBtn.textContent = crt ? 'CRT: ON' : 'CRT: OFF';
 
       var hpLbl = document.getElementById('orb-hp-label');
       if (hpLbl) hpLbl.textContent = Math.ceil(hp) + ' / ' + Math.ceil(maxHp);
@@ -1306,8 +1391,12 @@
       if (!onboardingHidden && onboardingStartTs > 0) {
         var ob = document.getElementById('onboarding-hint');
         if (ob) {
-          if (Date.now() - onboardingStartTs < 6500) ob.classList.remove('is-hidden');
-          else { ob.classList.add('faded'); onboardingHidden = true; }
+          if (!onboardingDoneByInput && Date.now() - onboardingStartTs < 8500) {
+            ob.classList.remove('is-hidden');
+          } else {
+            ob.classList.add('faded');
+            onboardingHidden = true;
+          }
         }
       }
     }
@@ -1315,6 +1404,7 @@
     if (phase === 5) {
       var stEl = document.getElementById('chronicle-status');
       if (stEl) stEl.textContent = lastStatusMsg || '';
+      refreshChronicleVotesAndFeed();
     }
   }
 
@@ -1349,11 +1439,13 @@
 
   var btnSkipIntro = document.getElementById('btn-skip-intro');
   if (btnSkipIntro) btnSkipIntro.addEventListener('click', function () {
+    callCmd('skip_intro');
     callCmd('ef_cmd_skip_intro');
   });
 
   var btnOverdrive = document.getElementById('btn-overdrive-orb');
   if (btnOverdrive) btnOverdrive.addEventListener('click', function () {
+    callCmd('trigger_overdrive');
     callCmd('ef_cmd_trigger_overdrive');
   });
 
@@ -1381,6 +1473,9 @@
   var btnReplay = document.getElementById('btn-replay-daily');
   if (btnReplay) btnReplay.addEventListener('click', function () { callCmd('ef_cmd_replay'); });
 
+  var btnEndless = document.getElementById('btn-play-endless');
+  if (btnEndless) btnEndless.addEventListener('click', function () { callCmd('ef_cmd_endless'); });
+
   var voteBtns = document.querySelectorAll('#chronicle-votes .vote-card');
   voteBtns.forEach(function (vb) {
     vb.addEventListener('click', function () {
@@ -1390,5 +1485,5 @@
     });
   });
 
-  load('./emberfall.wasm?v=20261126v11');
+  load('./emberfall.wasm?v=20261126v12');
 })();

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 mod assets;
 mod rng;
 mod shaders;
@@ -261,6 +263,7 @@ enum JsCmd {
     ToggleMute,
     ToggleCrt,
     Replay,
+    Endless,
     Share,
     Vote(i32),
 }
@@ -283,7 +286,15 @@ pub extern "C" fn ef_cmd_skip_intro() {
     push_js_cmd(JsCmd::SkipIntro);
 }
 #[no_mangle]
+pub extern "C" fn skip_intro() {
+    push_js_cmd(JsCmd::SkipIntro);
+}
+#[no_mangle]
 pub extern "C" fn ef_cmd_trigger_overdrive() {
+    push_js_cmd(JsCmd::TriggerOverdrive);
+}
+#[no_mangle]
+pub extern "C" fn trigger_overdrive() {
     push_js_cmd(JsCmd::TriggerOverdrive);
 }
 #[no_mangle]
@@ -305,6 +316,10 @@ pub extern "C" fn ef_cmd_toggle_crt() {
 #[no_mangle]
 pub extern "C" fn ef_cmd_replay() {
     push_js_cmd(JsCmd::Replay);
+}
+#[no_mangle]
+pub extern "C" fn ef_cmd_endless() {
+    push_js_cmd(JsCmd::Endless);
 }
 #[no_mangle]
 pub extern "C" fn ef_cmd_share() {
@@ -890,6 +905,8 @@ struct Game {
     closest_dodge_hp: f32,
     boss_hp_trail: f32,
     cam_zoom: f32,
+    onboarding_moved: bool,
+    onboarding_dashed: bool,
 }
 
 struct RunicPillar {
@@ -912,6 +929,38 @@ impl Game {
         let rng = Rng::from_seed_str(&day_seed);
         let hero_class = HeroClass::SunKnight;
         let b_arr = generate_daily_bounties(&day_seed);
+        let init_shrines = generate_shrine_positions(&day_seed)
+            .into_iter()
+            .map(|(x, y)| BloodShrine {
+                pos: vec2(x, y),
+                progress: 0.0,
+                completed: false,
+            })
+            .collect();
+        let init_barrels = generate_barrel_positions(&day_seed)
+            .into_iter()
+            .map(|(x, y)| RunicBarrel {
+                pos: vec2(x, y),
+                hp: 55.0,
+                hit_flash: 0.0,
+                exploded: false,
+            })
+            .collect();
+        let init_pillars = [
+            vec2(-260.0, -190.0),
+            vec2(260.0, -190.0),
+            vec2(-260.0, 190.0),
+            vec2(260.0, 190.0),
+        ]
+        .into_iter()
+        .map(|pos| RunicPillar {
+            pos,
+            hp: 95.0,
+            max_hp: 95.0,
+            hit_flash: 0.0,
+            shattered: false,
+        })
+        .collect();
 
         Self {
             phase: Phase::Title,
@@ -920,7 +969,7 @@ impl Game {
             biome,
             rng,
             hero_class,
-            hero_pos: Vec2::ZERO,
+            hero_pos: vec2(0.0, 130.0),
             hero_vel: Vec2::ZERO,
             hero_hp: hero_class.base_max_hp(),
             hero_max_hp: hero_class.base_max_hp(),
@@ -963,8 +1012,8 @@ impl Game {
             next_endless_boss_time: BOSS_SPAWN_TIME + 55.0,
             run_medals_mask: 0,
             revenge_claimed: false,
-            shrines: Vec::new(),
-            barrels: Vec::new(),
+            shrines: init_shrines,
+            barrels: init_barrels,
             shrine_score_mult: 1.0,
             ghost_record: Vec::with_capacity(400),
             ghost_sample_timer: 0.0,
@@ -1014,7 +1063,7 @@ impl Game {
             muted: false,
             crt_enabled: false,
             hurt_flash: 0.0,
-            pet_pos: vec2(-42.0, -24.0),
+            pet_pos: vec2(-42.0, 106.0),
             pet_attack_cd: 1.2,
             pet_facing_left: false,
             banter_is_boss: false,
@@ -1034,7 +1083,7 @@ impl Game {
             intro_seen: false,
             title_modal: 0,
             social: SocialState::default(),
-            pillars: Vec::new(),
+            pillars: init_pillars,
             pillars_shattered: 0,
             overdrive_timer: 0.0,
             overdrive_cutin_timer: 0.0,
@@ -1043,7 +1092,9 @@ impl Game {
             peak_combo: 0,
             closest_dodge_hp: hero_class.base_max_hp(),
             boss_hp_trail: 0.0,
-            cam_zoom: 1.0,
+            cam_zoom: 0.84,
+            onboarding_moved: false,
+            onboarding_dashed: false,
         }
     }
 
@@ -1054,6 +1105,8 @@ impl Game {
         self.title_modal = 0;
         self.intro_time = 0.0;
         self.intro_seen = true;
+        self.hero_pos = Vec2::ZERO;
+        self.pet_pos = vec2(-42.0, -24.0);
         self.cam_zoom = 0.72;
         self.phase = Phase::Intro;
         play_sfx(14);
@@ -1354,6 +1407,8 @@ impl Game {
         self.closest_dodge_hp = max_hp;
         self.boss_hp_trail = 0.0;
         self.cam_zoom = 1.0;
+        self.onboarding_moved = false;
+        self.onboarding_dashed = false;
 
         self.particles.clear();
         self.float_texts.clear();
@@ -4154,6 +4209,32 @@ impl Game {
             Color::from_rgba(0, 0, 0, 130),
         );
 
+        // Diegetic Runic Dash/Stamina Ring & Cosmetic Aura around Hero
+        let a_col = aura_color(self.social.selected_aura);
+        draw_circle_lines(
+            self.hero_pos.x,
+            self.hero_pos.y + 24.0,
+            34.0,
+            2.0,
+            Color::new(a_col.r, a_col.g, a_col.b, 0.32),
+        );
+        let dash_pct = (1.0 - (self.dash_cd / 1.35)).clamp(0.0, 1.0);
+        let segs = (18.0 * dash_pct).round() as i32;
+        let ring_col = if self.overdrive_timer > 0.0 {
+            Color::from_rgba(255, 110, 45, 240)
+        } else if dash_pct >= 0.99 {
+            Color::from_rgba(56, 232, 255, 225)
+        } else {
+            Color::from_rgba(229, 184, 92, 165)
+        };
+        for s_i in 0..segs {
+            let a0 = -std::f32::consts::FRAC_PI_2 + (s_i as f32 / 18.0) * std::f32::consts::TAU;
+            let a1 = -std::f32::consts::FRAC_PI_2 + ((s_i + 1) as f32 / 18.0) * std::f32::consts::TAU;
+            let p0 = self.hero_pos + vec2(0.0, 24.0) + vec2(a0.cos() * 40.0, a0.sin() * 17.0);
+            let p1 = self.hero_pos + vec2(0.0, 24.0) + vec2(a1.cos() * 40.0, a1.sin() * 17.0);
+            draw_line(p0.x, p0.y, p1.x, p1.y, 2.6, ring_col);
+        }
+
         let hero_tint = if self.hero_invuln > 0.0 && ((self.elapsed * 24.0) as i32) % 2 == 0 {
             Color::from_rgba(255, 160, 175, 240)
         } else {
@@ -4392,6 +4473,11 @@ impl Game {
                         self.start_run(false);
                     }
                 }
+                JsCmd::Endless => {
+                    if matches!(self.phase, Phase::GameOver | Phase::Victory) {
+                        self.start_run(true);
+                    }
+                }
                 JsCmd::Share => {
                     if matches!(self.phase, Phase::GameOver | Phase::Victory) {
                         let summary = format!(
@@ -4487,6 +4573,8 @@ impl Game {
         } else {
             String::new()
         };
+        let crt_flags = (if self.crt_enabled { 1 } else { 0 })
+            | (if self.onboarding_moved && self.onboarding_dashed { 2 } else { 0 });
         unsafe {
             emberfall_sync_hud(
                 phase_id,
@@ -4508,7 +4596,7 @@ impl Game {
                 self.boss_hp_trail,
                 ghost_delta,
                 if self.muted { 1 } else { 0 },
-                if self.crt_enabled { 1 } else { 0 },
+                crt_flags,
                 rank.as_ptr(),
                 rank.len() as u32,
                 chron.as_ptr(),
@@ -4543,15 +4631,22 @@ impl Game {
         let bcol = biome_boss_color(self.biome);
         let bname = biome_boss_name(self.biome);
 
-        // 0. SplashOrbit: living 60fps sanctuary orbit behind Glassmorphism Title Overlay
+        // 0. SplashOrbit: living 60fps sanctuary orbit + atmospheric floating embers
         if self.phase == Phase::Title {
             let dt = get_frame_time().min(0.05);
             self.title_time += dt;
             self.cam_pos = vec2(
-                (self.title_time * 0.34).cos() * 125.0,
-                (self.title_time * 0.25).sin() * 85.0,
+                (self.title_time * 0.34).cos() * 118.0,
+                (self.title_time * 0.25).sin() * 78.0,
             );
-            self.cam_zoom = 0.84;
+            self.cam_zoom = 0.86;
+            for i in 0..28 {
+                let fi = i as f32;
+                let px = ((fi * 113.0 + self.title_time * 18.0).rem_euclid(sw)).abs();
+                let py = ((fi * 71.0 - self.title_time * 28.0).rem_euclid(sh)).abs();
+                let a = 0.22 + ((self.title_time * 3.1 + fi).sin().abs() * 0.48);
+                draw_circle(px, py, 1.8 + (fi % 2.0), Color::new(bcol.r, bcol.g, bcol.b, a));
+            }
             return;
         }
 
@@ -4569,8 +4664,8 @@ impl Game {
             if t < 1.2 {
                 let p = (t / 1.2).clamp(0.0, 1.0);
                 let ease = 1.0 - (1.0 - p).powi(3);
-                self.cam_zoom = 0.70 + 0.36 * ease;
-                self.cam_pos = vec2(0.0, -140.0 * (1.0 - ease) - 24.0 * ease);
+                self.cam_zoom = 0.70 + 0.38 * ease;
+                self.cam_pos = vec2(0.0, -150.0 * (1.0 - ease) - 24.0 * ease);
             } else if t < 2.5 {
                 if self.intro_stage_sfx < 1 {
                     self.intro_stage_sfx = 1;
@@ -4579,7 +4674,7 @@ impl Game {
                     self.aberration = 0.025;
                     play_sfx(6);
                 }
-                self.cam_zoom = 1.06;
+                self.cam_zoom = 1.08;
                 self.cam_pos = vec2(0.0, -24.0);
             } else if t < 3.5 {
                 let p = ((t - 2.5) / 1.0).clamp(0.0, 1.0);
@@ -4588,7 +4683,7 @@ impl Game {
                 } else {
                     1.0 - (-2.0 * p + 2.0).powi(5) * 0.5
                 };
-                self.cam_zoom = 1.06 - 0.06 * ease;
+                self.cam_zoom = 1.08 - 0.08 * ease;
                 self.cam_pos = vec2(0.0, -24.0 * (1.0 - ease));
             } else {
                 self.start_run(self.intro_pending_endless);
@@ -4626,8 +4721,25 @@ impl Game {
             return;
         }
 
-        // 2. Playing: Dramatic Ember Overdrive Cut-In Lightning Flash & World Banners
+        // 2. Playing: Overdrive Cut-In, Golden #1 Champion Ghost Edge Arrow & World Banners
         if self.phase == Phase::Playing {
+            if !self.social.ghost_points.is_empty() {
+                let g_idx = ((self.elapsed * 2.0) as usize).min(self.social.ghost_points.len() - 1);
+                let g_world = self.social.ghost_points[g_idx];
+                let delta = g_world - self.cam_pos;
+                if delta.length() > 180.0 {
+                    let dir = delta.normalize_or_zero();
+                    let pad = 42.0;
+                    let ax = (cx + dir.x * (sw * 0.5 - pad)).clamp(pad, sw - pad);
+                    let ay = (sh * 0.5 + dir.y * (sh * 0.5 - 92.0)).clamp(74.0, sh - 96.0);
+                    let tip = vec2(ax, ay) + dir * 10.0;
+                    let perp = vec2(-dir.y, dir.x) * 6.5;
+                    let base = vec2(ax, ay) - dir * 6.0;
+                    draw_triangle(tip, base + perp, base - perp, Color::from_rgba(229, 184, 92, 240));
+                    draw_ui_text(font, "#1", ax - 8.0, ay - 11.0, 11.0, Color::from_rgba(252, 225, 148, 245));
+                }
+            }
+
             if self.overdrive_cutin_timer > 0.0 {
                 let p = (self.overdrive_cutin_timer / 1.0).clamp(0.0, 1.0);
                 draw_rectangle_lines(

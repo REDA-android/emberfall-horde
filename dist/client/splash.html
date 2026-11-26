@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-biome="obsidian">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
@@ -9,94 +9,103 @@
 </head>
 <body class="splash-body biome-obsidian">
   <canvas class="splash-canvas-bg" id="splash-bg-fx" aria-hidden="true"></canvas>
+  <div class="vignette-scrim" aria-hidden="true"></div>
 
-  <div class="splash-wrap">
-    <div class="splash-hero">
-      <img class="splash-hero-img" src="./splash_hero.webp" alt="Emberfall Heroes facing the Daily Horde" />
-      <div class="splash-hero-scrim" aria-hidden="true"></div>
-      <div class="splash-hero-ui">
-        <div class="splash-top-row">
-          <div class="brand-lockup">
-            <div class="brand-crest" aria-hidden="true">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path id="sigil-path" d="M12 2L15 8L21 9L16.5 14L17.5 21L12 17.5L6.5 21L7.5 14L3 9L9 8L12 2Z" fill="#E5B85C"/>
-              </svg>
-            </div>
-            <div class="brand-title">EMBERFALL</div>
-          </div>
-          <div class="hdr-right">
-            <span class="pill-tag" id="seed-pill">#----</span>
-            <button class="btn-grimoire" id="help-btn" type="button" aria-label="Tactical Grimoire">Grimoire</button>
-          </div>
-        </div>
-        <div class="splash-bottom-row">
-          <div class="boss-headline" id="mutator-name">SYNCING DAILY SANCTUARY...</div>
-          <div class="biome-badge" id="biome-tag">OBSIDIAN</div>
-        </div>
+  <main class="splash-shell">
+    <header class="top-relic-bar">
+      <div class="relic-pill">
+        <span class="pulse-dot"></span>
+        <span id="seed-pill">DAY #----</span>
       </div>
-    </div>
+      <div class="hdr-right">
+        <div class="relic-pill" title="Next Daily Dungeon Reset (UTC)">
+          <span class="micro-label">RIFT</span>
+          <strong id="utc-countdown">--:--:--</strong>
+        </div>
+        <button class="btn-grimoire" id="help-btn" type="button" aria-label="Tactical Grimoire">GRIMOIRE</button>
+      </div>
+    </header>
 
-    <div class="ornate-panel">
-      <div class="mutator-desc" id="mutator-desc">Syncing daily Boss &amp; Mutator from Reddit...</div>
-      <div class="blessing-line" id="blessing-line">Community Blessing loading...</div>
+    <section class="hero-crest-head">
+      <p class="eyebrow-runic" id="biome-eyebrow">THE OBSIDIAN SANCTUARY</p>
+      <h1 class="game-logo">EMBERFALL</h1>
+      <div class="subtitle-divider">
+        <span></span>
+        <h2>DAILY HORDE</h2>
+        <span></span>
+      </div>
+    </section>
+
+    <article class="ornate-panel">
+      <div class="dossier-head">
+        <span class="badge-overlord">TODAY'S OVERLORD</span>
+        <span class="badge-mutator" id="mutator-badge">BLOOD MOON</span>
+      </div>
+      <h3 class="boss-name-serif" id="boss-headline">MALAKOR, VOID LICH</h3>
+      <p class="mutator-desc" id="mutator-desc">Dual Void Slams + Soul Obelisk Shields · Witch-Time Dodge +12% Overdrive</p>
       <div class="bounty-chips" id="bounty-chips"></div>
-    </div>
+    </article>
 
-    <div class="ornate-panel">
+    <section class="ornate-panel" aria-label="Subreddit Faction War and Siege">
       <div class="siege-head">
-        <span class="micro-label">Subreddit Boss Siege &amp; Faction War</span>
-        <span class="siege-count" id="siege-count">0 / 25 Bosses Slain</span>
+        <span class="micro-label">SUBREDDIT FACTION WAR</span>
+        <span class="blessing-tag" id="blessing-line">SOLAR AEGIS</span>
       </div>
-      <div class="bar-track"><div class="bar-fill" id="siege-fill"></div></div>
-      <div class="faction-bar" aria-label="Reddit Faction War">
+
+      <div class="faction-bar">
         <div class="f-seg f-solar" id="f-seg-0"></div>
         <div class="f-seg f-arcane" id="f-seg-1"></div>
         <div class="f-seg f-shadow" id="f-seg-2"></div>
       </div>
-      <div class="faction-line" id="faction-line">
-        <span class="faction-pill">Solar 33%</span>
-        <span class="faction-pill">Arcane 33%</span>
-        <span class="faction-pill">Shadow 34%</span>
-      </div>
-      <div class="siege-feed" id="siege-feed">Be the first Redditor to strike today's Overlord!</div>
-    </div>
 
-    <div class="ornate-panel">
+      <div class="faction-line" id="faction-line">
+        <span class="faction-pill"><i class="f-dot solar"></i>SOLAR <strong>34%</strong></span>
+        <span class="faction-pill"><i class="f-dot arcane"></i>ARCANE <strong>33%</strong></span>
+        <span class="faction-pill"><i class="f-dot shadow"></i>SHADOW <strong>33%</strong></span>
+      </div>
+
+      <div class="siege-subrow">
+        <span class="micro-label">COMMUNITY BOSS SIEGE</span>
+        <span class="siege-count" id="siege-count">0 / 25 SLAIN</span>
+      </div>
+      <div class="bar-track"><div class="bar-fill" id="siege-fill"></div></div>
+      <div class="siege-feed" id="siege-feed">Strike today's Overlord to etch your name in the Siege Feed!</div>
+    </section>
+
+    <section class="ornate-panel lb-compact">
       <div class="lb-head">
-        <span class="micro-label">Top 3 Champions Today</span>
+        <span class="micro-label">CHAMPIONS OF THE RIFT</span>
         <span class="yday-champ" id="yday-champ">90s Ranked</span>
       </div>
       <div class="lb-list" id="lb-list">
-        <div class="lb-row"><span class="lb-user">Fetching leaderboard...</span></div>
+        <div class="lb-row"><span class="lb-user">No runs yet today — claim #1 &amp; set the Champion Ghost!</span></div>
       </div>
-    </div>
+    </section>
 
-    <div class="tomorrow-strip">
-      <span id="tomorrow-info">Next Rift: <strong>Syncing...</strong></span>
-      <span class="countdown" id="utc-countdown">--:--:--</span>
-    </div>
-
-    <div class="footer">
-      <button class="cta-abyss" id="enter-btn" type="button">ENTER THE ABYSS</button>
+    <footer class="cta-dock">
+      <button class="cta-abyss" id="enter-btn" type="button">
+        <span class="cta-main-txt">ENTER THE ABYSS</span>
+        <span class="cta-sub-txt" id="tomorrow-info">INSTANT 60 FPS WASM · ZERO LOADING</span>
+      </button>
       <div class="me-bar">
-        <span id="me-rank">Play Daily Ranked · Vote Tomorrow's Mutator</span>
+        <span id="me-rank">Ranked Daily · Shape Tomorrow's Mutator</span>
         <span id="me-streak">0-Day Streak</span>
       </div>
-    </div>
-  </div>
+    </footer>
+  </main>
 
-  <div class="drawer" id="guide-drawer" role="dialog" aria-modal="true" aria-label="Tactical Grimoire">
+  <aside class="drawer" id="guide-drawer" role="dialog" aria-modal="true" aria-label="Tactical Grimoire">
     <div class="drawer-head">
       <div class="drawer-title" id="drawer-title">TACTICAL GRIMOIRE</div>
-      <button class="close-btn" id="close-guide-btn" type="button">Close</button>
+      <button class="close-btn" id="close-guide-btn" type="button">CLOSE</button>
     </div>
     <div class="d-sec">
       <h3>Combat &amp; Controls (90s Run)</h3>
       <ul>
-        <li><strong>Move:</strong> Drag anywhere (1-Thumb), <strong>WASD / Arrows</strong>, or Gamepad.</li>
-        <li><strong>Witch-Time Dodge:</strong> Tap <strong>DASH</strong> or <strong>Space</strong> near enemy rings for slow-mo +12% Overdrive!</li>
-        <li><strong>Ember Overdrive:</strong> Unleash at 100% (<strong>Q / E</strong> or tap Ember Orb) for 2x speed &amp; meteor rain.</li>
-        <li><strong>Runic Pillars:</strong> Lure hordes or the Boss into Runic Pillars to shatter them in an AoE blast.</li>
+        <li><strong>Move &amp; Auto-Strike:</strong> Drag anywhere (1-Thumb), <strong>WASD / Arrows</strong>, or Gamepad.</li>
+        <li><strong>Witch-Time Dodge:</strong> Tap <strong>Space / Shift</strong> right before enemy rings for slow-mo &amp; +12% Ember.</li>
+        <li><strong>Ember Overdrive:</strong> Unleash at 100% (<strong>Q / E</strong> or tap Ember Orb) for 2× speed &amp; meteor rain.</li>
+        <li><strong>Runic Pillars:</strong> Lure hordes or the Boss into the 4 Runic Pillars for a massive AoE stun blast.</li>
       </ul>
     </div>
     <div class="d-sec">
@@ -108,8 +117,10 @@
       <h3>Today's 3 Daily Bounties (+750 PTS Each)</h3>
       <ul id="drawer-bounties"></ul>
     </div>
-    <button class="cta-abyss" id="drawer-play-btn" type="button">ENTER THE ABYSS</button>
-  </div>
+    <button class="cta-abyss" id="drawer-play-btn" type="button">
+      <span class="cta-main-txt">ENTER THE ABYSS</span>
+    </button>
+  </aside>
 
   <script src="./splash.js"></script>
 </body>

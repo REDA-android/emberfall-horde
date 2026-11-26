@@ -9,17 +9,21 @@
 </head>
 <body class="game-body biome-obsidian">
   <div id="ef-loader">
-    <div>EMBERFALL: DAILY HORDE</div>
+    <div>EMBERFALL</div>
     <small id="ef-status">Awakening Sanctuary Engine...</small>
   </div>
 
   <canvas id="glcanvas" tabindex="1"></canvas>
 
-  <!-- Diegetic Perimeter HUD Layer (pointer-events: none except explicit controls) -->
+  <!-- Diegetic Perimeter HUD Layer (92% Unobstructed Combat Viewport) -->
   <div class="hud-layer is-hidden" id="hud-layer">
     <div class="hud-top">
       <div class="hero-medallion">
-        <div class="hero-crest-badge" id="hud-hero-icon">☀️</div>
+        <div class="hero-crest-badge" id="hud-hero-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <path d="M12 2L15 9L22 12L15 15L12 22L9 15L2 12L9 9L12 2Z" fill="currentColor" />
+          </svg>
+        </div>
         <div class="hero-meta-col">
           <div class="hero-lv-row">
             <span id="hud-lv">LV.1</span>
@@ -36,23 +40,23 @@
       <div class="hud-top-right hud-interactive">
         <div class="hud-stat-pill">
           <span class="hud-stat-timer" id="hud-timer">01:30</span>
-          <span id="hud-kills">0 💀</span>
+          <span id="hud-kills">0 SLAIN</span>
         </div>
-        <button class="hud-icon-btn" id="btn-mute" type="button" aria-label="Toggle Audio">🔊</button>
-        <button class="hud-icon-btn" id="btn-pause" type="button" aria-label="Tactical Grimoire &amp; Pause">⏸</button>
+        <button class="hud-icon-btn" id="btn-mute" type="button" aria-label="Toggle Audio">AUDIO</button>
+        <button class="hud-icon-btn" id="btn-pause" type="button" aria-label="Tactical Grimoire &amp; Pause">PAUSE</button>
       </div>
     </div>
 
-    <div class="ghost-delta-pill is-hidden" id="hud-ghost-delta">+0 PTS AHEAD OF #1</div>
+    <div class="ghost-delta-pill is-hidden" id="hud-ghost-delta">+0 PTS VS #1</div>
 
     <!-- Left-Edge Vertical Carnage Thermometer -->
     <div class="carnage-rail" id="carnage-rail">
-      <canvas class="carnage-canvas" id="carnage-canvas" width="24" height="150"></canvas>
+      <canvas class="carnage-canvas" id="carnage-canvas" width="22" height="146"></canvas>
       <div class="carnage-badge" id="carnage-badge">x1</div>
     </div>
 
     <div class="onboarding-hint is-hidden" id="onboarding-hint">
-      Drag / WASD to Move · Space / Tap Dash · Q Ember Overdrive
+      WASD / Drag to Move · Space to Dash · Q Ember Overdrive
     </div>
 
     <!-- Bottom Diablo-Style Liquid Orbs + Elden Ring Boss Bar -->
@@ -87,52 +91,61 @@
   <!-- Intro Cinematic Skip Button -->
   <button class="skip-intro-btn is-hidden" id="btn-skip-intro" type="button">SKIP INTRO ▸</button>
 
-  <!-- Title / SplashOrbit Overlay -->
-  <div class="modal-backdrop is-hidden" id="modal-title">
-    <div class="ornate-panel modal-card">
-      <div class="title-logo-head">
-        <h1>EMBERFALL</h1>
-        <div class="title-logo-sub" id="title-seed-sub">DAILY SANCTUARY · #----</div>
+  <!-- Open-Viewport SplashOrbit Sanctuary Overlay (Reveals Live 60 FPS WASM Arena) -->
+  <div class="orbit-hud-shell is-hidden" id="modal-title">
+    <div class="orbit-top-crest">
+      <p class="eyebrow-runic" id="title-seed-sub">DAILY SANCTUARY · #----</p>
+      <h1 class="game-logo">EMBERFALL</h1>
+      <div class="subtitle-divider">
+        <span></span>
+        <h2 id="title-boss-line">DAILY HORDE</h2>
+        <span></span>
       </div>
+    </div>
 
+    <div class="orbit-bottom-dock">
       <div class="class-grid" id="title-class-grid">
         <button class="class-card selected" data-class="0" type="button">
-          <span class="class-emoji">☀️</span>
+          <svg class="class-svg" viewBox="0 0 24 24" fill="none">
+            <path d="M12 2L14.8 8.5L22 9.3L16.5 14L18.2 21L12 17.3L5.8 21L7.5 14L2 9.3L9.2 8.5L12 2Z" fill="currentColor"/>
+          </svg>
           <span class="class-name">SUN KNIGHT</span>
-          <span class="class-role">Solar Order · Tank</span>
+          <span class="class-role">Solar · Bulwark</span>
         </button>
         <button class="class-card" data-class="1" type="button">
-          <span class="class-emoji">🔮</span>
+          <svg class="class-svg" viewBox="0 0 24 24" fill="none">
+            <path d="M12 2C15.5 6.5 19 9.5 19 14A7 7 0 1 1 5 14C5 9.5 8.5 6.5 12 2ZM12 10C10.5 12 9.5 13.5 9.5 15A2.5 2.5 0 0 0 14.5 15C14.5 13.5 13.5 12 12 10Z" fill="currentColor"/>
+          </svg>
           <span class="class-name">PYROMANCER</span>
-          <span class="class-role">Arcane · AoE</span>
+          <span class="class-role">Arcane · Nova</span>
         </button>
         <button class="class-card" data-class="2" type="button">
-          <span class="class-emoji">🗡️</span>
+          <svg class="class-svg" viewBox="0 0 24 24" fill="none">
+            <path d="M19 3L21 5L9 17L6 18L7 15L19 3ZM5 19L8 20L4 22L5 19Z" fill="currentColor"/>
+          </svg>
           <span class="class-name">ASSASSIN</span>
-          <span class="class-role">Shadow · Crit</span>
+          <span class="class-role">Shadow · Lethal</span>
         </button>
       </div>
 
       <div class="mode-row">
-        <button class="mode-btn selected" id="mode-daily" type="button">⚔️ 90s DAILY RANKED</button>
-        <button class="mode-btn" id="mode-endless" type="button">♾️ ENDLESS ABYSS</button>
+        <button class="mode-btn selected" id="mode-daily" type="button">90s DAILY RANKED</button>
+        <button class="mode-btn" id="mode-endless" type="button">ENDLESS ABYSS</button>
       </div>
 
-      <div class="ornate-panel">
-        <div class="micro-label" id="title-boss-line">TODAY'S OVERLORD</div>
-        <div class="mutator-desc" id="title-mutator-line">Syncing daily mutator...</div>
-      </div>
-
-      <button class="cta-abyss" id="btn-enter-abyss" type="button">ENTER THE ABYSS</button>
+      <button class="cta-abyss" id="btn-enter-abyss" type="button">
+        <span class="cta-main-txt">ENTER THE ABYSS</span>
+        <span class="cta-sub-txt" id="title-mutator-line">SEAMLESS BOSS INVOCATION · 60 FPS</span>
+      </button>
     </div>
   </div>
 
   <!-- 3-Tier Rarity Roguelite Level-Up Modal -->
   <div class="modal-backdrop is-hidden" id="modal-levelup">
     <div class="ornate-panel modal-card wide">
-      <div class="title-logo-head">
-        <h1>LEVEL UP — CHOOSE BOON</h1>
-        <div class="title-logo-sub">Select a Runic Blessing to Forge Your Build</div>
+      <div class="hero-crest-head">
+        <p class="eyebrow-runic">ASCENSION FORGE</p>
+        <h2 class="boss-name-serif">CHOOSE A RUNIC BOON</h2>
       </div>
       <div class="upgrade-grid" id="upgrade-grid"></div>
     </div>
@@ -143,20 +156,30 @@
     <div class="ornate-panel modal-card">
       <div class="drawer-head">
         <div class="drawer-title">TACTICAL GRIMOIRE</div>
-        <button class="close-btn" id="btn-resume" type="button">Resume</button>
+        <button class="close-btn" id="btn-resume" type="button">RESUME</button>
       </div>
       <div class="d-sec">
-        <h3>Today's Daily Bounties (+750 PTS Each)</h3>
+        <h3>Today's 3 Daily Bounties (+750 PTS Each)</h3>
         <ul id="pause-bounties"></ul>
       </div>
       <div class="d-sec">
-        <h3>Audio &amp; Display</h3>
+        <h3>Elemental Synergies</h3>
+        <ul>
+          <li><strong>Crimson Reaper:</strong> Arcane Slash Lv.4 + Overclock Haste</li>
+          <li><strong>Storm Sovereign:</strong> Chain Lightning Lv.4 + Ember Bolts</li>
+          <li><strong>Inferno Vortex:</strong> Runic Orbit Lv.4 + Nova Dash</li>
+        </ul>
+      </div>
+      <div class="d-sec">
+        <h3>Sanctuary Settings</h3>
         <div class="action-row">
-          <button class="btn-secondary" id="btn-pause-mute" type="button">🔊 Audio: ON</button>
-          <button class="btn-secondary" id="btn-pause-crt" type="button">📺 CRT: OFF</button>
+          <button class="btn-secondary" id="btn-pause-mute" type="button">AUDIO: ON</button>
+          <button class="btn-secondary" id="btn-pause-crt" type="button">CRT: OFF</button>
         </div>
       </div>
-      <button class="cta-abyss" id="btn-pause-resume" type="button">RETURN TO BATTLE</button>
+      <button class="cta-abyss" id="btn-pause-resume" type="button">
+        <span class="cta-main-txt">RETURN TO BATTLE</span>
+      </button>
     </div>
   </div>
 
@@ -165,9 +188,9 @@
     <div class="ornate-panel modal-card">
       <div class="chronicle-head">
         <div>
-          <div class="micro-label" id="chronicle-outcome">BLOOD CHRONICLE</div>
-          <h2 id="chronicle-score">0 PTS</h2>
-          <div class="mutator-desc" id="chronicle-stats">0 Kills · Lv.1 · Streak 1d</div>
+          <div class="badge-overlord" id="chronicle-outcome">BLOOD CHRONICLE</div>
+          <h2 class="boss-name-serif" id="chronicle-score">0 PTS</h2>
+          <div class="mutator-desc" id="chronicle-stats">0 Slain · Lv.1 · 1-Day Streak</div>
         </div>
         <div class="rank-seal" id="chronicle-rank">S</div>
       </div>
@@ -177,17 +200,20 @@
       </div>
 
       <div class="d-sec">
-        <h3>Shape Tomorrow's Dungeon (Vote Mutator)</h3>
+        <h3>Shape Tomorrow's Dungeon (Community Poll)</h3>
         <div class="mutator-vote-grid" id="chronicle-votes">
-          <button class="vote-card" data-mut="0" type="button">BLOOD MOON</button>
-          <button class="vote-card" data-mut="1" type="button">ARCANE SURGE</button>
-          <button class="vote-card" data-mut="2" type="button">SWARM RUSH</button>
+          <button class="vote-card" data-mut="0" type="button">BLOOD</button>
+          <button class="vote-card" data-mut="1" type="button">ARCANE</button>
+          <button class="vote-card" data-mut="2" type="button">SWARM</button>
+          <button class="vote-card" data-mut="3" type="button">TITAN</button>
         </div>
+        <div class="siege-feed" id="chronicle-siege-feed"></div>
       </div>
 
-      <div class="action-row">
-        <button class="btn-secondary" id="btn-share-reddit" type="button">📣 Share to Reddit</button>
-        <button class="btn-secondary" id="btn-replay-daily" type="button">⚔️ Fight Again</button>
+      <div class="action-row-3">
+        <button class="btn-secondary" id="btn-share-reddit" type="button">SHARE REDDIT</button>
+        <button class="btn-secondary" id="btn-replay-daily" type="button">FIGHT AGAIN</button>
+        <button class="btn-secondary" id="btn-play-endless" type="button">ENDLESS</button>
       </div>
       <div class="micro-label" id="chronicle-status"></div>
     </div>

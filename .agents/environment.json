@@ -9,6 +9,6 @@
   "commands": {
     "typecheck": "npm run typecheck",
     "test": "cd crates/emberfall && cargo test",
-    "build": "npm run build && wasm-opt -Oz --all-features dist/client/emberfall.wasm -o dist/client/emberfall.wasm"
+    "build": "npm run build && wasm-opt -Oz --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext --enable-mutable-globals dist/client/emberfall.wasm -o dist/client/emberfall.wasm"
   }
 }
