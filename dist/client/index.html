@@ -3,82 +3,98 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-  <meta name="theme-color" content="#0e2442" />
-  <title>HENRY'S ARCADE STREETS — EMBERFALL EDITION</title>
+  <meta name="theme-color" content="#091326" />
+  <title>MUSTACHE PROTOCOL — THE GAME (Harbor Island Edition)</title>
   <link rel="stylesheet" href="./arcade_styles.css" />
 </head>
 <body>
   <div class="arcade-root">
     <div class="crt-stage" id="crt-stage">
-      <!-- 16-bit Retro 2D Side-Scroller Canvas (960x540 crisp pixel art) -->
+      <!-- 16-bit SNES Pixel-Art Side-Scroller Canvas (960x540 integer pixel grid) -->
       <canvas id="arcade-canvas" width="960" height="540" tabindex="1"></canvas>
       <div class="crt-scanlines" id="crt-scanlines" aria-hidden="true"></div>
 
-      <!-- Exact 1:1 Reference Video Arcade HUD -->
+      <!-- ===================================================================
+           EXACT 1:1 UNIFIED ORNATE PIXEL-ART HUD (v2_01.png & v2_04.png)
+           =================================================================== -->
       <div class="arcade-hud is-hidden" id="arcade-hud">
-        <!-- Top-Left: Portrait Medallion + 3 Red Hearts + [O][K][L] Circular Badges -->
-        <div class="hud-tl">
+        <!-- Top-Left Connected Portrait + Angled Crimson Heart Ribbon + [O][K][L] + Brass Thermometer -->
+        <div class="hud-tl-assembly">
           <div class="hud-hero-bar">
-            <div class="portrait-box">
-              <img id="hud-portrait" src="./arcade/hero_portrait.webp" alt="Hero Portrait" />
+            <div class="portrait-frame-wrap">
+              <div class="portrait-box">
+                <img id="hud-portrait" src="./arcade/hero_portrait.webp" alt="Henry Golden Armor" />
+              </div>
+              <!-- Diagonal crimson-gold bracket connecting Portrait down to Thermometer -->
+              <div class="thermo-neck" aria-hidden="true"></div>
             </div>
+
             <div class="hud-vitals-col">
-              <div class="hearts-row" id="hearts-row" aria-label="Health Hearts">
-                <svg class="heart-icon" viewBox="0 0 24 22">
-                  <path d="M12 20.5L2.6 11.4C0.5 9.3 0.5 5.6 2.8 3.4C4.9 1.3 8.4 1.5 10.5 3.7L12 5.3L13.5 3.7C15.6 1.5 19.1 1.3 21.2 3.4C23.5 5.6 23.5 9.3 21.4 11.4L12 20.5Z" fill="#e11d48" stroke="#ffe680" stroke-width="1.8" />
+              <div class="hearts-ribbon" id="hearts-row" aria-label="Health Hearts">
+                <svg class="heart-icon" viewBox="0 0 26 24">
+                  <path d="M13 22L2.6 11.8C0.3 9.5 0.4 5.5 2.9 3.2C5.2 1.1 8.9 1.4 11.2 3.8L13 5.7L14.8 3.8C17.1 1.4 20.8 1.1 23.1 3.2C25.6 5.5 25.7 9.5 23.4 11.8L13 22Z" fill="#dc1f3c" stroke="#520816" stroke-width="2" />
+                  <path d="M5.2 5.4C6.6 4.1 8.8 4.2 10.2 5.6" stroke="#ff9db0" stroke-width="2.2" stroke-linecap="round" fill="none" />
                 </svg>
-                <svg class="heart-icon" viewBox="0 0 24 22">
-                  <path d="M12 20.5L2.6 11.4C0.5 9.3 0.5 5.6 2.8 3.4C4.9 1.3 8.4 1.5 10.5 3.7L12 5.3L13.5 3.7C15.6 1.5 19.1 1.3 21.2 3.4C23.5 5.6 23.5 9.3 21.4 11.4L12 20.5Z" fill="#e11d48" stroke="#ffe680" stroke-width="1.8" />
+                <svg class="heart-icon" viewBox="0 0 26 24">
+                  <path d="M13 22L2.6 11.8C0.3 9.5 0.4 5.5 2.9 3.2C5.2 1.1 8.9 1.4 11.2 3.8L13 5.7L14.8 3.8C17.1 1.4 20.8 1.1 23.1 3.2C25.6 5.5 25.7 9.5 23.4 11.8L13 22Z" fill="#dc1f3c" stroke="#520816" stroke-width="2" />
+                  <path d="M5.2 5.4C6.6 4.1 8.8 4.2 10.2 5.6" stroke="#ff9db0" stroke-width="2.2" stroke-linecap="round" fill="none" />
                 </svg>
-                <svg class="heart-icon" viewBox="0 0 24 22">
-                  <path d="M12 20.5L2.6 11.4C0.5 9.3 0.5 5.6 2.8 3.4C4.9 1.3 8.4 1.5 10.5 3.7L12 5.3L13.5 3.7C15.6 1.5 19.1 1.3 21.2 3.4C23.5 5.6 23.5 9.3 21.4 11.4L12 20.5Z" fill="#e11d48" stroke="#ffe680" stroke-width="1.8" />
+                <svg class="heart-icon" viewBox="0 0 26 24">
+                  <path d="M13 22L2.6 11.8C0.3 9.5 0.4 5.5 2.9 3.2C5.2 1.1 8.9 1.4 11.2 3.8L13 5.7L14.8 3.8C17.1 1.4 20.8 1.1 23.1 3.2C25.6 5.5 25.7 9.5 23.4 11.8L13 22Z" fill="#dc1f3c" stroke="#520816" stroke-width="2" />
+                  <path d="M5.2 5.4C6.6 4.1 8.8 4.2 10.2 5.6" stroke="#ff9db0" stroke-width="2.2" stroke-linecap="round" fill="none" />
                 </svg>
               </div>
+
               <div class="skill-row">
-                <button class="arcade-skill" id="btn-skill-o" type="button" aria-label="Punch Combo O">
-                  <svg class="skill-ring" viewBox="0 0 42 42">
-                    <circle id="ring-o" cx="21" cy="21" r="18" fill="none" stroke="#ffe680" stroke-width="2.4" stroke-dasharray="113" stroke-dashoffset="0" />
+                <button class="arcade-skill" id="btn-skill-o" type="button" aria-label="Golden Comb Slash O">
+                  <svg class="skill-ring" viewBox="0 0 44 44">
+                    <circle id="ring-o" cx="22" cy="22" r="19" fill="none" stroke="#38e8ff" stroke-width="3.2" stroke-dasharray="119" stroke-dashoffset="119" />
                   </svg>
-                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
-                    <path d="M4 12C4 8.7 6.7 6 10 6H15C17.8 6 20 8.2 20 11V14C20 16.8 17.8 19 15 19H9C6.2 19 4 16.8 4 14V12Z" fill="currentColor" />
+                  <svg class="skill-glyph" id="glyph-o" width="18" height="18" viewBox="0 0 24 24" fill="none">
+                    <path d="M3 18L9 12M7 10L19 3L21 5L14 17L7 10Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" />
                   </svg>
+                  <span class="skill-cd-num is-hidden" id="cd-text-o">5s</span>
                   <span class="skill-keycap">O</span>
                 </button>
-                <button class="arcade-skill" id="btn-skill-k" type="button" aria-label="Flying Kick K">
-                  <svg class="skill-ring" viewBox="0 0 42 42">
-                    <circle id="ring-k" cx="21" cy="21" r="18" fill="none" stroke="#38e8ff" stroke-width="2.4" stroke-dasharray="113" stroke-dashoffset="0" />
+
+                <button class="arcade-skill" id="btn-skill-k" type="button" aria-label="Comb Whirlwind K">
+                  <svg class="skill-ring" viewBox="0 0 44 44">
+                    <circle id="ring-k" cx="22" cy="22" r="19" fill="none" stroke="#38e8ff" stroke-width="3.2" stroke-dasharray="119" stroke-dashoffset="119" />
                   </svg>
-                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
+                  <svg class="skill-glyph" id="glyph-k" width="17" height="17" viewBox="0 0 24 24" fill="none">
                     <path d="M13 3L4 14H12L11 21L20 10H12L13 3Z" fill="currentColor" />
                   </svg>
+                  <span class="skill-cd-num is-hidden" id="cd-text-k">5s</span>
                   <span class="skill-keycap">K</span>
                 </button>
+
                 <button class="arcade-skill" id="btn-skill-l" type="button" aria-label="Arm Reload Super L">
-                  <svg class="skill-ring" viewBox="0 0 42 42">
-                    <circle id="ring-l" cx="21" cy="21" r="18" fill="none" stroke="#ff5f2e" stroke-width="2.6" stroke-dasharray="113" stroke-dashoffset="113" />
+                  <svg class="skill-ring" viewBox="0 0 44 44">
+                    <circle id="ring-l" cx="22" cy="22" r="19" fill="none" stroke="#ffe24a" stroke-width="3.2" stroke-dasharray="119" stroke-dashoffset="119" />
                   </svg>
-                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
-                    <path d="M12 2L14.8 8.5L22 9.3L16.5 14L18.2 21L12 17.3L5.8 21L7.5 14L2 9.3L9.2 8.5L12 2Z" fill="currentColor" />
+                  <svg class="skill-glyph" id="glyph-l" width="17" height="17" viewBox="0 0 24 24" fill="none">
+                    <path d="M6 13C6 9.5 8.5 7 12 7H16C18.2 7 20 8.8 20 11V14C20 16.5 18 18.5 15.5 18.5H10C7.8 18.5 6 16.7 6 14.5V13Z" fill="currentColor" />
                   </svg>
+                  <span class="skill-cd-num is-hidden" id="cd-text-l">8s</span>
                   <span class="skill-keycap">L</span>
                 </button>
               </div>
             </div>
           </div>
+
+          <!-- Left-Edge Connected Brass & Ruby Mercury Thermometer (Exact v2_01/v2_04) -->
+          <div class="hud-thermo">
+            <canvas id="thermo-canvas" width="60" height="232"></canvas>
+            <div class="thermo-tag is-hidden" id="thermo-ready-tag">PRESS [L]!</div>
+          </div>
         </div>
 
-        <!-- Left Edge: Tall Vintage Brass Mercury Thermometer -->
-        <div class="hud-thermo">
-          <canvas id="thermo-canvas" width="54" height="226"></canvas>
-          <div class="thermo-tag is-hidden" id="thermo-ready-tag">RELOAD!</div>
-        </div>
-
-        <!-- Top-Center: Navy Blue Arcade PAUSE Button + Optional Boss HP Bar -->
+        <!-- Top-Center: Dark-Navy PAUSE Button + Boss HP Bar -->
         <div class="hud-tc">
           <button class="btn-arcade-pause" id="btn-pause" type="button">PAUSE</button>
           <div class="boss-hud-bar is-hidden" id="boss-hud-bar">
             <div class="boss-hud-label">
-              <span id="boss-hud-name">DON MUSTACHIO</span>
+              <span id="boss-hud-name">CYBER-BARON VEX</span>
               <span id="boss-hud-pct">100%</span>
             </div>
             <svg class="boss-hp-svg" viewBox="0 0 240 10" preserveAspectRatio="none">
@@ -89,23 +105,23 @@
           </div>
         </div>
 
-        <!-- Top-Right: Crimson Digital Counter [ 000 / 025 ] + Mustache Emblem -->
+        <!-- Top-Right: Crimson & White Mustache Counter [ 003 ] + Brown Mustache Crest (Exact v2_01/v2_04) -->
         <div class="hud-tr">
-          <div class="counter-plaque">
-            <span class="counter-digits" id="hud-ko-counter">000/025</span>
-            <svg class="mustache-crest" viewBox="0 0 64 30" fill="none">
-              <path d="M32 14C28 7 18 5 11 11C7 14.5 5 18 2 16C4 23 13 26 22 22C26.5 20 30 17.5 32 15.5C34 17.5 37.5 20 42 22C51 26 60 23 62 16C59 18 57 14.5 53 11C46 5 36 7 32 14Z" fill="#7c3e18" stroke="#ffe680" stroke-width="2.4" />
-            </svg>
+          <div class="mustache-counter-plaque">
+            <div class="mustache-white-box">
+              <span class="counter-digits" id="hud-mustache-counter">000</span>
+            </div>
+            <img class="hud-mustache-icon" src="./arcade/pickup_mustache.webp" alt="Mustaches" />
           </div>
-          <div class="score-subpill" id="hud-score-pill">SCORE 00000</div>
+          <div class="score-subpill" id="hud-score-pill">KOs 00/25 · 00000 PTS</div>
         </div>
 
         <!-- Flashing GO -> Arcade Arrow -->
         <div class="go-banner is-hidden" id="go-banner">GO &#10140;</div>
       </div>
 
-      <!-- Intro Cinematic Skip Button -->
-      <button class="skip-intro-pill is-hidden" id="btn-skip-intro" type="button">SKIP INTRO &#9656;</button>
+      <!-- Story Cutscene Controls -->
+      <button class="skip-intro-pill is-hidden" id="btn-skip-intro" type="button">SKIP &#9656;</button>
 
       <!-- Mobile Touch Controls -->
       <div class="touch-controls" id="touch-controls">
@@ -121,78 +137,119 @@
         </div>
       </div>
 
-      <!-- Full-Screen "NEW POWER UP: ARM RELOAD" (Exact 1:1 Reference Video Frame) -->
+      <!-- Full-Screen "New Power Up: ARM RELOAD" (Exact 1:1 Match v2_02.png) -->
       <div class="arm-reload-screen is-hidden" id="arm-reload-screen" role="dialog" aria-modal="true">
         <div class="arm-reload-head">
           <div class="arm-reload-eyebrow">New Power Up:</div>
           <div class="arm-reload-title">ARM RELOAD</div>
           <div class="arm-reload-sub">Henry gets super punches and invincibility</div>
         </div>
-        <img class="arm-reload-art" src="./arcade/hero_arm_reload.webp" alt="Henry Arm Reload Thumbs Up" />
+        <img class="arm-reload-art" src="./arcade/hero_gold_idle.webp" alt="Henry Golden Armor Arm Reload" />
         <button class="arm-reload-btn" id="btn-arm-continue" type="button">click to continue</button>
       </div>
 
-      <!-- Open-Viewport 16-Bit Arcade Title Screen -->
+      <!-- ===================================================================
+           EXACT 1:1 16-BIT ARCADE TITLE SCREEN (v1_01.png Match!)
+           =================================================================== -->
       <div class="arcade-title-overlay" id="arcade-title-screen">
-        <div class="title-crest">
-          <div class="title-tag" id="title-daily-tag">16-BIT HARBOR BEAT'EM UP · DAILY RUN</div>
-          <h1 class="title-main">HENRY'S ARCADE STREETS</h1>
-          <div class="title-sub">EMBERFALL HARBOR · ARM RELOAD EDITION</div>
-          <div class="mutator-pill-title" id="title-mutator-pill">DAILY MUTATOR: MUSTACHE STORM</div>
+        <div class="title-logo-stack">
+          <div class="title-collab-line" id="title-daily-tag">REDDIT ARCADE &nbsp;|&nbsp; HENRY EDITION</div>
+          <img class="title-pixel-logo" src="./arcade/logo_mustache_protocol.webp" alt="MUSTACHE PROTOCOL" />
+          <div class="title-the-game">THE GAME</div>
         </div>
 
-        <div class="title-dock">
-          <div class="skin-row" id="skin-selector">
-            <button class="skin-btn selected" data-skin="0" type="button">
-              <span class="skin-name">GOLDEN TITAN</span>
-              <span class="skin-role">Power Kick [K]</span>
-            </button>
-            <button class="skin-btn" data-skin="1" type="button">
-              <span class="skin-name">ROYAL RANGER</span>
-              <span class="skin-role">Blitz Dash [K]</span>
-            </button>
-            <button class="skin-btn" data-skin="2" type="button">
-              <span class="skin-name">CRIMSON FIST</span>
-              <span class="skin-role">Uppercut [K]</span>
-            </button>
-            <button class="skin-btn locked" id="skin-secret-btn" data-skin="3" type="button">
-              <span class="skin-name">SECRET AGENT</span>
-              <span class="skin-role" id="skin-secret-role">5K PTS Unlock</span>
-            </button>
-          </div>
+        <div class="title-cta-stack">
+          <button class="btn-start-campaign" id="btn-press-start" type="button">
+            <img class="btn-start-stache" src="./arcade/pickup_mustache.webp" alt="" aria-hidden="true" />
+            <span class="btn-start-label">START CAMPAIGN</span>
+          </button>
 
-          <div class="mode-switch-row">
-            <button class="arcade-mode-btn selected" id="btn-mode-story" type="button">25 GOONS + BOSS</button>
-            <button class="arcade-mode-btn" id="btn-mode-endless" type="button">ENDLESS QUAY</button>
+          <div class="title-sub-actions">
+            <button class="btn-select-level" id="btn-open-levels" type="button">
+              <span class="level-lock-icon" id="level-lock-glyph">&#9733;</span>
+              <span id="selected-level-label">SELECT LEVEL</span>
+            </button>
+            <button class="btn-title-gear" id="btn-title-settings" type="button" aria-label="Settings">&#9881;</button>
           </div>
+        </div>
+      </div>
 
-          <button class="btn-press-start" id="btn-press-start" type="button">
-            <span class="start-main">PRESS START · ENTER THE STREETS</span>
-            <span class="start-sub">MOVE · SPACE JUMP · [O] PUNCH/THROW · [K] SPECIAL · [L] ARM RELOAD</span>
+      <!-- Level & Fighter Select Modal (Triggered by SELECT LEVEL on Title Screen) -->
+      <div class="arcade-modal-bg is-hidden" id="arcade-level-modal">
+        <div class="arcade-card">
+          <div class="arcade-card-head">
+            <div class="arcade-card-title">SELECT HARBOR STAGE &amp; ARMOR</div>
+            <button class="btn-arcade-sec" id="btn-close-levels" type="button">CLOSE</button>
+          </div>
+          <div class="arcade-panel-sec">
+            <h4>Choose Campaign Stage</h4>
+            <div class="level-grid" id="level-selector">
+              <button class="level-card-btn selected" data-stage="0" type="button">
+                <strong>LEVEL 1 · HARBOR ISLAND</strong>
+                <span>Sunny Barbershop &amp; Fancy Garage Quay</span>
+              </button>
+              <button class="level-card-btn" data-stage="1" type="button">
+                <strong>LEVEL 2 · SUNSET BOULEVARD</strong>
+                <span>Golden Dusk Quay &amp; Elite Scissor Squads</span>
+              </button>
+              <button class="level-card-btn" data-stage="2" type="button">
+                <strong>LEVEL 3 · SYNDICATE NIGHT</strong>
+                <span>Midnight Harbor &amp; Kingpin Boss Showdown</span>
+              </button>
+              <button class="level-card-btn" data-stage="3" type="button">
+                <strong>ENDLESS HARBOR SURVIVAL</strong>
+                <span>Infinite Waves · Reddit Daily High-Score Run</span>
+              </button>
+            </div>
+          </div>
+          <div class="arcade-panel-sec">
+            <h4>Armor Style</h4>
+            <div class="skin-row" id="skin-selector">
+              <button class="skin-btn selected" data-skin="0" type="button">
+                <span class="skin-name">GOLDEN TITAN</span>
+                <span class="skin-role">Comb Slash [K]</span>
+              </button>
+              <button class="skin-btn" data-skin="1" type="button">
+                <span class="skin-name">ROYAL RANGER</span>
+                <span class="skin-role">Blitz Dash [K]</span>
+              </button>
+              <button class="skin-btn" data-skin="2" type="button">
+                <span class="skin-name">CRIMSON FIST</span>
+                <span class="skin-role">Uppercut [K]</span>
+              </button>
+              <button class="skin-btn locked" id="skin-secret-btn" data-skin="3" type="button">
+                <span class="skin-name">SECRET AGENT</span>
+                <span class="skin-role" id="skin-secret-role">5K PTS Unlock</span>
+              </button>
+            </div>
+          </div>
+          <button class="btn-start-campaign modal-launch-btn" id="btn-launch-selected" type="button">
+            <img class="btn-start-stache" src="./arcade/pickup_mustache.webp" alt="" aria-hidden="true" />
+            <span class="btn-start-label">PLAY SELECTED LEVEL</span>
           </button>
         </div>
       </div>
 
-      <!-- Arcade Pause Modal -->
+      <!-- Arcade Pause & Settings Modal -->
       <div class="arcade-modal-bg is-hidden" id="arcade-pause-modal">
         <div class="arcade-card">
           <div class="arcade-card-head">
-            <div class="arcade-card-title">ARCADE PAUSE</div>
+            <div class="arcade-card-title">MUSTACHE PROTOCOL · OPTIONS</div>
             <button class="btn-arcade-sec" id="btn-pause-resume-top" type="button">RESUME</button>
           </div>
           <div class="arcade-panel-sec">
-            <h4>Street Fighter Controls (Keyboard · Touch · Gamepad)</h4>
+            <h4>16-Bit Arcade Controls (Keyboard · Touch · Gamepad)</h4>
             <ul>
-              <li><strong>WASD / Arrows / Stick:</strong> Walk Left/Right &amp; Shift Sidewalk Lane</li>
-              <li><strong>Space / (A):</strong> Jump onto Phone Booth &amp; Car Roofs / Dodge Boss Slams</li>
-              <li><strong>[O] / [J] / (X):</strong> 3-Hit Punch Combo, Parry Mustaches &amp; Grab-Throw Stunned Goons!</li>
-              <li><strong>[K] / (Y):</strong> Fighter Signature Move (Power Kick / Blitz Dash / Rising Uppercut)</li>
-              <li><strong>[L] / (RB):</strong> Trigger <strong>ARM RELOAD</strong> (Super Punches + Invincibility)</li>
+              <li><strong>WASD / Arrows:</strong> Walk Harbor Quay &amp; Shift Sidewalk Depth</li>
+              <li><strong>Space / [W]:</strong> High-Jump onto Cars, Phone Booths &amp; Shop Roofs!</li>
+              <li><strong>[O] / [J]:</strong> Golden Comb-Sword Slash &amp; 3-Hit Brawler Combo!</li>
+              <li><strong>[K]:</strong> Whirlwind Comb Dash (5s Cooldown) &amp; Deflect Projectiles</li>
+              <li><strong>[L] / [Q]:</strong> Unleash <strong>ARM RELOAD</strong> when Thermometer is Full!</li>
             </ul>
           </div>
           <div class="arcade-panel-sec">
-            <h4>Live Run Stats &amp; Audio Mixer</h4>
-            <div id="pause-stats-line">KOs: 0 / 25 · Score: 0 · Accuracy: 100%</div>
+            <h4>Run Progress &amp; Chiptune Mixer</h4>
+            <div id="pause-stats-line">Mustaches: 000 · KOs: 0 / 25 · Score: 0</div>
             <div class="mixer-grid">
               <label class="mixer-row">
                 <span>MUSIC VOLUME</span>
@@ -209,8 +266,8 @@
             <button class="btn-arcade-sec" id="btn-toggle-crt" type="button">CRT: ON</button>
           </div>
           <div class="arcade-btn-row">
-            <button class="btn-arcade-sec" id="btn-pause-restart" type="button">RESTART RUN</button>
-            <button class="btn-arcade-sec" id="btn-pause-resume" type="button">BACK TO STREET</button>
+            <button class="btn-arcade-sec" id="btn-pause-restart" type="button">TITLE SCREEN</button>
+            <button class="btn-arcade-sec" id="btn-pause-resume" type="button">CONTINUE</button>
           </div>
         </div>
       </div>
@@ -220,28 +277,28 @@
         <div class="arcade-card">
           <div class="end-top-row">
             <div class="end-hero-wrap">
-              <img class="end-portrait" src="./arcade/hero_portrait.webp" alt="Hero Victory" />
+              <img class="end-portrait" src="./arcade/hero_portrait.webp" alt="Henry Victory" />
               <div>
-                <div class="title-tag" id="end-outcome-tag">STAGE CLEAR!</div>
+                <div class="title-tag" id="end-outcome-tag">PROTOCOL COMPLETE!</div>
                 <div class="end-score-big" id="end-score-val">00000 PTS</div>
               </div>
             </div>
             <div class="end-rank-stamp" id="end-rank-val">S</div>
           </div>
           <div class="arcade-panel-sec" id="end-summary-box">
-            Cleared the Harbor Quay with 25 KOs and defeated Don Mustachio!
+            Saved Harbor Island's Barbershop and reclaimed every stolen mustache!
           </div>
           <div class="arcade-panel-sec">
-            <h4>Earned Arcade Medals</h4>
+            <h4>Earned Protocol Medals</h4>
             <div class="medals-strip" id="end-medals-strip"></div>
           </div>
           <div class="arcade-panel-sec">
-            <h4>Today's Harbor Top Champions</h4>
+            <h4>Today's Harbor Island Leaderboard</h4>
             <div class="end-lb-list" id="end-lb-list"></div>
           </div>
           <div class="arcade-btn-row-3">
             <button class="btn-arcade-sec" id="btn-end-share" type="button">SHARE REDDIT</button>
-            <button class="btn-arcade-sec" id="btn-end-replay" type="button">FIGHT AGAIN</button>
+            <button class="btn-arcade-sec" id="btn-end-replay" type="button">PLAY AGAIN</button>
             <button class="btn-arcade-sec" id="btn-end-endless" type="button">ENDLESS</button>
           </div>
           <div class="status-micro" id="end-status-msg"></div>

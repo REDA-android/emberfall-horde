@@ -3,10 +3,10 @@
 
   var W = 960;
   var H = 540;
-  var WORLD_W = 2640;
-  var LANE_MIN_Y = 382;
-  var LANE_MAX_Y = 450;
-  var WATER_Y = 468;
+  var WORLD_W = 3840; // 4 seamless 960px 16-bit SNES panoramas: [A, B, A, B]
+  var LANE_MIN_Y = 386;
+  var LANE_MAX_Y = 434;
+  var WATER_Y = 472;
   var GOAL_KOS = 25;
 
   var canvas = document.getElementById("arcade-canvas");
@@ -15,7 +15,7 @@
   var thermoCtx = thermoCanvas ? thermoCanvas.getContext("2d") : null;
 
   // =========================================================================
-  // 16-BIT CHIPTUNE & ARCADE SFX ENGINE (WebAudio API, Zero External Files)
+  // 16-BIT SNES CHIPTUNE & ARCADE SFX SYNTHESIZER (Zero External Audio URLs)
   // =========================================================================
   var audioCtx = null;
   var masterGain = null;
@@ -24,6 +24,8 @@
   var crtEnabled = true;
   var seqTimer = null;
   var seqStep = 0;
+  var musicVol = 0.70;
+  var sfxVol = 0.85;
 
   var STREET_BASS = [110, 110, 130.81, 146.83, 164.81, 146.83, 130.81, 98, 110, 110, 164.81, 146.83, 130.81, 123.47, 98, 87.31];
   var STREET_LEAD = [440, 0, 523.25, 587.33, 659.25, 0, 587.33, 523.25, 440, 0, 392, 440, 523.25, 0, 493.88, 0];
@@ -47,7 +49,7 @@
 
   function getNoise(ac) {
     if (noiseBuf) return noiseBuf;
-    var len = Math.floor(ac.sampleRate * 0.35);
+    var len = Math.floor(ac.sampleRate * 0.38);
     var b = ac.createBuffer(1, len, ac.sampleRate);
     var d = b.getChannelData(0);
     for (var i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
@@ -104,26 +106,35 @@
     if (masterGain && audioCtx) {
       masterGain.gain.setTargetAtTime(0.72 * Math.max(0.15, sfxVol), audioCtx.currentTime, 0.02);
     }
-    if (name === "punch") {
-      tone(210, 68, 0.08, "square", 0.11, 0);
-      noise(0.06, 820, "bandpass", 0.09, 0);
+    if (name === "slash") {
+      noise(0.08, 2400, "bandpass", 0.10, 0);
+      tone(520, 170, 0.10, "sawtooth", 0.10, 0);
+    } else if (name === "punch") {
+      tone(220, 68, 0.08, "square", 0.11, 0);
+      noise(0.06, 860, "bandpass", 0.09, 0);
     } else if (name === "heavy") {
-      tone(150, 42, 0.16, "sawtooth", 0.15, 0);
+      tone(155, 42, 0.16, "sawtooth", 0.15, 0);
       noise(0.14, 520, "lowpass", 0.14, 0);
-    } else if (name === "kick") {
-      tone(340, 120, 0.11, "triangle", 0.10, 0);
-      noise(0.07, 1500, "highpass", 0.06, 0);
-    } else if (name === "uppercut") {
-      tone(190, 740, 0.18, "sawtooth", 0.12, 0);
-      noise(0.10, 1800, "bandpass", 0.08, 0);
-    } else if (name === "throw") {
-      tone(420, 110, 0.16, "sawtooth", 0.11, 0);
-      noise(0.12, 1200, "bandpass", 0.08, 0.02);
+    } else if (name === "whirlwind") {
+      noise(0.18, 1900, "bandpass", 0.12, 0);
+      tone(330, 880, 0.22, "sawtooth", 0.12, 0);
     } else if (name === "jump") {
-      tone(220, 520, 0.12, "square", 0.07, 0);
-    } else if (name === "land") {
-      tone(130, 36, 0.22, "sawtooth", 0.16, 0);
-      noise(0.18, 380, "lowpass", 0.15, 0);
+      tone(240, 560, 0.12, "square", 0.07, 0);
+    } else if (name === "thunder") {
+      noise(0.36, 420, "lowpass", 0.20, 0);
+      tone(180, 44, 0.34, "sawtooth", 0.16, 0);
+      tone(523.25, 1046.5, 0.28, "square", 0.11, 0.12);
+    } else if (name === "stache") {
+      tone(659.25, 880, 0.07, "square", 0.07, 0);
+      tone(880, 1174.6, 0.09, "triangle", 0.07, 0.05);
+    } else if (name === "canister") {
+      tone(440, 659.25, 0.09, "square", 0.09, 0);
+      tone(659.25, 987.77, 0.12, "square", 0.10, 0.07);
+      tone(987.77, 1318.5, 0.18, "sawtooth", 0.10, 0.14);
+    } else if (name === "heal") {
+      tone(523.25, 659.25, 0.10, "triangle", 0.10, 0);
+      tone(659.25, 783.99, 0.11, "triangle", 0.10, 0.08);
+      tone(783.99, 1046.5, 0.18, "sine", 0.11, 0.16);
     } else if (name === "parry") {
       tone(880, 1480, 0.11, "triangle", 0.12, 0);
       tone(1320, 1760, 0.12, "sine", 0.09, 0.05);
@@ -141,9 +152,6 @@
     } else if (name === "glass") {
       noise(0.16, 4200, "highpass", 0.12, 0);
       tone(1450, 780, 0.11, "triangle", 0.07, 0);
-    } else if (name === "pickup") {
-      tone(523.25, 659.25, 0.09, "square", 0.08, 0);
-      tone(659.25, 1046.5, 0.14, "square", 0.09, 0.07);
     } else if (name === "hurt") {
       tone(180, 58, 0.19, "sawtooth", 0.13, 0);
       noise(0.11, 450, "lowpass", 0.09, 0);
@@ -174,32 +182,39 @@
       var lead = intense ? BOSS_LEAD : STREET_LEAD;
       var i = seqStep % 16;
       seqStep++;
-      var mScale = musicVol;
-      if (mScale <= 0.01) return;
+      if (musicVol <= 0.01) return;
       var bn = bass[i];
-      if (bn > 0) tone(bn, bn * 0.99, 0.13, "triangle", (intense ? 0.068 : 0.052) * mScale, 0);
+      if (bn > 0) tone(bn, bn * 0.99, 0.13, "triangle", (intense ? 0.068 : 0.052) * musicVol, 0);
       var ln = lead[i];
       if (ln > 0 && (intense || seqStep % 32 >= 16)) {
-        tone(ln, ln, 0.12, "square", (intense ? 0.038 : 0.026) * mScale, 0);
+        tone(ln, ln, 0.12, "square", (intense ? 0.038 : 0.026) * musicVol, 0);
       }
-      if (i % 4 === 0) tone(122, 42, 0.09, "sine", 0.082 * mScale, 0);
-      if (i === 4 || i === 12) noise(0.06, 1600, "bandpass", 0.042 * mScale, 0);
+      if (i % 4 === 0) tone(122, 42, 0.09, "sine", 0.082 * musicVol, 0);
+      if (i === 4 || i === 12) noise(0.06, 1600, "bandpass", 0.042 * musicVol, 0);
     }, 142);
   }
 
-  var musicVol = 0.70;
-  var sfxVol = 0.85;
-
   // =========================================================================
-  // SPRITE LOADER (16-bit Pixel Art Transparent WebPs)
+  // 16-BIT PIXEL-ART TEXTURE & SPRITE LOADER (Zero External Assets)
   // =========================================================================
   var sprites = {};
   var SPRITE_URLS = {
-    heroIdle: "./arcade/hero_idle.webp",
-    heroPunch: "./arcade/hero_punch.webp",
+    bgStreetA: "./arcade/bg_street_a.webp",
+    bgStreetB: "./arcade/bg_street_b.webp",
+    cutBarberTv: "./arcade/cut_barber_tv.webp",
+    cutShattered: "./arcade/cut_shattered_shop.webp",
+    cutCliff: "./arcade/cut_sunset_cliff.webp",
+    heroGoldIdle: "./arcade/hero_gold_idle.webp",
+    heroCombSlash: "./arcade/hero_comb_slash.webp",
     heroKick: "./arcade/hero_kick.webp",
+    enemyScissor: "./arcade/enemy_scissor.webp",
     enemySuit: "./arcade/enemy_suit.webp",
-    bossKingpin: "./arcade/boss_kingpin.webp"
+    bossKingpin: "./arcade/boss_kingpin.webp",
+    propBooth: "./arcade/prop_booth.webp",
+    propCar: "./arcade/prop_car.webp",
+    pickupCanister: "./arcade/pickup_canister.webp",
+    pickupCroissant: "./arcade/pickup_croissant.webp",
+    pickupMustache: "./arcade/pickup_mustache.webp"
   };
   Object.keys(SPRITE_URLS).forEach(function (k) {
     var img = new Image();
@@ -207,14 +222,25 @@
     sprites[k] = img;
   });
 
+  function imgReady(im) {
+    return Boolean(im && im.complete && im.naturalWidth > 0);
+  }
+
   // =========================================================================
-  // DAILY ARCADE MUTATORS & REDDIT DEVVIT BACKEND
+  // REDDIT DEVVIT PERSISTENCE & LEADERBOARD SYNC
   // =========================================================================
-  var DAILY_MUTATORS = [
-    { key: "MUSTACHE STORM", desc: "+50% Parry PTS · Swift Boomerangs", parryMul: 1.5, thermoMul: 1.0, scoreMul: 1.0, propMul: 1.0 },
-    { key: "TURBO RELOAD", desc: "+35% Mercury Thermometer Charge", parryMul: 1.0, thermoMul: 1.35, scoreMul: 1.0, propMul: 1.0 },
-    { key: "HEAVY SYNDICATE", desc: "+40% KO Score · Elite Harbor Goons", parryMul: 1.0, thermoMul: 1.0, scoreMul: 1.4, propMul: 1.0 },
-    { key: "CAR SMASH BONUS", desc: "2x Street Prop & Car Smash PTS", parryMul: 1.0, thermoMul: 1.15, scoreMul: 1.0, propMul: 2.0 }
+  var STAGE_DEFS = [
+    { idx: 0, title: "LEVEL 1 · HARBOR ISLAND", endless: false, startKos: 0, lighting: "day" },
+    { idx: 1, title: "LEVEL 2 · SUNSET BOULEVARD", endless: false, startKos: 12, lighting: "sunset" },
+    { idx: 2, title: "LEVEL 3 · SYNDICATE NIGHT", endless: false, startKos: 22, lighting: "night" },
+    { idx: 3, title: "ENDLESS HARBOR SURVIVAL", endless: true, startKos: 0, lighting: "day" }
+  ];
+
+  var SKIN_PERKS = [
+    { name: "GOLDEN TITAN", speedMul: 1.0, dmgMul: 1.0, thermoMul: 1.0, special: "whirlwind", aura: "#ffe24a", filter: "none" },
+    { name: "ROYAL RANGER", speedMul: 1.15, dmgMul: 1.0, thermoMul: 1.0, special: "blitz", aura: "#38e8ff", filter: "hue-rotate(175deg) saturate(1.2)" },
+    { name: "CRIMSON FIST", speedMul: 1.0, dmgMul: 1.2, thermoMul: 1.0, special: "uppercut", aura: "#ff5f2e", filter: "hue-rotate(-25deg) saturate(1.35)" },
+    { name: "SECRET AGENT", speedMul: 1.12, dmgMul: 1.15, thermoMul: 1.2, special: "whirlwind", aura: "#f8fafc", filter: "grayscale(0.65) contrast(1.22)" }
   ];
 
   var apiState = {
@@ -223,30 +249,14 @@
     streak: 1,
     bestScore: 0,
     secretUnlocked: false,
-    mutatorIdx: 0,
     leaderboard: [],
     runId: "",
     submitted: false
   };
 
-  function seedToMutatorIdx(seedStr) {
-    var h = 2166136261;
-    for (var i = 0; i < seedStr.length; i++) {
-      h ^= seedStr.charCodeAt(i);
-      h = Math.imul(h, 16777619);
-    }
-    return Math.abs(h) % DAILY_MUTATORS.length;
-  }
-
-  function applyMutatorUi() {
-    var m = DAILY_MUTATORS[apiState.mutatorIdx % DAILY_MUTATORS.length] || DAILY_MUTATORS[0];
-    var pill = document.getElementById("title-mutator-pill");
-    if (pill) pill.textContent = "DAILY MUTATOR: " + m.key + " · " + m.desc;
-  }
-
   function loadLocal() {
     try {
-      var raw = localStorage.getItem("henry_arcade_v5") || localStorage.getItem("henry_arcade_v4") || localStorage.getItem("henry_arcade_v3");
+      var raw = localStorage.getItem("mustache_protocol_v7") || localStorage.getItem("henry_arcade_v5");
       if (!raw) return;
       var d = JSON.parse(raw);
       if (d) {
@@ -263,7 +273,7 @@
 
   function saveLocal() {
     try {
-      localStorage.setItem("henry_arcade_v5", JSON.stringify({
+      localStorage.setItem("mustache_protocol_v7", JSON.stringify({
         bestScore: apiState.bestScore,
         streak: apiState.streak,
         secretUnlocked: apiState.secretUnlocked,
@@ -281,7 +291,7 @@
     if (!btn) return;
     if (apiState.secretUnlocked) {
       btn.classList.remove("locked");
-      if (role) role.textContent = "+15% Thermo [K]";
+      if (role) role.textContent = "+20% Energy [K]";
     } else {
       btn.classList.add("locked");
       if (role) role.textContent = "5K PTS Unlock";
@@ -297,214 +307,210 @@
         if (d.username) apiState.username = d.username;
         if (typeof d.streak === "number") apiState.streak = Math.max(1, d.streak);
         if (typeof d.personalBest === "number") apiState.bestScore = Math.max(apiState.bestScore, d.personalBest);
-        if (typeof d.mutatorOverride === "number" && d.mutatorOverride >= 0) {
-          apiState.mutatorIdx = d.mutatorOverride % DAILY_MUTATORS.length;
-        } else {
-          apiState.mutatorIdx = seedToMutatorIdx(apiState.seed);
-        }
         if (Array.isArray(d.leaderboard)) apiState.leaderboard = d.leaderboard.slice(0, 5);
         if (apiState.bestScore >= 5000) apiState.secretUnlocked = true;
         refreshSecretUnlockUi();
-        applyMutatorUi();
-        var tag = document.getElementById("title-daily-tag");
-        if (tag) tag.textContent = "16-BIT HARBOR BEAT'EM UP · DAILY #" + apiState.seed;
       })
       .catch(function () {});
   }
 
   loadLocal();
-  apiState.mutatorIdx = seedToMutatorIdx(apiState.seed);
   refreshSecretUnlockUi();
-  applyMutatorUi();
   fetchInit();
 
   // =========================================================================
-  // WORLD ARCHITECTURE & PLAYABLE FIGHTERS (PHASE 2 ENHANCED)
+  // ARCHITECTURAL ROOFTOP & WINDOW LEDGES (Matches v2_01.png High-Jumping!)
   // =========================================================================
-  var BUILDINGS = [
-    { x: 0, w: 195, h: 215, col: "#92b59c", roof: "#4a5a6a", style: "barber", label: "barbershop", windows: 1 },
-    { x: 195, w: 220, h: 315, col: "#e7b944", roof: "#4c5c6e", style: "townhouse", doorCol: "#a06d2c", windows: 2, flowers: true },
-    { x: 415, w: 225, h: 315, col: "#255aa8", roof: "#3a4d66", style: "townhouse", doorCol: "#1a3c7c", quoins: true, windows: 2, flowers: true },
-    { x: 640, w: 205, h: 268, col: "#e04248", roof: "#475769", style: "townhouse", doorCol: "#991b22", windows: 2 },
-    { x: 845, w: 230, h: 218, col: "#dce4ee", roof: "#556475", style: "fancy", label: "FANCY", windows: 0 },
-    { x: 1075, w: 215, h: 315, col: "#2f74c0", roof: "#3c4e64", style: "townhouse", doorCol: "#6d747d", quoins: true, windows: 2, flowers: true },
-    { x: 1290, w: 265, h: 318, col: "#ea5b5c", roof: "#455568", style: "townhouse", doorCol: "#9e2a2b", windows: 3 },
-    { x: 1555, w: 200, h: 240, col: "#f0d24b", roof: "#4b5b6c", style: "townhouse", doorCol: "#7c5218", windows: 2, flowers: true },
-    { x: 1755, w: 215, h: 285, col: "#1d5aa6", roof: "#36465c", style: "townhouse", doorCol: "#133166", quoins: true, windows: 2 },
-    { x: 1970, w: 230, h: 220, col: "#8fb79f", roof: "#485869", style: "barber", label: "barbershop", windows: 1 },
-    { x: 2200, w: 220, h: 310, col: "#d9464a", roof: "#425062", style: "townhouse", doorCol: "#7f1d1d", windows: 2 },
-    { x: 2420, w: 240, h: 260, col: "#2c3448", roof: "#1e2436", style: "fancy", label: "SYNDICATE HQ", windows: 0 }
-  ];
-
-  var LAMPS_X = [358, 780, 1215, 1680, 2110];
-
-  var SKIN_PERKS = [
-    { name: "GOLDEN TITAN", speedMul: 1.0, dmgMul: 1.0, thermoMul: 1.0, special: "kick", aura: "#ffe24a", filter: "none" },
-    { name: "ROYAL RANGER", speedMul: 1.16, dmgMul: 1.0, thermoMul: 1.0, special: "blitz", aura: "#38e8ff", filter: "hue-rotate(178deg) saturate(1.25)" },
-    { name: "CRIMSON FIST", speedMul: 1.0, dmgMul: 1.2, thermoMul: 1.0, special: "uppercut", aura: "#ff5f2e", filter: "hue-rotate(-28deg) saturate(1.42)" },
-    { name: "SECRET AGENT", speedMul: 1.12, dmgMul: 1.12, thermoMul: 1.18, special: "blitz", aura: "#f8fafc", filter: "grayscale(0.68) contrast(1.24)" }
-  ];
+  // Each 1920px cycle ([bg_street_a (0..960), bg_street_b (960..1920)]) has real 16-bit roofs & window sills:
+  // - Barbershop roof (x=0..205, z=156)
+  // - Townhouse 2nd-floor window sills (x=215..835, z=98)
+  // - Fancy Garage showroom roof (x=740..960, z=152) -> holds the glowing Blue Energy Canister just like v2_01.png!
+  // - Cottage & stone house ledges in street_b (x=1225..1495, z=118)
+  function buildLedges() {
+    var list = [];
+    for (var cycle = 0; cycle < 2; cycle++) {
+      var ox = cycle * 1920;
+      list.push({ x0: ox + 8, x1: ox + 206, z: 156 });    // Barbershop flat cornice
+      list.push({ x0: ox + 225, x1: ox + 392, z: 96 });   // Yellow house window sill
+      list.push({ x0: ox + 418, x1: ox + 585, z: 96 });   // Royal-blue house flower sill
+      list.push({ x0: ox + 602, x1: ox + 732, z: 104 });  // Crimson house upper window sill (v2_01.png jump!)
+      list.push({ x0: ox + 742, x1: ox + 956, z: 152 });  // FANCY GARAGE flat roof!
+      list.push({ x0: ox + 1230, x1: ox + 1495, z: 112 }); // Yellow gabled cottage roof
+      list.push({ x0: ox + 1515, x1: ox + 1700, z: 96 }); // Blue house flower sill B
+    }
+    return list;
+  }
+  var WORLD_LEDGES = buildLedges();
 
   var state = {
     phase: "title", // title | intro | playing | arm_reload | paused | ended
+    stageIdx: 0,
     endless: false,
     skinIdx: 0,
     time: 0,
     introTimer: 0,
-    introDropped: false,
+    thunderPlayed: false,
     camX: 0,
     camZoom: 1.0,
     zoomTimer: 0,
     shake: 0,
     hitstop: 0,
+    mustaches: 0,
     kos: 0,
     score: 0,
     combo: 0,
     maxCombo: 0,
     comboTimer: 0,
-    thermo: 18,
+    thermo: 24,
     parries: 0,
-    throws: 0,
     reloadsUsed: 0,
     armReloadShownOnce: false,
     bossActive: false,
     bossSlain: false,
-    limoX: -400,
-    limoPhase: 0,
     goTimer: 0,
     spawnTimer: 0.9,
     victory: false,
-    speech: null, // { x, y, text, timer }
     hero: {
-      x: 340,
-      y: 418,
+      x: 240,
+      y: 412,
       z: 0,
       vz: 0,
       vx: 0,
       vy: 0,
+      jumpsUsed: 0,
       facing: 1,
       hp: 6,
       maxHp: 6,
       invuln: 0,
       attackType: "none",
       attackTimer: 0,
+      slashArcTimer: 0,
       comboStep: 0,
       comboWindow: 0,
       oCd: 0,
       kCd: 0,
       armReloadTimer: 0,
-      mustacheShieldTimer: 0,
-      weapon: null,
       walkPhase: 0,
       afterimages: []
     },
     props: [],
+    collectibles: [],
     enemies: [],
     projectiles: [],
-    pickups: [],
     particles: [],
     popups: [],
-    debris: [], // flying glasses & spinning trash cans!
-    seagulls: [],
-    shatteredWindows: {}
+    debris: []
   };
 
   var keys = {};
   var touchInput = { left: false, right: false };
 
-  function initSeagulls() {
-    state.seagulls = [];
-    for (var i = 0; i < 4; i++) {
-      state.seagulls.push({
-        x: 120 + i * 260,
-        y: 38 + (i % 3) * 24,
-        speed: 32 + i * 7,
-        wing: i * 1.4
-      });
+  function spawnStreetCollectibles() {
+    var c = [];
+    // Trail 1: Sidewalk mustache line in front of Yellow & Blue houses (v2_01 / v2_04!)
+    var sidewalkXs = [360, 412, 464, 620, 670, 1080, 1130, 1180, 1230, 1610, 1660, 2120, 2170, 2220, 2680, 2730, 3150, 3200];
+    for (var i = 0; i < sidewalkXs.length; i++) {
+      c.push({ kind: "mustache", x: sidewalkXs[i], y: 410, z: 18, bobOff: i * 0.7 });
     }
+    // Trail 2: Arcing jump mustaches over Cars & up onto FANCY GARAGE / Barbershop roofs (exact v2_01.png!)
+    var aerialArcs = [
+      { x: 112, z: 172 }, { x: 168, z: 172 },
+      { x: 642, z: 122 }, { x: 696, z: 146 },
+      { x: 790, z: 68 },  { x: 842, z: 108 }, { x: 892, z: 138 }, // Arc right over the Silver Hatchback Car up to Fancy Garage!
+      { x: 1315, z: 132 }, { x: 1375, z: 132 },
+      { x: 2710, z: 68 }, { x: 2762, z: 108 }, { x: 2814, z: 138 }
+    ];
+    for (var j = 0; j < aerialArcs.length; j++) {
+      c.push({ kind: "mustache", x: aerialArcs[j].x, y: 404, z: aerialArcs[j].z, bobOff: j * 0.9 });
+    }
+    // Rooftop Glowing Blue Energy Canisters (exact v2_01.png spot on right edge of FANCY GARAGE roof!)
+    c.push({ kind: "canister", x: 924, y: 398, z: 156, bobOff: 0 });
+    c.push({ kind: "canister", x: 1435, y: 398, z: 116, bobOff: 1.2 });
+    c.push({ kind: "canister", x: 2844, y: 398, z: 156, bobOff: 2.4 });
+    // Golden Healing Croissants ("Restores 1 heart" — exact v2_04.png!)
+    c.push({ kind: "croissant", x: 545, y: 402, z: 110, bobOff: 0.4 });
+    c.push({ kind: "croissant", x: 1760, y: 412, z: 20, bobOff: 1.5 });
+    c.push({ kind: "croissant", x: 2980, y: 412, z: 20, bobOff: 2.2 });
+    return c;
   }
 
-  function resetWorld(endlessMode) {
-    state.endless = Boolean(endlessMode);
+  function resetWorld(stageIdx) {
+    var stg = STAGE_DEFS[stageIdx] || STAGE_DEFS[0];
+    state.stageIdx = stg.idx;
+    state.endless = stg.endless;
     state.time = 0;
     state.introTimer = 0;
-    state.introDropped = false;
+    state.thunderPlayed = false;
     state.camX = 0;
     state.camZoom = 1.0;
     state.zoomTimer = 0;
     state.shake = 0;
     state.hitstop = 0;
-    state.kos = 0;
+    state.mustaches = 3; // Starts at 003 like v2_01.png!
+    state.kos = stg.startKos;
     state.score = 0;
     state.combo = 0;
     state.maxCombo = 0;
     state.comboTimer = 0;
-    state.thermo = 18;
+    state.thermo = 26;
     state.parries = 0;
-    state.throws = 0;
     state.reloadsUsed = 0;
     state.armReloadShownOnce = false;
     state.bossActive = false;
     state.bossSlain = false;
-    state.limoX = -400;
-    state.limoPhase = 0;
     state.goTimer = 0;
     state.spawnTimer = 0.85;
     state.victory = false;
-    state.speech = null;
-    state.shatteredWindows = {};
     apiState.submitted = false;
 
     state.hero = {
-      x: 340,
-      y: 418,
+      x: 235,
+      y: 412,
       z: 0,
       vz: 0,
       vx: 0,
       vy: 0,
+      jumpsUsed: 0,
       facing: 1,
       hp: 6,
       maxHp: 6,
       invuln: 0,
       attackType: "none",
       attackTimer: 0,
+      slashArcTimer: 0,
       comboStep: 0,
       comboWindow: 0,
       oCd: 0,
       kCd: 0,
       armReloadTimer: 0,
-      mustacheShieldTimer: 0,
-      weapon: null,
       walkPhase: 0,
       afterimages: []
     };
 
-    // Destructible & Jumpable Iconic Street Props (+ Kickable Trash Cans!)
+    // 16-Bit Pixel-Art Street Props: Yellow Telephone Booth & Silver 2-Door Hatchback Car (exact v2_01.png placement!)
     state.props = [
-      { id: "trash1", kind: "trash", x: 430, y: 392, w: 30, h: 42, hp: 1, maxHp: 1, hitFlash: 0, dropped: false },
-      { id: "booth1", kind: "booth", x: 585, y: 382, w: 54, h: 102, hp: 3, maxHp: 3, hitFlash: 0, dropped: false },
-      { id: "car1", kind: "car", x: 930, y: 404, w: 148, h: 56, hp: 6, maxHp: 6, hitFlash: 0, dropped: false },
-      { id: "crate1", kind: "crate", x: 1380, y: 394, w: 46, h: 42, hp: 2, maxHp: 2, hitFlash: 0, dropped: false },
-      { id: "trash2", kind: "trash", x: 1585, y: 392, w: 30, h: 42, hp: 1, maxHp: 1, hitFlash: 0, dropped: false },
-      { id: "booth2", kind: "booth", x: 1715, y: 382, w: 54, h: 102, hp: 3, maxHp: 3, hitFlash: 0, dropped: false },
-      { id: "car2", kind: "car", x: 2050, y: 404, w: 148, h: 56, hp: 6, maxHp: 6, hitFlash: 0, dropped: false }
+      { id: "booth1", kind: "booth", x: 518, y: 394, w: 68, h: 112, topZ: 102, hp: 4, maxHp: 4, hitFlash: 0, dropped: false },
+      { id: "car1", kind: "car", x: 760, y: 418, w: 172, h: 78, topZ: 62, hp: 6, maxHp: 6, hitFlash: 0, dropped: false },
+      { id: "booth2", kind: "booth", x: 1685, y: 394, w: 68, h: 112, topZ: 102, hp: 4, maxHp: 4, hitFlash: 0, dropped: false },
+      { id: "car2", kind: "car", x: 1995, y: 418, w: 172, h: 78, topZ: 62, hp: 6, maxHp: 6, hitFlash: 0, dropped: false },
+      { id: "booth3", kind: "booth", x: 2438, y: 394, w: 68, h: 112, topZ: 102, hp: 4, maxHp: 4, hitFlash: 0, dropped: false },
+      { id: "car3", kind: "car", x: 2680, y: 418, w: 172, h: 78, topZ: 62, hp: 6, maxHp: 6, hitFlash: 0, dropped: false }
     ];
 
+    state.collectibles = spawnStreetCollectibles();
     state.enemies = [];
     state.projectiles = [];
-    state.pickups = [];
     state.particles = [];
     state.popups = [];
     state.debris = [];
-    initSeagulls();
 
-    spawnEnemy("brawler", 620, 422);
-    spawnEnemy("thrower", 815, 410);
+    spawnEnemy("scissor_brown", 545, 414);
+    spawnEnemy("scissor_olive", 740, 404);
   }
 
   function spawnEnemy(kind, x, y) {
     var isBoss = kind === "boss";
-    var maxHp = isBoss ? 26 : (kind === "heavy" ? 6 : (kind === "thrower" ? 3 : 4));
+    var maxHp = isBoss ? 28 : (kind === "heavy" ? 6 : 3.5);
     state.enemies.push({
       kind: kind,
       x: x,
@@ -518,11 +524,10 @@
       maxHp: maxHp,
       hitFlash: 0,
       stunTimer: 0,
-      attackCd: isBoss ? 1.5 : (1.15 + Math.random() * 1.0),
+      attackCd: isBoss ? 1.4 : (1.05 + Math.random() * 0.9),
       walkPhase: Math.random() * 6,
       dying: false,
       splashKO: false,
-      bowling: false,
       dieTimer: 0,
       glassesLost: false,
       trailHp: maxHp,
@@ -539,8 +544,8 @@
       text: text,
       color: color || "#ffe680",
       size: size || 20,
-      life: 0.92,
-      maxLife: 0.92
+      life: 1.05,
+      maxLife: 1.05
     });
   }
 
@@ -562,16 +567,41 @@
   }
 
   // =========================================================================
-  // COMBAT ACTIONS: [O] PUNCH / GRAB-THROW, [K] SIGNATURE SPECIAL, [L] ARM RELOAD
+  // COMBAT & HIGH-JUMP ACTIONS: [SPACE] ROOF LEAP, [O] COMB SLASH, [K] 5s WHIRLWIND, [L] ARM RELOAD
   // =========================================================================
+  function currentSupportZ(h, prevZ) {
+    var best = 0;
+    // 1. Street Props (Phone Booth & Hatchback Car)
+    for (var i = 0; i < state.props.length; i++) {
+      var pr = state.props[i];
+      if (pr.hp <= 0) continue;
+      if (h.x > pr.x + 6 && h.x < pr.x + pr.w - 6 && Math.abs(h.y - pr.y) < 34) {
+        if (prevZ >= pr.topZ - 14 && h.vz <= 0) {
+          best = Math.max(best, pr.topZ);
+        }
+      }
+    }
+    // 2. Building Window Sills & Shop Roofs (Barbershop & Fancy Garage!)
+    for (var li = 0; li < WORLD_LEDGES.length; li++) {
+      var lg = WORLD_LEDGES[li];
+      if (h.x >= lg.x0 && h.x <= lg.x1 && h.y <= 414) {
+        if (prevZ >= lg.z - 14 && h.vz <= 0) {
+          best = Math.max(best, lg.z);
+        }
+      }
+    }
+    return best;
+  }
+
   function heroJump() {
     if (state.phase === "intro") { finishIntro(); return; }
     if (state.phase !== "playing") return;
     var h = state.hero;
-    if (h.z <= 1 || isStandingOnProp(h)) {
-      h.vz = 475;
+    if (h.jumpsUsed < 2) {
+      h.vz = h.jumpsUsed === 0 ? 605 : 515;
+      h.jumpsUsed++;
       sfx("jump");
-      spawnParticles(h.x, h.y, 6, "#e2e8f0", 90, 220);
+      spawnParticles(h.x, h.y - h.z, 7, "#ffe680", 110, 240);
     }
   }
 
@@ -581,37 +611,17 @@
     var h = state.hero;
     if (h.oCd > 0) return;
 
-    // Grab & Bowl-Throw if right next to a stunned non-boss goon!
-    for (var gi = 0; gi < state.enemies.length; gi++) {
-      var ge = state.enemies[gi];
-      if (!ge.dying && ge.kind !== "boss" && ge.stunTimer > 0.08 && !ge.bowling) {
-        if (Math.abs(ge.x - h.x) < 62 && Math.abs(ge.y - h.y) < 34) {
-          h.oCd = 0.28;
-          h.attackType = "punch";
-          h.attackTimer = 0.24;
-          ge.bowling = true;
-          ge.stunTimer = 0.9;
-          ge.vx = h.facing * 590;
-          ge.vz = 140;
-          state.throws++;
-          state.score += 400;
-          state.shake = 8;
-          sfx("throw");
-          addPopup(h.x + h.facing * 32, h.y - 96, "BOWLING THROW! +400", "#38e8ff", 21);
-          spawnParticles(ge.x, ge.y - 45, 12, "#38e8ff", 220, 220);
-          return;
-        }
-      }
-    }
-
-    h.oCd = h.armReloadTimer > 0 ? 0.16 : 0.21;
-    h.attackType = "punch";
-    h.attackTimer = 0.20;
+    var superMode = h.armReloadTimer > 0;
+    h.oCd = superMode ? 0.15 : 0.19;
     h.comboStep = h.comboWindow > 0 ? (h.comboStep + 1) % 3 : 0;
-    h.comboWindow = 0.65;
-    h.vx += h.facing * (h.armReloadTimer > 0 ? 155 : 65);
-    sfx(h.comboStep === 2 || h.armReloadTimer > 0 ? "heavy" : "punch");
-    performMeleeHit("punch");
+    h.comboWindow = 0.72;
+    // In Arm Reload, Henry throws blazing super punches; normally he alternates Golden Comb-Sword slashes & armored hooks!
+    h.attackType = superMode ? "super_punch" : "comb_slash";
+    h.attackTimer = 0.24;
+    h.slashArcTimer = 0.20;
+    h.vx += h.facing * (superMode ? 165 : 72);
+    sfx(superMode ? "heavy" : (h.comboStep === 2 ? "heavy" : "slash"));
+    performMeleeHit("slash");
   }
 
   function heroKick() {
@@ -620,55 +630,30 @@
     var h = state.hero;
     if (h.kCd > 0) return;
 
-    // Throw picked-up street pipe if holding one
-    if (h.weapon) {
-      h.kCd = 0.34;
-      state.projectiles.push({
-        kind: "pipe",
-        owner: "hero",
-        x: h.x + h.facing * 28,
-        y: h.y - h.z - 42,
-        vx: h.facing * 560,
-        vy: 0,
-        rot: 0,
-        life: 1.5
-      });
-      h.weapon = null;
-      sfx("throw");
-      addPopup(h.x, h.y - h.z - 88, "PIPE THROW!", "#38e8ff", 18);
-      return;
-    }
-
+    // Exact 5.0s Cooldown Special Skill (shows cyan ring + "5s" -> "1s" inside badge like v2_04.png!)
     var perk = SKIN_PERKS[state.skinIdx] || SKIN_PERKS[0];
-    h.kCd = 0.52;
-    h.attackType = "kick";
-    h.attackTimer = 0.34;
+    h.kCd = 5.0;
+    h.attackType = "whirlwind";
+    h.attackTimer = 0.42;
+    h.slashArcTimer = 0.38;
 
     if (perk.special === "uppercut") {
-      // CRIMSON FIST Signature: Rising Dragon Uppercut!
-      h.vz = 460;
-      h.vx = h.facing * 230;
-      sfx("uppercut");
-      spawnParticles(h.x + h.facing * 20, h.y - h.z - 40, 16, "#ff5f2e", 260, 140);
-      addPopup(h.x, h.y - h.z - 98, "DRAGON UPPERCUT!", "#ff5f2e", 20);
-      performMeleeHit("uppercut");
-    } else if (perk.special === "blitz") {
-      // ROYAL RANGER / SECRET AGENT Signature: High-Speed Cyan Blitz Dash!
-      if (h.z < 18) h.vz = 210;
-      h.vx = h.facing * 490;
-      sfx("kick");
-      for (var a = 0; a < 3; a++) {
-        h.afterimages.push({ x: h.x - h.facing * a * 18, y: h.y, z: h.z, facing: h.facing, life: 0.25 });
-      }
-      addPopup(h.x, h.y - h.z - 94, "BLITZ DASH!", perk.aura, 19);
-      performMeleeHit("kick");
+      h.vz = 540;
+      h.vx = h.facing * 260;
+      sfx("whirlwind");
+      spawnParticles(h.x + h.facing * 24, h.y - h.z - 44, 18, "#ff5f2e", 280, 140);
+      addPopup(h.x, h.y - h.z - 98, "GOLDEN UPPERCUT!", "#ff5f2e", 21);
     } else {
-      // GOLDEN TITAN Signature: Flying Power Kick!
-      if (h.z < 18) h.vz = 290;
-      h.vx = h.facing * 375;
-      sfx("kick");
-      performMeleeHit("kick");
+      if (h.z < 20) h.vz = 240;
+      h.vx = h.facing * 480;
+      sfx("whirlwind");
+      for (var a = 0; a < 3; a++) {
+        h.afterimages.push({ x: h.x - h.facing * a * 20, y: h.y, z: h.z, facing: h.facing, life: 0.28 });
+      }
+      spawnParticles(h.x + h.facing * 30, h.y - h.z - 44, 18, "#38e8ff", 270, 150);
+      addPopup(h.x, h.y - h.z - 96, "COMB WHIRLWIND!", "#38e8ff", 21);
     }
+    performMeleeHit("whirlwind");
   }
 
   function triggerArmReload(forceShowCutin) {
@@ -679,9 +664,9 @@
     state.reloadsUsed++;
     h.armReloadTimer = 8.0;
     h.invuln = 8.0;
-    state.shake = 13;
+    state.shake = 14;
     sfx("reload");
-    spawnParticles(h.x, h.y - h.z - 45, 30, "#ffe24a", 330, 180);
+    spawnParticles(h.x, h.y - h.z - 45, 32, "#ffe24a", 340, 180);
     spawnParticles(h.x, h.y - h.z - 45, 20, "#ff5f2e", 270, 140);
 
     if (!state.armReloadShownOnce || forceShowCutin) {
@@ -689,8 +674,7 @@
       state.phase = "arm_reload";
       setVisible("arm-reload-screen", true);
     } else {
-      // Phase 2 Signature: Dramatic 0.45s Camera Zoom-In on Henry!
-      state.zoomTimer = 0.48;
+      state.zoomTimer = 0.50;
       addPopup(h.x, h.y - h.z - 98, "ARM RELOAD!", "#ffe24a", 27);
     }
   }
@@ -699,168 +683,124 @@
     var h = state.hero;
     var perk = SKIN_PERKS[state.skinIdx] || SKIN_PERKS[0];
     var superMode = h.armReloadTimer > 0;
-    var isSpecial = moveKind === "kick" || moveKind === "uppercut";
-    var reach = isSpecial ? 118 : (superMode ? 126 : (h.weapon ? 118 : 96));
-    var hitX = h.x + h.facing * (reach * 0.55);
-    var dmg = (isSpecial ? 2.2 : (h.comboStep === 2 ? 2.5 : 1.5)) * perk.dmgMul;
-    if (h.weapon) dmg += 1.5;
-    if (superMode) dmg = 6;
+    var isWhirl = moveKind === "whirlwind";
+    var reach = isWhirl ? 150 : (superMode ? 136 : 122);
+    var hitX = h.x + h.facing * (reach * 0.52);
+    var dmg = (isWhirl ? 3.4 : (h.comboStep === 2 ? 2.4 : 1.5)) * perk.dmgMul;
+    if (superMode) dmg = 6.5;
 
-    // 1. Deflect Flying Mustache Boomerangs!
+    // 1. Deflect Enemy Scissor-Blades / Mustache Boomerangs!
     for (var pi = 0; pi < state.projectiles.length; pi++) {
       var p = state.projectiles[pi];
-      if (p.owner === "enemy" && Math.abs(p.x - hitX) < 78 && Math.abs(p.y - (h.y - h.z - 46)) < 68) {
+      if (p.owner === "enemy" && Math.abs(p.x - hitX) < 88 && Math.abs(p.y - (h.y - h.z - 46)) < 76) {
         p.owner = "hero";
-        p.vx = h.facing * 540;
-        p.vy = -18;
-        p.life = 2.1;
+        p.vx = h.facing * 560;
+        p.vy = -14;
+        p.life = 2.2;
         state.parries++;
-        state.thermo = Math.min(100, state.thermo + 24 * perk.thermoMul);
+        state.thermo = Math.min(100, state.thermo + 22 * perk.thermoMul);
         state.score += 250;
         state.hitstop = 0.05;
         state.shake = 8;
         sfx("parry");
-        addPopup(p.x, p.y - 24, "PARRY! +250", "#38e8ff", 22);
+        addPopup(p.x, p.y - 24, "PARRY! +250", "#38e8ff", 21);
         spawnParticles(p.x, p.y, 14, "#ffe24a", 240, 180);
       }
     }
 
-    // 2. Hit Street Props (Trash Can -> Launch across street! Phone Booth -> Pizza! Car -> Bonus!)
+    // 2. Smash Street Props (Phone Booth -> drops Healing Croissant! Car -> drops Mustaches + Canister!)
     for (var pri = 0; pri < state.props.length; pri++) {
       var pr = state.props[pri];
       if (pr.hp <= 0) continue;
       var pcx = pr.x + pr.w * 0.5;
-      if (Math.abs(pcx - hitX) < pr.w * 0.5 + 52 && Math.abs(pr.y - h.y) < 55) {
-        if (pr.kind === "trash") {
-          pr.hp = 0;
-          state.projectiles.push({
-            kind: "trashcan",
-            owner: "hero",
-            x: pcx,
-            y: pr.y - 22,
-            vx: h.facing * 490,
-            vy: 0,
-            rot: 0,
-            life: 1.6
-          });
-          state.score += 200;
-          sfx("heavy");
-          addPopup(pcx, pr.y - 68, "TRASH LAUNCH! +200", "#e2e8f0", 20);
-          continue;
-        }
-        pr.hp = Math.max(0, pr.hp - (superMode ? 2 : 1));
+      if (Math.abs(pcx - hitX) < pr.w * 0.5 + 54 && Math.abs(pr.y - h.y) < 52 && h.z < 42) {
+        pr.hp = Math.max(0, pr.hp - (superMode || isWhirl ? 2 : 1));
         pr.hitFlash = 0.16;
         state.shake = Math.max(state.shake, 6);
-        state.thermo = Math.min(100, state.thermo + 14 * perk.thermoMul);
+        state.thermo = Math.min(100, state.thermo + 12 * perk.thermoMul);
         state.score += 150;
-        sfx(pr.kind === "car" ? "glass" : "heavy");
-        spawnParticles(pcx, pr.y - 32, 12, pr.kind === "booth" ? "#facc15" : "#e2e8f0", 220, 480);
-        addPopup(pcx, pr.y - 68, pr.kind === "car" ? "CRASH! +150" : "SMASH!", "#ffe680", 20);
+        sfx("glass");
+        spawnParticles(pcx, pr.y - 36, 12, pr.kind === "booth" ? "#facc15" : "#e2e8f0", 220, 480);
+        addPopup(pcx, pr.y - 78, pr.kind === "car" ? "CAR SMASH! +150" : "CRASH! +150", "#ffe680", 19);
         if (pr.hp <= 0 && !pr.dropped) {
           pr.dropped = true;
           if (pr.kind === "booth") {
-            state.pickups.push({ kind: "pizza", x: pcx, y: pr.y + 12, z: 32, vz: 180 });
-          } else if (pr.kind === "car") {
-            state.pickups.push({ kind: "gold_mustache", x: pcx - 20, y: pr.y + 16, z: 36, vz: 210 });
-            state.pickups.push({ kind: "gold_mustache", x: pcx + 24, y: pr.y + 18, z: 42, vz: 230 });
-            addPopup(pcx, pr.y - 96, "BONUS CAR SMASHED! +500", "#ffe24a", 21);
-            state.score += 500;
+            state.collectibles.push({ kind: "croissant", x: pcx, y: pr.y + 8, z: 18, bobOff: 0 });
           } else {
-            state.pickups.push({ kind: "pipe", x: pcx, y: pr.y + 10, z: 24, vz: 160 });
+            state.collectibles.push({ kind: "canister", x: pcx, y: pr.y + 8, z: 20, bobOff: 0 });
+            state.collectibles.push({ kind: "mustache", x: pcx - 28, y: pr.y + 10, z: 22, bobOff: 0.5 });
+            state.collectibles.push({ kind: "mustache", x: pcx + 28, y: pr.y + 10, z: 22, bobOff: 1.1 });
+            state.score += 400;
           }
         }
       }
     }
 
-    // 3. Hit Enemies & Boss
-    var landed = false;
+    // 3. Slice Scissor-Claw Agents & Boss!
     for (var ei = 0; ei < state.enemies.length; ei++) {
       var e = state.enemies[ei];
       if (e.dying) continue;
       var dx = e.x - h.x;
-      var inFront = dx * h.facing > -26 && Math.abs(dx) <= reach;
-      var inLane = Math.abs(e.y - h.y) <= 44;
+      var inFront = isWhirl ? (Math.abs(dx) <= reach) : (dx * h.facing > -32 && Math.abs(dx) <= reach);
+      var inLane = Math.abs(e.y - h.y) <= 46 && Math.abs(e.z - h.z) <= 68;
       if (inFront && inLane) {
-        landed = true;
-        var launchUp = moveKind === "uppercut";
-        damageEnemy(e, dmg, h.facing, isSpecial || h.comboStep === 2 || superMode, superMode, launchUp);
-      }
-    }
-
-    if (landed && h.weapon) {
-      h.weapon.uses--;
-      if (h.weapon.uses <= 0) {
-        h.weapon = null;
-        addPopup(h.x, h.y - h.z - 86, "PIPE BROKE!", "#fca5a5", 16);
+        damageEnemy(e, dmg, dx >= 0 ? 1 : -1, isWhirl || h.comboStep === 2 || superMode, superMode);
       }
     }
   }
 
-  function damageEnemy(e, dmg, dir, heavy, superMode, launchUp) {
+  function damageEnemy(e, dmg, dir, heavy, superMode) {
     var perk = SKIN_PERKS[state.skinIdx] || SKIN_PERKS[0];
 
-    // Counter-Stun Bonus on Don Mustachio right after his telegraphed slam!
     if (e.kind === "boss" && e.counterWindow > 0) {
       e.counterWindow = 0;
       dmg *= 2.2;
-      e.stunTimer = 1.65;
+      e.stunTimer = 1.6;
       state.score += 600;
       sfx("parry");
-      addPopup(e.x, e.y - 148, "COUNTER STUN! +600", "#38e8ff", 25);
+      addPopup(e.x, e.y - 148, "COUNTER STUN! +600", "#38e8ff", 24);
     }
 
     e.hp -= dmg;
     e.hitFlash = 0.16;
-    e.stunTimer = Math.max(e.stunTimer, e.kind === "boss" ? 0.24 : (heavy ? 0.72 : 0.36));
-    e.vx = dir * (heavy ? (superMode ? 480 : 320) : 140);
-    if (launchUp && e.kind !== "boss") e.vz = 390;
-    else if (heavy && e.kind !== "boss") e.vz = 220;
+    e.stunTimer = Math.max(e.stunTimer, e.kind === "boss" ? 0.22 : (heavy ? 0.68 : 0.34));
+    e.vx = dir * (heavy ? (superMode ? 500 : 320) : 145);
+    if (heavy && e.kind !== "boss") e.vz = 230;
 
     state.combo++;
     state.maxCombo = Math.max(state.maxCombo, state.combo);
-    state.comboTimer = 2.6;
-    state.hitstop = heavy ? 0.052 : 0.026;
+    state.comboTimer = 2.8;
+    state.hitstop = heavy ? 0.048 : 0.024;
     state.shake = Math.max(state.shake, heavy ? 9 : 4);
     if (state.hero.armReloadTimer <= 0) {
-      var mult = (state.hero.hp <= 1 ? 1.5 : 1.0) * perk.thermoMul;
-      state.thermo = Math.min(100, state.thermo + (heavy ? 12 : 7) * mult);
+      state.thermo = Math.min(100, state.thermo + (heavy ? 13 : 8) * perk.thermoMul);
     }
 
-    // Pop spinning purple sunglasses off goon on first hit!
+    // Pop purple goggles off Scissor-Agent on first heavy hit!
     if (!e.glassesLost && e.kind !== "boss") {
       e.glassesLost = true;
       state.debris.push({
-        kind: "glasses",
         x: e.x,
-        y: e.y - e.z - 68,
-        vx: -dir * 120 + (Math.random() - 0.5) * 80,
-        vy: -240,
+        y: e.y - e.z - 72,
+        vx: -dir * 130 + (Math.random() - 0.5) * 70,
+        vy: -250,
         rot: 0,
-        life: 1.1
+        life: 1.05
       });
     }
 
-    // Boss Phase II Enrage Trigger at < 50% HP!
     if (e.kind === "boss" && !e.phase2 && e.hp > 0 && e.hp <= e.maxHp * 0.5) {
       e.phase2 = true;
       state.shake = 14;
       sfx("boss_rage");
       spawnParticles(e.x, e.y - 70, 26, "#c084fc", 300, 180);
-      addPopup(e.x, e.y - 144, "PHASE II: HARBOR RAGE!", "#c084fc", 25);
+      addPopup(e.x, e.y - 144, "PHASE II: CYBER OVERDRIVE!", "#c084fc", 24);
     }
 
-    var words = superMode ? ["SUPER PUNCH!", "ARM RELOAD!", "MEGA POW!"] : (heavy ? ["POW!", "BAM!", "WHAM!"] : ["SMACK!", "HIT!"]);
+    var words = superMode ? ["SUPER PUNCH!", "ARM RELOAD!", "MEGA POW!"] : (heavy ? ["SLASH!", "POW!", "WHAM!"] : ["SNIP!", "HIT!"]);
     var word = words[Math.floor(Math.random() * words.length)];
-    addPopup(e.x, e.y - e.z - 76, word, superMode ? "#ffe24a" : (heavy ? "#ff7a18" : "#ffffff"), heavy ? 22 : 17);
-    spawnParticles(e.x, e.y - e.z - 46, heavy ? 14 : 7, superMode ? "#ffe24a" : "#ff5f2e", 240, 340);
-
-    if (e.x > 855 && e.x < 1070 && heavy && !state.shatteredWindows.fancy1) {
-      state.shatteredWindows.fancy1 = true;
-      sfx("glass");
-      spawnParticles(960, 340, 22, "#bae6fd", 280, 500);
-      addPopup(960, 300, "CRASH! +300", "#bae6fd", 22);
-      state.score += 300;
-    }
+    addPopup(e.x, e.y - e.z - 82, word, superMode ? "#ffe24a" : (heavy ? "#ff9f1c" : "#ffffff"), heavy ? 21 : 17);
+    spawnParticles(e.x, e.y - e.z - 48, heavy ? 14 : 7, "#ffe24a", 240, 340);
 
     if (e.hp <= 0) {
       koEnemy(e, dir, heavy || superMode);
@@ -871,19 +811,16 @@
     if (e.dying) return;
     e.dying = true;
     e.dieTimer = 0.85;
-    e.vx = dir * (dramatic ? 390 : 210);
-    e.vz = dramatic ? 330 : 185;
+    e.vx = dir * (dramatic ? 400 : 220);
+    e.vz = dramatic ? 330 : 190;
 
-    if (dramatic && e.y >= 410 && e.kind !== "boss") {
+    if (dramatic && e.y >= 408 && e.kind !== "boss") {
       e.splashKO = true;
-      e.vy = 145;
+      e.vy = 155;
     }
 
-    var mut = DAILY_MUTATORS[apiState.mutatorIdx % DAILY_MUTATORS.length] || DAILY_MUTATORS[0];
-    var comboMult = state.thermo >= 80 ? 3 : (state.thermo >= 40 ? 2 : 1);
-    var pts = Math.round((e.kind === "boss" ? 5000 : (e.kind === "heavy" ? 300 : 150)) * comboMult * mut.scoreMul);
+    var pts = e.kind === "boss" ? 5000 : (e.kind === "heavy" ? 350 : 200);
     state.score += pts;
-    addPopup(e.x, e.y - 96, "+" + pts, "#ffe680", 19);
 
     if (e.kind === "boss") {
       state.bossSlain = true;
@@ -892,85 +829,56 @@
       saveLocal();
       refreshSecretUnlockUi();
       sfx("victory");
-      spawnParticles(e.x, e.y - 60, 44, "#ffe24a", 360, 280);
+      spawnParticles(e.x, e.y - 60, 46, "#ffe24a", 360, 280);
       if (!state.endless) {
         setTimeout(function () {
           if (state.phase === "playing") finishRun(true);
         }, 1150);
       } else {
-        addPopup(state.hero.x, 220, "BOSS CRUSHED! ENDLESS CONTINUES!", "#ffe24a", 24);
+        addPopup(state.hero.x, 220, "BOSS DEFEATED! ENDLESS CONTINUES!", "#ffe24a", 24);
       }
       return;
     }
 
     state.kos++;
-
-    // Act II: Sunset Boulevard Transition at 12 KOs!
-    if (state.kos === 12) {
-      state.hero.hp = Math.min(state.hero.maxHp, state.hero.hp + 1);
-      sfx("go");
-      addPopup(state.camX + W * 0.5, 210, "ACT II · SUNSET BOULEVARD! (+HEAL)", "#ffe24a", 25);
+    // Defeated Scissor-Agents drop stolen Mustaches or Healing Croissants!
+    if (state.hero.hp <= 4 && state.kos % 4 === 0) {
+      state.collectibles.push({ kind: "croissant", x: e.x, y: e.y, z: 18, bobOff: 0 });
+    } else {
+      state.collectibles.push({ kind: "mustache", x: e.x, y: e.y, z: 20, bobOff: 0 });
     }
 
-    if (state.kos % 5 === 0) {
-      state.pickups.push({ kind: "gold_mustache", x: e.x, y: e.y, z: 22, vz: 190 });
-    } else if (state.hero.hp <= 3 && Math.random() < 0.36) {
-      state.pickups.push({ kind: "pizza", x: e.x, y: e.y, z: 22, vz: 180 });
-    }
-
-    if (state.kos === 8 && !state.armReloadShownOnce) {
+    if (state.kos === 7 && !state.armReloadShownOnce) {
       setTimeout(function () {
         if (state.phase === "playing") triggerArmReload(true);
-      }, 320);
+      }, 280);
     }
 
-    if (state.kos === 6 || state.kos === 14 || state.kos === 20) {
+    if (state.kos === 6 || state.kos === 12 || state.kos === 19) {
       state.goTimer = 2.8;
       sfx("go");
     }
 
-    if (!state.bossActive && !state.bossSlain && state.kos >= GOAL_KOS) {
+    if (!state.bossActive && !state.bossSlain && !state.endless && state.kos >= GOAL_KOS) {
       summonKingpinBoss();
     }
   }
 
   function summonKingpinBoss() {
     state.bossActive = true;
-    state.limoPhase = 1;
-    state.limoX = Math.min(WORLD_W - 220, state.camX + W + 180);
     sfx("boss_rage");
-    addPopup(state.camX + W * 0.5, 220, "ACT III · SYNDICATE NIGHT — DON MUSTACHIO!", "#ff5f2e", 25);
+    addPopup(state.camX + W * 0.5, 210, "FINAL BOSS · CYBER-BARON VEX!", "#ff5f2e", 26);
     var bx = Math.min(WORLD_W - 120, state.camX + W - 110);
-    spawnEnemy("boss", bx, 420);
-  }
-
-  function isStandingOnProp(h) {
-    for (var i = 0; i < state.props.length; i++) {
-      var pr = state.props[i];
-      if (pr.hp <= 0 || pr.kind === "trash") continue;
-      if (h.x > pr.x + 4 && h.x < pr.x + pr.w - 4 && Math.abs(h.y - pr.y) < 34) {
-        var topZ = pr.kind === "booth" ? 86 : (pr.kind === "car" ? 44 : 36);
-        if (Math.abs(h.z - topZ) < 10) return topZ;
-      }
-    }
-    return 0;
+    spawnEnemy("boss", bx, 414);
   }
 
   // =========================================================================
-  // 2.8-SECOND ACTION INTRO CINEMATIC (Zero-Load Street Drop-In!)
+  // 4-SCENE ILLUSTRATED 16-BIT STORY CUTSCENE (Matches v1_02..v1_07.png!)
   // =========================================================================
   function beginIntroCinematic() {
     state.phase = "intro";
     state.introTimer = 0;
-    state.introDropped = false;
-    state.camX = 40;
-    state.limoPhase = 1;
-    state.limoX = 1020;
-    state.hero.x = 340;
-    state.hero.y = 418;
-    state.hero.z = 460;
-    state.hero.vz = 0;
-    state.speech = { x: 650, y: 300, text: "SEIZE THE HARBOR!", timer: 1.1 };
+    state.thunderPlayed = false;
     setVisible("btn-skip-intro", true);
     setVisible("arcade-hud", false);
   }
@@ -978,57 +886,31 @@
   function finishIntro() {
     if (state.phase !== "intro") return;
     state.phase = "playing";
-    state.hero.z = 0;
-    state.hero.vz = 0;
-    state.limoPhase = 0;
-    state.speech = null;
     setVisible("btn-skip-intro", false);
     setVisible("arcade-hud", true);
     var tc = document.getElementById("touch-controls");
     if (tc) tc.classList.add("active");
     sfx("go");
-    addPopup(state.hero.x + 120, 250, "ACT I · HARBOR DOCKS — FIGHT!", "#ffe24a", 30);
+    var stg = STAGE_DEFS[state.stageIdx] || STAGE_DEFS[0];
+    addPopup(state.hero.x + 110, 250, stg.title + " — FIGHT!", "#ffe24a", 27);
   }
 
   function updateIntro(dt) {
     state.introTimer += dt;
-    if (state.limoPhase === 1) {
-      state.limoX -= 460 * dt;
-      if (state.limoX <= 640) {
-        state.limoX = 640;
-        if (state.introTimer > 0.95) state.limoPhase = 2;
-      }
-    } else if (state.limoPhase === 2) {
-      state.limoX += 520 * dt;
-      if (state.limoX > 1180) state.limoPhase = 0;
+    if (state.introTimer >= 4.6 && !state.thunderPlayed) {
+      state.thunderPlayed = true;
+      state.shake = 18;
+      sfx("thunder");
     }
-
-    if (state.introTimer >= 1.05 && !state.introDropped) {
-      state.hero.z = Math.max(0, state.hero.z - 1450 * dt);
-      if (state.hero.z <= 0) {
-        state.introDropped = true;
-        state.hero.z = 0;
-        state.shake = 14;
-        sfx("land");
-        spawnParticles(state.hero.x, state.hero.y, 26, "#ffe24a", 280, 320);
-        spawnParticles(state.hero.x, state.hero.y, 14, "#e2e8f0", 220, 340);
-        state.speech = { x: state.hero.x + 10, y: 274, text: "READY FOR THE RELOAD?", timer: 1.25 };
-      }
-    }
-
-    if (state.speech) {
-      state.speech.timer -= dt;
-      if (state.speech.timer <= 0) state.speech = null;
-    }
-    state.shake = Math.max(0, state.shake - dt * 24);
-    updateParticles(dt);
-
-    if (state.introTimer >= 2.65) {
+    state.shake = Math.max(0, state.shake - dt * 20);
+    if (state.introTimer >= 8.4) {
       finishIntro();
     }
   }
 
-  // Gamepad polling (Xbox / PlayStation / Switch Pro)
+  // =========================================================================
+  // GAMEPAD POLLING & 60 FPS GAME UPDATE LOOP
+  // =========================================================================
   var gpPrev = {};
   var gpAxisX = 0;
   var gpAxisY = 0;
@@ -1067,45 +949,19 @@
         } else if (state.phase === "arm_reload" && (edge(0) || edge(2))) {
           dismissArmReload();
         } else if (state.phase === "title" && (edge(0) || edge(9))) {
-          startRun(state.endless, false);
+          startRun(state.stageIdx, false);
         }
         break;
       }
     } catch (_) {}
   }
 
-  // =========================================================================
-  // MAIN 60 FPS UPDATE LOOP
-  // =========================================================================
   function update(dt) {
     state.time += dt;
     pollGamepad();
 
-    for (var si = 0; si < state.seagulls.length; si++) {
-      var sg = state.seagulls[si];
-      sg.x -= sg.speed * dt;
-      sg.wing += dt * 7;
-      if (sg.x < -60) sg.x = W + 80;
-    }
-
     if (state.phase === "title") {
-      // Live 1991 Arcade Attract Mode Demo behind the Title Dock!
-      state.camX = 110 + Math.sin(state.time * 0.38) * 105;
-      state.hero.x = state.camX + 340 + Math.sin(state.time * 1.4) * 35;
-      state.hero.y = 420;
-      state.hero.walkPhase += dt * 7;
-      var demoCycle = state.time % 3.2;
-      if (demoCycle > 1.8 && demoCycle < 2.12) {
-        state.hero.attackType = "punch";
-        if (Math.random() < 0.25) spawnParticles(state.hero.x + 56, 368, 2, "#ffe24a", 150, 220);
-      } else if (demoCycle > 2.55 && demoCycle < 2.9) {
-        state.hero.attackType = "kick";
-        state.hero.z = Math.sin((demoCycle - 2.55) / 0.35 * Math.PI) * 44;
-      } else {
-        state.hero.attackType = "none";
-        state.hero.z = 0;
-      }
-      updateParticles(dt);
+      state.camX = 0; // Frame the iconic Barbershop + Yellow + Blue + Red houses just like v1_01.png!
       return;
     }
 
@@ -1125,7 +981,7 @@
     state.shake = Math.max(0, state.shake - dt * 24);
     if (state.zoomTimer > 0) {
       state.zoomTimer = Math.max(0, state.zoomTimer - dt);
-      state.camZoom += (1.16 - state.camZoom) * Math.min(1, dt * 14);
+      state.camZoom += (1.14 - state.camZoom) * Math.min(1, dt * 14);
     } else {
       state.camZoom += (1.0 - state.camZoom) * Math.min(1, dt * 9);
     }
@@ -1142,32 +998,11 @@
     h.kCd = Math.max(0, h.kCd - dt);
     h.comboWindow = Math.max(0, h.comboWindow - dt);
     h.invuln = Math.max(0, h.invuln - dt);
+    h.slashArcTimer = Math.max(0, h.slashArcTimer - dt);
 
-    // Update dash afterimages
     for (var ai = h.afterimages.length - 1; ai >= 0; ai--) {
       h.afterimages[ai].life -= dt;
       if (h.afterimages[ai].life <= 0) h.afterimages.splice(ai, 1);
-    }
-
-    // Orbiting Golden Mustache Shield Slices Enemies & Auto-Deflects Boomerangs!
-    if (h.mustacheShieldTimer > 0) {
-      h.mustacheShieldTimer = Math.max(0, h.mustacheShieldTimer - dt);
-      for (var msP = 0; msP < state.projectiles.length; msP++) {
-        var mp = state.projectiles[msP];
-        if (mp.owner === "enemy" && Math.hypot(mp.x - h.x, mp.y - (h.y - h.z - 46)) < 78) {
-          mp.owner = "hero";
-          mp.vx = -mp.vx * 1.4;
-          state.parries++;
-          sfx("parry");
-          addPopup(mp.x, mp.y - 20, "SHIELD PARRY!", "#ffe24a", 18);
-        }
-      }
-      for (var msE = 0; msE < state.enemies.length; msE++) {
-        var me = state.enemies[msE];
-        if (!me.dying && me.stunTimer <= 0 && Math.hypot(me.x - h.x, me.y - h.y) < 76) {
-          damageEnemy(me, 1.2, me.x >= h.x ? 1 : -1, false, false, false);
-        }
-      }
     }
 
     if (h.armReloadTimer > 0) {
@@ -1181,7 +1016,6 @@
       if (h.attackTimer <= 0) h.attackType = "none";
     }
 
-    // Movement input (Keyboard + Touch + Gamepad)
     var mx = gpAxisX;
     var my = gpAxisY;
     if (keys.ArrowLeft || keys.KeyA || touchInput.left) mx = -1;
@@ -1189,7 +1023,7 @@
     if (keys.ArrowUp || keys.KeyW) my = -1;
     if (keys.ArrowDown || keys.KeyS) my = 1;
 
-    var spd = 265 * perk.speedMul * (h.armReloadTimer > 0 ? 1.2 : 1.0);
+    var spd = 285 * perk.speedMul * (h.armReloadTimer > 0 ? 1.2 : 1.0);
     if (mx !== 0) {
       h.facing = mx > 0 ? 1 : -1;
       h.walkPhase += dt * 11;
@@ -1206,45 +1040,58 @@
 
     var prevZ = h.z;
     h.z += h.vz * dt;
-    h.vz -= 1280 * dt;
+    h.vz -= 1360 * dt;
 
-    var floorZ = 0;
-    for (var pi = 0; pi < state.props.length; pi++) {
-      var pr = state.props[pi];
-      if (pr.hp <= 0 || pr.kind === "trash") continue;
-      if (h.x > pr.x + 6 && h.x < pr.x + pr.w - 6 && Math.abs(h.y - pr.y) < 34) {
-        var topZ = pr.kind === "booth" ? 86 : (pr.kind === "car" ? 44 : 36);
-        if (prevZ >= topZ - 10 && h.vz <= 0) floorZ = Math.max(floorZ, topZ);
-      }
-    }
+    var floorZ = currentSupportZ(h, prevZ);
     if (h.z <= floorZ) {
       h.z = floorZ;
       h.vz = 0;
+      h.jumpsUsed = 0;
     }
 
     var targetCam = Math.max(0, Math.min(WORLD_W - W, h.x - W * 0.42));
-    state.camX += (targetCam - state.camX) * Math.min(1, dt * 6.5);
+    state.camX += (targetCam - state.camX) * Math.min(1, dt * 6.8);
 
-    if (state.limoPhase === 1) {
-      var stopX = Math.min(WORLD_W - 260, state.camX + W - 260);
-      state.limoX -= 320 * dt;
-      if (state.limoX <= stopX) { state.limoX = stopX; state.limoPhase = 2; }
-    } else if (state.limoPhase === 2) {
-      state.limoX += 380 * dt;
-      if (state.limoX > state.camX + W + 340) state.limoPhase = 0;
+    // Collect Floating Mustaches, Rooftop Blue Energy Canisters & Healing Croissants!
+    for (var ci = state.collectibles.length - 1; ci >= 0; ci--) {
+      var col = state.collectibles[ci];
+      if (Math.abs(col.x - h.x) < 46 && Math.abs((col.z || 0) - (h.z + 26)) < 54) {
+        if (col.kind === "mustache") {
+          state.mustaches++;
+          state.score += 75;
+          if (h.armReloadTimer <= 0) state.thermo = Math.min(100, state.thermo + 5 * perk.thermoMul);
+          sfx("stache");
+          spawnParticles(col.x, col.y - col.z, 6, "#ffe680", 120, 200);
+        } else if (col.kind === "canister") {
+          state.score += 300;
+          state.thermo = Math.min(100, state.thermo + 38 * perk.thermoMul);
+          sfx("canister");
+          spawnParticles(col.x, col.y - col.z, 16, "#38e8ff", 220, 180);
+          addPopup(col.x, col.y - col.z - 28, "+ENERGY!", "#38e8ff", 20);
+        } else if (col.kind === "croissant") {
+          h.hp = Math.min(h.maxHp, h.hp + 2);
+          state.score += 200;
+          sfx("heal");
+          spawnParticles(col.x, col.y - col.z, 14, "#ffe24a", 180, 200);
+          // Exact word-for-word yellow popup from v2_04.png!
+          addPopup(h.x, h.y - h.z - 54, "Restores 1 heart", "#facc15", 22);
+        }
+        state.collectibles.splice(ci, 1);
+      }
     }
 
+    // Spawn Scissor-Claw Suit Agents
     var aliveGoons = state.enemies.filter(function (e) { return !e.dying && e.kind !== "boss"; }).length;
     var needMore = state.endless || (!state.bossActive && !state.bossSlain && state.kos + aliveGoons < GOAL_KOS);
     if (needMore && aliveGoons < 4) {
       state.spawnTimer -= dt;
       if (state.spawnTimer <= 0) {
-        state.spawnTimer = state.endless ? 1.35 : 1.75;
-        var fromRight = Math.random() < 0.72;
+        state.spawnTimer = state.endless ? 1.3 : 1.65;
+        var fromRight = Math.random() < 0.75;
         var sx = fromRight ? Math.min(WORLD_W - 40, state.camX + W + 45) : Math.max(40, state.camX - 45);
         var sy = LANE_MIN_Y + Math.random() * (LANE_MAX_Y - LANE_MIN_Y);
         var roll = Math.random();
-        var ek = roll < 0.44 ? "brawler" : (roll < 0.78 ? "thrower" : "heavy");
+        var ek = roll < 0.48 ? "scissor_brown" : (roll < 0.84 ? "scissor_olive" : "heavy");
         spawnEnemy(ek, sx, sy);
       }
     }
@@ -1253,7 +1100,7 @@
       state.props[pIdx].hitFlash = Math.max(0, state.props[pIdx].hitFlash - dt);
     }
 
-    // Update Enemies (including Bowling-Ball Thrown Goons & Boss Phase II Telegraph!)
+    // Update Scissor-Claw Agents & Boss
     for (var ei = state.enemies.length - 1; ei >= 0; ei--) {
       var e = state.enemies[ei];
       e.hitFlash = Math.max(0, e.hitFlash - dt);
@@ -1266,37 +1113,16 @@
         e.y += e.vy * dt;
         e.z += e.vz * dt;
         e.vz -= 1050 * dt;
-        if (e.splashKO && e.y >= WATER_Y + 8) {
+        if (e.splashKO && e.y >= WATER_Y + 6) {
           sfx("splash");
-          spawnParticles(e.x, WATER_Y + 6, 20, "#ffffff", 260, 480);
+          spawnParticles(e.x, WATER_Y + 6, 22, "#ffffff", 270, 480);
           spawnParticles(e.x, WATER_Y + 6, 14, "#38bdf8", 210, 460);
-          addPopup(e.x, WATER_Y - 22, "PLOUF!", "#38e8ff", 24);
+          addPopup(e.x, WATER_Y - 20, "SPLASH!", "#38e8ff", 22);
           state.enemies.splice(ei, 1);
           continue;
         }
         if (e.z < 0) { e.z = 0; e.vz = 0; e.vx *= 0.6; }
         if (e.dieTimer <= 0) state.enemies.splice(ei, 1);
-        continue;
-      }
-
-      if (e.bowling) {
-        e.x += e.vx * dt;
-        e.z = Math.max(0, e.z + e.vz * dt);
-        if (e.z > 0) e.vz -= 900 * dt;
-        e.stunTimer -= dt;
-        // Strike any other goon in bowling path!
-        for (var bi2 = 0; bi2 < state.enemies.length; bi2++) {
-          var other = state.enemies[bi2];
-          if (other === e || other.dying) continue;
-          if (Math.abs(other.x - e.x) < 48 && Math.abs(other.y - e.y) < 38) {
-            damageEnemy(other, 4, e.vx >= 0 ? 1 : -1, true, true, false);
-            addPopup(other.x, other.y - 98, "STRIKE!", "#ffe24a", 22);
-          }
-        }
-        if (e.stunTimer <= 0 || e.x < state.camX - 40 || e.x > state.camX + W + 40) {
-          e.bowling = false;
-          koEnemy(e, e.vx >= 0 ? 1 : -1, true);
-        }
         continue;
       }
 
@@ -1309,7 +1135,6 @@
         continue;
       }
 
-      // Boss Telegraphed Seismic Streetlamp Slam!
       if (e.kind === "boss" && e.telegraphTimer > 0) {
         e.telegraphTimer -= dt;
         if (e.telegraphTimer <= 0) {
@@ -1317,10 +1142,9 @@
           sfx("heavy");
           spawnParticles(e.x, e.y, 26, "#ff5f2e", 300, 320);
           addPopup(e.x, e.y - 134, "SEISMIC SLAM!", "#ff5f2e", 24);
-          if (Math.abs(h.x - e.x) < 190 && h.z < 36) {
+          if (Math.abs(h.x - e.x) < 190 && h.z < 38) {
             hurtHero(1, e.x > h.x ? -1 : 1);
           } else {
-            // Player jumped over the shockwave -> open Counter-Stun Window!
             e.counterWindow = 1.6;
             addPopup(e.x, e.y - 160, "COUNTER NOW!", "#38e8ff", 20);
           }
@@ -1333,12 +1157,12 @@
       e.facing = dx >= 0 ? 1 : -1;
       var dist = Math.hypot(dx, dy);
 
-      var moveSpd = e.kind === "boss" ? (e.phase2 ? 152 : 128) : (e.kind === "heavy" ? 148 : (e.kind === "thrower" ? 96 : 118));
-      var stopDist = e.kind === "thrower" ? 235 : (e.kind === "boss" ? 90 : 64);
+      var moveSpd = e.kind === "boss" ? (e.phase2 ? 156 : 130) : (e.kind === "scissor_olive" ? 136 : 118);
+      var stopDist = e.kind === "boss" ? 90 : 66;
 
       if (Math.abs(dx) > stopDist) {
         e.x += (dx > 0 ? 1 : -1) * moveSpd * dt;
-        e.walkPhase += dt * 8;
+        e.walkPhase += dt * 8.5;
       }
       if (Math.abs(dy) > 10) {
         e.y += (dy > 0 ? 1 : -1) * 78 * dt;
@@ -1348,54 +1172,52 @@
 
       e.attackCd -= dt;
       if (e.attackCd <= 0) {
-        if (e.kind === "thrower" && dist < 460) {
-          e.attackCd = 2.15;
+        if (e.kind === "scissor_olive" && dist > 140 && dist < 430) {
+          e.attackCd = 2.25;
           state.projectiles.push({
-            kind: "mustache",
             owner: "enemy",
-            x: e.x + e.facing * 26,
+            x: e.x + e.facing * 28,
             y: e.y - 48,
-            vx: e.facing * 290,
+            vx: e.facing * 295,
             vy: 0,
             rot: 0,
-            life: 2.6
+            life: 2.5
           });
-          sfx("kick");
+          sfx("slash");
         } else if (e.kind === "boss") {
           e.attackCd = e.phase2 ? 1.45 : 1.9;
           if (dist < 175) {
-            // Telegraph the Seismic Slam so player can jump & counter!
             e.telegraphTimer = e.phase2 ? 0.62 : 0.78;
             addPopup(e.x, e.y - 138, "JUMP! SLAM INCOMING!", "#ffe24a", 18);
           } else {
             for (var v = -1; v <= 1; v++) {
               state.projectiles.push({
-                kind: "mustache",
                 owner: "enemy",
                 x: e.x + e.facing * 32,
                 y: e.y - 54 + v * 16,
                 vx: e.facing * (e.phase2 ? 355 : 315),
-                vy: v * 28,
+                vy: v * 26,
                 rot: 0,
-                life: 2.6
+                life: 2.5
               });
             }
-            sfx("kick");
+            sfx("slash");
           }
-        } else if (dist < 76 && h.z < 34) {
-          e.attackCd = 1.3;
+        } else if (dist < 78 && h.z < 36) {
+          e.attackCd = 1.28;
+          sfx("slash");
           hurtHero(1, e.facing);
         }
       }
     }
 
-    // Update Projectiles (Mustache Boomerangs, Thrown Pipes, Launched Trash Cans)
+    // Update Projectiles
     for (var qi = state.projectiles.length - 1; qi >= 0; qi--) {
       var q = state.projectiles[qi];
       q.life -= dt;
       q.x += q.vx * dt;
       q.y += q.vy * dt;
-      q.rot += dt * 14;
+      q.rot += dt * 15;
       if (q.life <= 0 || q.x < state.camX - 120 || q.x > state.camX + W + 120) {
         state.projectiles.splice(qi, 1);
         continue;
@@ -1410,36 +1232,11 @@
           var te = state.enemies[tei];
           if (te.dying) continue;
           if (Math.abs(q.x - te.x) < 46 && Math.abs(q.y - (te.y - te.z - 48)) < 58) {
-            damageEnemy(te, q.kind === "trashcan" ? 4.5 : 4.2, q.vx >= 0 ? 1 : -1, true, true, false);
-            if (q.kind === "mustache") {
-              state.projectiles.splice(qi, 1);
-              break;
-            }
+            damageEnemy(te, 4.2, q.vx >= 0 ? 1 : -1, true, true);
+            state.projectiles.splice(qi, 1);
+            break;
           }
         }
-      }
-    }
-
-    // Update Pickups (Pizza Heal, Steel Pipe, Golden Mustache -> 5.5s Orbiting Shield!)
-    for (var ki = state.pickups.length - 1; ki >= 0; ki--) {
-      var pk = state.pickups[ki];
-      pk.z = Math.max(0, pk.z + pk.vz * dt);
-      if (pk.z > 0) pk.vz -= 900 * dt;
-      if (Math.abs(pk.x - h.x) < 44 && Math.abs(pk.y - h.y) < 42 && h.z < 38) {
-        sfx("pickup");
-        if (pk.kind === "pizza") {
-          h.hp = Math.min(h.maxHp, h.hp + 2);
-          addPopup(pk.x, pk.y - 44, "PIZZA! +1 HEART", "#4ade80", 19);
-        } else if (pk.kind === "pipe") {
-          h.weapon = { kind: "pipe", uses: 3 };
-          addPopup(pk.x, pk.y - 44, "STEEL PIPE!", "#38e8ff", 19);
-        } else {
-          state.score += 250;
-          state.thermo = Math.min(100, state.thermo + 25);
-          h.mustacheShieldTimer = 5.5;
-          addPopup(pk.x, pk.y - 44, "MUSTACHE SHIELD! +250", "#ffe24a", 20);
-        }
-        state.pickups.splice(ki, 1);
       }
     }
 
@@ -1451,7 +1248,7 @@
     if (h.invuln > 0 || h.armReloadTimer > 0) return;
     h.hp = Math.max(0, h.hp - amount);
     h.invuln = 1.05;
-    h.vx = knockDir * 240;
+    h.vx = knockDir * 235;
     state.combo = 0;
     state.shake = 10;
     sfx("hurt");
@@ -1483,20 +1280,218 @@
     for (var j = state.popups.length - 1; j >= 0; j--) {
       var pop = state.popups[j];
       pop.life -= dt;
-      pop.y -= 42 * dt;
+      pop.y -= 36 * dt;
       if (pop.life <= 0) state.popups.splice(j, 1);
     }
   }
 
   // =========================================================================
-  // 16-BIT HARBOR STREET RENDERER (PHASE 2 ENHANCED)
+  // 100% 16-BIT PIXEL-ART RENDERER (PANORAMAS, CUTSCENES, ROLLING SURF, SPRITES)
   // =========================================================================
+  function drawAnimatedPixelSurf(camX) {
+    var bgA = sprites.bgStreetA;
+    if (!imgReady(bgA)) return;
+    // Slice the frothy pixel-art ocean surf (y = 472..540) into 4 undulating wave bands!
+    var bands = [
+      { sy: 472, sh: 16, spd: 26, amp: 5 },
+      { sy: 488, sh: 17, spd: -38, amp: 7 },
+      { sy: 505, sh: 17, spd: 46, amp: 8 },
+      { sy: 522, sh: 18, spd: -56, amp: 9 }
+    ];
+    for (var b = 0; b < bands.length; b++) {
+      var bd = bands[b];
+      var drift = Math.round(camX + state.time * bd.spd + Math.sin(state.time * 2.4 + b * 1.3) * bd.amp);
+      var offX = ((drift % W) + W) % W;
+      ctx.drawImage(bgA, 0, bd.sy, W, bd.sh, -offX, bd.sy, W, bd.sh);
+      ctx.drawImage(bgA, 0, bd.sy, W, bd.sh, W - offX, bd.sy, W, bd.sh);
+    }
+  }
+
+  function drawHarborPanorama(camX) {
+    var bgA = sprites.bgStreetA;
+    var bgB = sprites.bgStreetB;
+    var startTile = Math.floor(camX / W);
+    for (var t = startTile; t <= startTile + 1; t++) {
+      if (t < 0 || t > 3) continue;
+      var img = (t % 2 === 0) ? bgA : bgB;
+      var dx = Math.round(t * W - camX);
+      if (imgReady(img)) {
+        ctx.drawImage(img, dx, 0, W, H);
+      } else {
+        ctx.fillStyle = "#1a58b8";
+        ctx.fillRect(dx, 0, W, H);
+      }
+    }
+    drawAnimatedPixelSurf(camX);
+  }
+
+  function drawTitleMonument() {
+    // Stone "WELCOME TO HARBOR ISLAND" Monument on left quay matching v1_01.png!
+    var mx = 16;
+    var my = 268;
+    ctx.save();
+    ctx.fillStyle = "#5c606b";
+    ctx.strokeStyle = "#0e111a";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(mx + 74, my + 28, 52, Math.PI, 0);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillRect(mx, my + 26, 148, 128);
+    ctx.strokeRect(mx, my + 26, 148, 128);
+    ctx.fillStyle = "#351b1e";
+    ctx.fillRect(mx + 12, my + 36, 124, 96);
+    ctx.strokeStyle = "#8a7866";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(mx + 12, my + 36, 124, 96);
+    // Golden crests & pixel text
+    ctx.fillStyle = "#d99b26";
+    ctx.font = "900 10px 'Trebuchet MS', sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("WELCOME TO", mx + 74, my + 78);
+    ctx.font = "900 11.5px 'Trebuchet MS', sans-serif";
+    ctx.fillStyle = "#ffe680";
+    ctx.fillText("HARBOR ISLAND", mx + 74, my + 95);
+    ctx.font = "bold 8px 'Trebuchet MS', sans-serif";
+    ctx.fillStyle = "#cbd5e1";
+    ctx.fillText("Home of the Golden Blade", mx + 74, my + 112);
+    // Flowerbed at base
+    ctx.fillStyle = "#14532d";
+    ctx.fillRect(mx - 4, my + 136, 156, 22);
+    var flCols = ["#ef4444", "#facc15", "#3b82f6", "#fb7185"];
+    for (var f = 0; f < 14; f++) {
+      ctx.fillStyle = flCols[f % flCols.length];
+      ctx.fillRect(mx + 4 + f * 10, my + 140 + (f % 2) * 5, 5, 5);
+    }
+    ctx.restore();
+  }
+
+  function renderIntroCutscene() {
+    var t = state.introTimer;
+    ctx.save();
+    if (state.shake > 0.2) {
+      ctx.translate((Math.random() - 0.5) * state.shake, (Math.random() - 0.5) * state.shake);
+    }
+
+    if (t < 2.5) {
+      // SCENE 1: Barbershop Interior Watching TV "BREAKING NEWS" (v1_03.png!)
+      if (imgReady(sprites.cutBarberTv)) {
+        ctx.drawImage(sprites.cutBarberTv, 0, 0, W, H);
+      }
+      // Subtle red alert pulse on the TV screen
+      var pulse = 0.12 + Math.abs(Math.sin(t * 9)) * 0.12;
+      ctx.fillStyle = "rgba(239, 68, 68, " + pulse.toFixed(2) + ")";
+      ctx.fillRect(560, 56, 178, 132);
+      drawCutsceneBubble(480, 486, "BREAKING NEWS: CYBER-AGENTS ARE STEALING EVERY MUSTACHE!");
+    } else if (t < 4.6) {
+      // SCENE 2: Shattered Barbershop Exterior & Floating Golden Comb-Sword (v1_05.png!)
+      if (imgReady(sprites.cutShattered)) {
+        ctx.drawImage(sprites.cutShattered, 0, 0, W, H);
+      }
+      // Twinkling pixel sparkles around the Golden Comb-Sword
+      for (var s = 0; s < 6; s++) {
+        var sx = 540 + Math.cos(t * 4 + s * 1.1) * 85;
+        var sy = 240 + Math.sin(t * 5 + s * 1.4) * 65;
+        ctx.fillStyle = s % 2 === 0 ? "#ffffff" : "#ffe24a";
+        ctx.fillRect(Math.round(sx), Math.round(sy), 6, 6);
+      }
+      drawCutsceneBubble(480, 486, "AY! HE ZAPPED MY BARBERSHOP! SUMMON THE GOLDEN COMB-BLADE!");
+    } else if (t < 6.3) {
+      // SCENE 3: Giant Blazing Golden Lightning Transformation Pillar! (v1_06.png!)
+      if (imgReady(sprites.cutShattered)) {
+        ctx.drawImage(sprites.cutShattered, 0, 0, W, H);
+      }
+      ctx.fillStyle = "rgba(10, 8, 24, 0.45)";
+      ctx.fillRect(0, 0, W, H);
+      var bx = 548;
+      var bw = 116 + Math.sin(t * 45) * 18;
+      var beamGrad = ctx.createLinearGradient(bx - bw, 0, bx + bw, 0);
+      beamGrad.addColorStop(0, "rgba(255, 160, 20, 0)");
+      beamGrad.addColorStop(0.25, "rgba(255, 196, 36, 0.85)");
+      beamGrad.addColorStop(0.5, "#ffffff");
+      beamGrad.addColorStop(0.75, "rgba(255, 196, 36, 0.85)");
+      beamGrad.addColorStop(1, "rgba(255, 160, 20, 0)");
+      ctx.fillStyle = beamGrad;
+      ctx.fillRect(bx - bw, 0, bw * 2, 470);
+      // Ground impact burst & square pixel sparks
+      ctx.fillStyle = "#fff7ae";
+      ctx.fillRect(bx - 120, 448, 240, 22);
+      for (var p = 0; p < 22; p++) {
+        var px = bx + Math.sin(p * 17.3 + t * 8) * 170;
+        var py = 450 - ((t * 320 + p * 43) % 420);
+        ctx.fillStyle = p % 2 === 0 ? "#ffe24a" : "#ffffff";
+        ctx.fillRect(Math.round(px), Math.round(py), 8, 8);
+      }
+    } else {
+      // SCENE 4: Heroic Sunset Cliff Stage Card "LEVEL 1 · HARBOR ISLAND" + LOADING % (Exact v1_07.png!)
+      if (imgReady(sprites.cutCliff)) {
+        ctx.drawImage(sprites.cutCliff, 0, 0, W, H);
+      }
+      var heroIm = sprites.heroCombSlash;
+      if (imgReady(heroIm)) {
+        var hh = 216;
+        var hw = Math.round(hh * (heroIm.naturalWidth / heroIm.naturalHeight));
+        ctx.drawImage(heroIm, Math.round(W * 0.5 - hw * 0.40), 104, hw, hh);
+      }
+      var stg = STAGE_DEFS[state.stageIdx] || STAGE_DEFS[0];
+      ctx.font = "900 22px 'Trebuchet MS', sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#06281e";
+      ctx.fillText(stg.title, W * 0.5 + 2, 446);
+      ctx.fillStyle = "#34f5a6";
+      ctx.fillText(stg.title, W * 0.5, 444);
+
+      // Bottom-Right White Mustache + Progress Bar + LOADING 0% -> 100% (v1_07.png!)
+      var loadPct = Math.min(100, Math.floor(((t - 6.3) / 1.95) * 100));
+      var rx = W - 130;
+      if (imgReady(sprites.pickupMustache)) {
+        ctx.save();
+        ctx.filter = "brightness(5) grayscale(1)";
+        ctx.drawImage(sprites.pickupMustache, rx - 18, 464, 36, 19);
+        ctx.restore();
+      }
+      ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
+      ctx.fillRect(rx - 68, 492, 136, 6);
+      ctx.fillStyle = "#ffe24a";
+      ctx.fillRect(rx - 68, 492, Math.round(1.36 * loadPct), 6);
+      ctx.font = "900 11px 'Trebuchet MS', sans-serif";
+      ctx.fillStyle = "#cbd5e1";
+      ctx.fillText("LOADING " + loadPct + "%", rx, 514);
+    }
+
+    ctx.restore();
+  }
+
+  function drawCutsceneBubble(cx, cy, text) {
+    ctx.save();
+    ctx.font = "900 15px 'Trebuchet MS', sans-serif";
+    var tw = Math.min(860, ctx.measureText(text).width + 38);
+    var bx = Math.round(cx - tw * 0.5);
+    var by = Math.round(cy - 24);
+    ctx.fillStyle = "rgba(255, 252, 240, 0.96)";
+    ctx.strokeStyle = "#0f172a";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.roundRect(bx, by, tw, 40, 8);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#0f172a";
+    ctx.textAlign = "center";
+    ctx.fillText(text, cx, by + 26);
+    ctx.restore();
+  }
+
   function render() {
     if (!ctx) return;
     ctx.imageSmoothingEnabled = false;
+
+    if (state.phase === "intro") {
+      renderIntroCutscene();
+      return;
+    }
+
     ctx.save();
 
-    // Dynamic Arm Reload Camera Zoom-In
     if (state.camZoom > 1.002) {
       var focusX = Math.max(120, Math.min(W - 120, state.hero.x - state.camX));
       var focusY = Math.max(140, Math.min(H - 120, state.hero.y - state.hero.z - 56));
@@ -1509,55 +1504,45 @@
       ctx.translate((Math.random() - 0.5) * state.shake, (Math.random() - 0.5) * state.shake);
     }
 
-    var isNight = state.bossActive;
-    var isSunset = !isNight && state.kos >= 12;
-    var skyGrad = ctx.createLinearGradient(0, 0, 0, 290);
-    if (isNight) {
-      skyGrad.addColorStop(0, "#0b1433");
-      skyGrad.addColorStop(1, "#261f54");
-    } else if (isSunset) {
-      skyGrad.addColorStop(0, "#23408e");
-      skyGrad.addColorStop(0.55, "#d95b43");
-      skyGrad.addColorStop(1, "#f6b94c");
-    } else {
-      skyGrad.addColorStop(0, "#104db5");
-      skyGrad.addColorStop(0.65, "#2b7de0");
-      skyGrad.addColorStop(1, "#7cc2f7");
-    }
-    ctx.fillStyle = skyGrad;
-    ctx.fillRect(0, 0, W, 320);
+    var camX = Math.round(state.camX);
+    drawHarborPanorama(camX);
 
-    drawClouds(state.camX * 0.15, isNight);
-    if (!isNight) drawSeagulls();
-    drawDistantCastle(state.camX * 0.25, isNight);
+    if (state.phase === "title") {
+      drawTitleMonument();
+      // Twilight vignette tint matching v1_01.png!
+      ctx.fillStyle = "rgba(8, 14, 34, 0.46)";
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+      return;
+    }
+
+    // Dynamic Stage Atmospheric Tint (Sunset / Syndicate Night)
+    var isNight = state.bossActive || state.stageIdx === 2;
+    var isSunset = !isNight && (state.stageIdx === 1 || (!state.endless && state.kos >= 12));
+    if (isSunset) {
+      ctx.fillStyle = "rgba(245, 130, 32, 0.16)";
+      ctx.fillRect(0, 0, W, WATER_Y);
+    } else if (isNight) {
+      ctx.fillStyle = "rgba(10, 18, 54, 0.36)";
+      ctx.fillRect(0, 0, W, H);
+    }
 
     ctx.save();
-    ctx.translate(-Math.round(state.camX), 0);
+    ctx.translate(-camX, 0);
 
-    for (var bi = 0; bi < BUILDINGS.length; bi++) {
-      var b = BUILDINGS[bi];
-      if (b.x + b.w < state.camX - 40 || b.x > state.camX + W + 40) continue;
-      drawBuilding(b, isNight || isSunset);
+    // Draw Collectible Floating Mustaches, Rooftop Energy Canisters & Croissants
+    for (var ci = 0; ci < state.collectibles.length; ci++) {
+      var col = state.collectibles[ci];
+      if (col.x < camX - 80 || col.x > camX + W + 80) continue;
+      drawCollectible(col);
     }
 
-    for (var li = 0; li < LAMPS_X.length; li++) {
-      var lx = LAMPS_X[li];
-      if (lx < state.camX - 60 || lx > state.camX + W + 60) continue;
-      drawStreetLamp(lx, 376, isNight || isSunset);
-    }
-
-    drawQuaySidewalk(state.camX);
-
-    if (state.limoPhase > 0) {
-      drawLimo(state.limoX, 396);
-    }
-
+    // Depth-sorted Street Props, Hero & Scissor-Claw Agents
     var drawList = [];
     for (var pri = 0; pri < state.props.length; pri++) {
-      drawList.push({ y: state.props[pri].y, fn: drawPropFn(state.props[pri]) });
-    }
-    for (var pki = 0; pki < state.pickups.length; pki++) {
-      drawList.push({ y: state.pickups[pki].y, fn: drawPickupFn(state.pickups[pki]) });
+      var pr = state.props[pri];
+      if (pr.x + pr.w < camX - 80 || pr.x > camX + W + 80) continue;
+      drawList.push({ y: pr.y, fn: drawPropFn(pr) });
     }
     drawList.push({ y: state.hero.y + 1, fn: drawHero });
     for (var ei = 0; ei < state.enemies.length; ei++) {
@@ -1566,11 +1551,12 @@
     drawList.sort(function (a, b) { return a.y - b.y; });
     for (var di = 0; di < drawList.length; di++) drawList[di].fn();
 
+    // Spinning Projectiles
     for (var qi = 0; qi < state.projectiles.length; qi++) {
       drawProjectile(state.projectiles[qi]);
     }
 
-    // Flying Purple Sunglasses Debris!
+    // Popped-off Purple Goggles Debris
     for (var dbi = 0; dbi < state.debris.length; dbi++) {
       var db = state.debris[dbi];
       ctx.save();
@@ -1578,25 +1564,20 @@
       ctx.rotate(db.rot);
       ctx.fillStyle = "#18181b";
       ctx.fillRect(-10, -4, 20, 4);
-      ctx.fillStyle = "#a855f7";
+      ctx.fillStyle = "#c084fc";
       ctx.fillRect(-9, -3, 7, 5);
       ctx.fillRect(2, -3, 7, 5);
       ctx.restore();
     }
 
-    drawMooringBollards(state.camX);
-
+    // Square 16-Bit Pixel Sparks
     for (var pai = 0; pai < state.particles.length; pai++) {
       var pa = state.particles[pai];
       ctx.fillStyle = pa.color;
       ctx.fillRect(Math.round(pa.x), Math.round(pa.y), Math.round(pa.size), Math.round(pa.size));
     }
 
-    // Comic Speech Bubble during Intro Cinematic!
-    if (state.speech) {
-      drawSpeechBubble(state.speech.x, state.speech.y, state.speech.text);
-    }
-
+    // Crisp Pixel-Outlined Popups (including "Restores 1 heart"!)
     for (var poi = 0; poi < state.popups.length; poi++) {
       var pop = state.popups[poi];
       ctx.save();
@@ -1604,7 +1585,7 @@
       ctx.font = "900 " + pop.size + "px 'Trebuchet MS', Impact, sans-serif";
       ctx.textAlign = "center";
       ctx.lineWidth = 5;
-      ctx.strokeStyle = "#0a0c12";
+      ctx.strokeStyle = "#090b12";
       ctx.strokeText(pop.text, Math.round(pop.x), Math.round(pop.y));
       ctx.fillStyle = pop.color;
       ctx.fillText(pop.text, Math.round(pop.x), Math.round(pop.y));
@@ -1613,442 +1594,66 @@
 
     ctx.restore();
 
-    drawHarborWater();
-
     if (state.combo >= 4 && state.phase === "playing") {
       ctx.save();
-      ctx.font = "900 28px Impact, 'Trebuchet MS', sans-serif";
+      ctx.font = "900 26px Impact, 'Trebuchet MS', sans-serif";
       ctx.textAlign = "right";
-      var label = state.combo + " HITS!" + (state.combo >= 15 ? " UNSTOPPABLE!" : "");
-      ctx.lineWidth = 6;
+      var label = state.combo + " HIT COMBO!";
+      ctx.lineWidth = 5;
       ctx.strokeStyle = "#090d16";
-      ctx.strokeText(label, W - 26, 132);
-      ctx.fillStyle = state.combo >= 15 ? "#ffe24a" : "#ffffff";
-      ctx.fillText(label, W - 26, 132);
+      ctx.strokeText(label, W - 22, 118);
+      ctx.fillStyle = state.combo >= 12 ? "#ffe24a" : "#ffffff";
+      ctx.fillText(label, W - 22, 118);
       ctx.restore();
     }
 
-    if (state.phase === "playing" && (state.combo >= 10 || state.hero.armReloadTimer > 0)) {
-      var gPulse = 0.22 + Math.sin(state.time * 12) * 0.12;
+    if (state.phase === "playing" && state.hero.armReloadTimer > 0) {
+      var gPulse = 0.24 + Math.sin(state.time * 12) * 0.12;
       ctx.strokeStyle = "rgba(255, 226, 74, " + gPulse.toFixed(2) + ")";
       ctx.lineWidth = 10;
       ctx.strokeRect(5, 5, W - 10, H - 10);
     }
 
-    if (state.phase === "playing" && state.hero.hp === 1) {
-      var pulse = 0.16 + Math.sin(state.time * 10) * 0.1;
-      ctx.strokeStyle = "rgba(225, 29, 72, " + pulse.toFixed(2) + ")";
-      ctx.lineWidth = 14;
-      ctx.strokeRect(7, 7, W - 14, H - 14);
-    }
-
     ctx.restore();
   }
 
-  function drawSpeechBubble(x, y, text) {
+  function drawCollectible(col) {
+    var bob = Math.sin(state.time * 5.2 + (col.bobOff || 0)) * 4;
+    var cx = Math.round(col.x);
+    var cy = Math.round(col.y - (col.z || 0) + bob);
     ctx.save();
-    ctx.font = "900 15px 'Trebuchet MS', sans-serif";
-    var tw = Math.max(130, ctx.measureText(text).width + 28);
-    var bx = Math.round(x - tw * 0.5);
-    var by = Math.round(y - 36);
-    ctx.fillStyle = "#ffffff";
-    ctx.strokeStyle = "#0a0c12";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.roundRect(bx, by, tw, 34, 8);
-    ctx.fill();
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(x - 8, by + 34);
-    ctx.lineTo(x, by + 46);
-    ctx.lineTo(x + 8, by + 34);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = "#0a0c12";
-    ctx.textAlign = "center";
-    ctx.fillText(text, x, by + 22);
-    ctx.restore();
-  }
-
-  function drawSeagulls() {
-    ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = 2.4;
-    for (var i = 0; i < state.seagulls.length; i++) {
-      var sg = state.seagulls[i];
-      var flap = Math.sin(sg.wing) * 5;
-      ctx.beginPath();
-      ctx.moveTo(sg.x - 10, sg.y + flap);
-      ctx.lineTo(sg.x, sg.y);
-      ctx.lineTo(sg.x + 10, sg.y + flap);
-      ctx.stroke();
-    }
-  }
-
-  function drawClouds(offsetX, isNight) {
-    ctx.fillStyle = isNight ? "rgba(148, 163, 184, 0.22)" : "#f8fbff";
-    var spots = [110, 380, 620, 880, 1180];
-    for (var i = 0; i < spots.length; i++) {
-      var cx = ((spots[i] - offsetX - state.time * 6) % 1250 + 1250) % 1250 - 120;
-      var cy = 48 + (i % 3) * 28;
-      ctx.fillRect(cx, cy, 86, 26);
-      ctx.fillRect(cx + 16, cy - 14, 52, 18);
-      ctx.fillRect(cx - 14, cy + 8, 114, 18);
-      ctx.fillStyle = isNight ? "rgba(100,116,139,0.2)" : "#dbeafe";
-      ctx.fillRect(cx - 10, cy + 22, 104, 6);
-      ctx.fillStyle = isNight ? "rgba(148, 163, 184, 0.22)" : "#f8fbff";
-    }
-  }
-
-  function drawDistantCastle(offsetX, isNight) {
-    var baseX = Math.round(700 - offsetX);
-    ctx.fillStyle = isNight ? "#1b233c" : "#8b7a6b";
-    ctx.fillRect(baseX, 82, 230, 150);
-    ctx.fillRect(baseX + 36, 46, 54, 60);
-    ctx.fillRect(baseX + 140, 58, 64, 50);
-    for (var m = 0; m < 10; m++) {
-      ctx.fillRect(baseX + m * 23, 72, 13, 12);
-    }
-    ctx.fillStyle = isNight ? "#facc15" : "#4a3f38";
-    ctx.fillRect(baseX + 54, 64, 8, 14);
-    ctx.fillRect(baseX + 162, 74, 8, 14);
-    ctx.fillRect(baseX + 106, 108, 10, 16);
-  }
-
-  function drawBuilding(b, litWindows) {
-    var topY = 376 - b.h;
-    var roofH = 74;
-    ctx.fillStyle = b.roof;
-    ctx.fillRect(b.x, topY, b.w, roofH);
-    ctx.strokeStyle = "#18202c";
-    ctx.lineWidth = 3;
-    ctx.strokeRect(b.x, topY, b.w, roofH);
-    ctx.fillStyle = "rgba(255,255,255,0.12)";
-    for (var ry = topY + 12; ry < topY + roofH; ry += 12) {
-      ctx.fillRect(b.x + 3, ry, b.w - 6, 2);
-    }
-    // Brick Chimney + Gentle Rising Smoke Puff
-    ctx.fillStyle = "#9c4a35";
-    ctx.fillRect(b.x + 18, topY - 22, 26, 28);
-    ctx.strokeRect(b.x + 18, topY - 22, 26, 28);
-    ctx.fillStyle = "#c88a55";
-    ctx.fillRect(b.x + 22, topY - 30, 7, 10);
-    ctx.fillRect(b.x + 33, topY - 30, 7, 10);
-    var smY = ((state.time * 18 + b.x) % 36);
-    ctx.fillStyle = "rgba(255, 255, 255, " + (0.35 * (1 - smY / 36)).toFixed(2) + ")";
-    ctx.fillRect(b.x + 24 + Math.sin(state.time * 2 + b.x) * 4, topY - 36 - smY, 10, 8);
-
-    var wallY = topY + roofH;
-    var wallH = 376 - wallY;
-    ctx.fillStyle = b.col;
-    ctx.fillRect(b.x, wallY, b.w, wallH);
-    ctx.strokeStyle = "#141821";
-    ctx.lineWidth = 3;
-    ctx.strokeRect(b.x, wallY, b.w, wallH);
-
-    if (b.quoins) {
-      ctx.fillStyle = "#c4bfb5";
-      for (var qy = wallY + 4; qy < 368; qy += 18) {
-        var qw = (qy % 36 === 0) ? 14 : 9;
-        ctx.fillRect(b.x + 2, qy, qw, 12);
-        ctx.fillRect(b.x + b.w - qw - 2, qy, qw, 12);
-      }
-    }
-
-    ctx.fillStyle = "#9aa0a8";
-    ctx.fillRect(b.x + 2, 356, b.w - 4, 20);
-
-    if (b.style === "barber") {
-      ctx.fillStyle = "#2b2024";
-      ctx.fillRect(b.x + 28, 286, 126, 90);
-      for (var s = 0; s < 10; s++) {
-        ctx.fillStyle = s % 2 === 0 ? "#dc2626" : "#f8fafc";
-        ctx.fillRect(b.x + 28 + s * 12.6, 286, 13, 18);
-      }
-      ctx.fillStyle = "#1e293b";
-      ctx.fillRect(b.x + 28, 266, 126, 22);
-      ctx.strokeStyle = "#f8fafc";
+    if (col.kind === "mustache") {
+      // Subtle warm golden aura ring like v2_04.png!
+      ctx.strokeStyle = "rgba(255, 196, 56, 0.36)";
       ctx.lineWidth = 2;
-      ctx.strokeRect(b.x + 28, 266, 126, 22);
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 13px 'Trebuchet MS', sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText(b.label, b.x + 91, 281);
-      var px = b.x + 160;
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(px, 314, 12, 46);
-      ctx.fillStyle = "#dc2626";
-      var shift = Math.floor(state.time * 24) % 12;
-      for (var by = 314 + shift; by < 358; by += 12) {
-        ctx.fillRect(px, by, 12, 5);
-      }
-      ctx.strokeStyle = "#141821";
-      ctx.strokeRect(px, 314, 12, 46);
-    } else if (b.style === "fancy") {
-      ctx.fillStyle = "#1f2937";
-      ctx.fillRect(b.x + 12, 236, b.w - 24, 34);
-      ctx.strokeStyle = "#0f172a";
-      ctx.strokeRect(b.x + 12, 236, b.w - 24, 34);
-      ctx.fillStyle = "#f8fafc";
-      ctx.font = "900 22px Impact, sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText(b.label, b.x + b.w * 0.5, 261);
-
-      var shattered = state.shatteredWindows.fancy1 && b.label === "FANCY";
-      ctx.fillStyle = shattered ? "#1e293b" : "#93c5fd";
-      ctx.fillRect(b.x + 18, 278, b.w - 36, 94);
-      if (!shattered) {
-        ctx.fillStyle = "rgba(255,255,255,0.35)";
-        ctx.beginPath();
-        ctx.moveTo(b.x + 28, 372);
-        ctx.lineTo(b.x + 88, 278);
-        ctx.lineTo(b.x + 114, 278);
-        ctx.lineTo(b.x + 54, 372);
-        ctx.closePath();
-        ctx.fill();
-      } else {
-        ctx.strokeStyle = "#e0f2fe";
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(b.x + 18, 278); ctx.lineTo(b.x + 110, 326); ctx.lineTo(b.x + b.w - 18, 290);
-        ctx.moveTo(b.x + 110, 326); ctx.lineTo(b.x + 80, 372);
-        ctx.stroke();
-      }
-      ctx.strokeStyle = "#141821";
-      ctx.lineWidth = 3;
-      ctx.strokeRect(b.x + 18, 278, b.w - 36, 94);
-    } else {
-      var cols = b.windows || 2;
-      var spacing = b.w / (cols + 1);
-      for (var row = 0; row < 2; row++) {
-        var wy = wallY + 26 + row * 82;
-        if (wy > 310) continue;
-        for (var col = 0; col < cols; col++) {
-          var wx = b.x + spacing * (col + 1) - 20;
-          if (row === 1 && cols === 2 && col === 0) {
-            ctx.fillStyle = b.doorCol || "#6d28d9";
-            ctx.fillRect(wx + 2, 300, 38, 76);
-            ctx.strokeStyle = "#141821";
-            ctx.lineWidth = 2.5;
-            ctx.strokeRect(wx + 2, 300, 38, 76);
-            ctx.fillStyle = "#facc15";
-            ctx.fillRect(wx + 31, 338, 5, 5);
-            continue;
-          }
-          ctx.fillStyle = litWindows ? "#fde047" : "#334155";
-          ctx.fillRect(wx, wy, 40, 52);
-          ctx.strokeStyle = "#f8fafc";
-          ctx.lineWidth = 3;
-          ctx.strokeRect(wx, wy, 40, 52);
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.moveTo(wx + 20, wy); ctx.lineTo(wx + 20, wy + 52);
-          ctx.moveTo(wx, wy + 18); ctx.lineTo(wx + 40, wy + 18);
-          ctx.moveTo(wx, wy + 35); ctx.lineTo(wx + 40, wy + 35);
-          ctx.stroke();
-          ctx.fillStyle = "#cbd5e1";
-          ctx.fillRect(wx - 4, wy + 52, 48, 6);
-          if (b.flowers && row === 0) {
-            ctx.fillStyle = "#15803d";
-            ctx.fillRect(wx - 2, wy + 46, 44, 6);
-            ctx.fillStyle = "#fb7185";
-            ctx.fillRect(wx + 4, wy + 43, 6, 5);
-            ctx.fillRect(wx + 18, wy + 42, 6, 5);
-            ctx.fillRect(wx + 31, wy + 43, 6, 5);
-          }
-        }
-      }
-    }
-  }
-
-  function drawStreetLamp(x, groundY, glowing) {
-    ctx.fillStyle = "#181c24";
-    ctx.fillRect(x - 5, groundY - 12, 10, 12);
-    ctx.fillRect(x - 2, groundY - 98, 4, 88);
-    ctx.fillRect(x - 9, groundY - 114, 18, 16);
-    ctx.fillStyle = glowing ? "#fef08a" : "#cbd5e1";
-    ctx.fillRect(x - 6, groundY - 111, 12, 10);
-    if (glowing) {
-      var g = ctx.createRadialGradient(x, groundY - 106, 4, x, groundY - 106, 62);
-      g.addColorStop(0, "rgba(254, 240, 138, 0.5)");
-      g.addColorStop(1, "rgba(254, 240, 138, 0)");
-      ctx.fillStyle = g;
       ctx.beginPath();
-      ctx.arc(x, groundY - 106, 62, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  function drawQuaySidewalk(camX) {
-    var startX = Math.floor(camX / 48) * 48 - 48;
-    var endX = camX + W + 96;
-    ctx.fillStyle = "#adb6c2";
-    ctx.fillRect(startX, 376, endX - startX, 74);
-    ctx.fillStyle = "#949eaa";
-    ctx.fillRect(startX, 376, endX - startX, 8);
-    ctx.strokeStyle = "#6c7684";
-    ctx.lineWidth = 2;
-    for (var py = 392; py < 450; py += 18) {
-      ctx.beginPath(); ctx.moveTo(startX, py); ctx.lineTo(endX, py); ctx.stroke();
-    }
-    for (var px = startX; px < endX; px += 48) {
-      ctx.beginPath(); ctx.moveTo(px, 376); ctx.lineTo(px - 14, 450); ctx.stroke();
-    }
-    ctx.fillStyle = "#7c8594";
-    ctx.fillRect(startX, 450, endX - startX, 20);
-    ctx.strokeStyle = "#2b323d";
-    ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.moveTo(startX, 450); ctx.lineTo(endX, 450); ctx.stroke();
-    for (var bx = startX; bx < endX; bx += 42) {
-      ctx.strokeRect(bx, 450, 42, 20);
-    }
-  }
-
-  function drawMooringBollards(camX) {
-    var start = Math.floor(camX / 240) * 240;
-    for (var x = start; x < camX + W + 240; x += 240) {
-      var bx = x + 110;
-      ctx.fillStyle = "#5c3428";
-      ctx.fillRect(bx - 8, 424, 16, 26);
-      ctx.fillStyle = "#7c4636";
-      ctx.fillRect(bx - 10, 420, 20, 6);
-      ctx.strokeStyle = "#181012";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(bx - 8, 424, 16, 26);
-    }
-  }
-
-  function drawHarborWater() {
-    ctx.fillStyle = "#124ca6";
-    ctx.fillRect(0, WATER_Y, W, H - WATER_Y);
-    for (var layer = 0; layer < 4; layer++) {
-      var baseY = WATER_Y + 10 + layer * 17;
-      var speed = (layer % 2 === 0 ? 1 : -1) * (24 + layer * 9);
-      ctx.strokeStyle = layer % 2 === 0 ? "#e0f2fe" : "#38bdf8";
-      ctx.lineWidth = layer === 0 ? 3.5 : 2.5;
-      ctx.beginPath();
-      for (var x = 0; x <= W; x += 10) {
-        var wy = baseY + Math.sin((x + state.camX * 0.7 + state.time * speed) * 0.045 + layer * 1.4) * 5;
-        if (x === 0) ctx.moveTo(x, wy);
-        else ctx.lineTo(x, wy);
-      }
+      ctx.ellipse(cx, cy, 24, 11, 0, 0, Math.PI * 2);
       ctx.stroke();
+      if (imgReady(sprites.pickupMustache)) {
+        ctx.drawImage(sprites.pickupMustache, cx - 24, cy - 13, 48, 25);
+      }
+    } else if (col.kind === "canister") {
+      if (imgReady(sprites.pickupCanister)) {
+        ctx.drawImage(sprites.pickupCanister, cx - 16, cy - 36, 32, 42);
+      }
+    } else if (col.kind === "croissant") {
+      if (imgReady(sprites.pickupCroissant)) {
+        ctx.drawImage(sprites.pickupCroissant, cx - 20, cy - 18, 40, 31);
+      }
     }
-  }
-
-  function drawLimo(x, y) {
-    ctx.save();
-    ctx.fillStyle = "#111827";
-    ctx.fillRect(x, y - 48, 220, 44);
-    ctx.fillRect(x + 36, y - 74, 148, 28);
-    ctx.fillStyle = "#38bdf8";
-    ctx.fillRect(x + 46, y - 68, 40, 18);
-    ctx.fillRect(x + 94, y - 68, 42, 18);
-    ctx.fillRect(x + 144, y - 68, 32, 18);
-    ctx.fillStyle = "#facc15";
-    ctx.fillRect(x + 2, y - 34, 12, 10);
-    ctx.fillStyle = "#1f2937";
-    ctx.beginPath(); ctx.arc(x + 42, y - 4, 16, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(x + 178, y - 4, 16, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = "#cbd5e1";
-    ctx.beginPath(); ctx.arc(x + 42, y - 4, 7, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(x + 178, y - 4, 7, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
   }
 
   function drawPropFn(pr) {
     return function () {
-      if (pr.hp <= 0 && (pr.kind === "crate" || pr.kind === "trash")) return;
       ctx.save();
       if (pr.hitFlash > 0) ctx.translate((Math.random() - 0.5) * 6, 0);
-
-      if (pr.kind === "trash") {
-        ctx.fillStyle = "#64748b";
-        ctx.fillRect(pr.x, pr.y - pr.h, pr.w, pr.h);
-        ctx.fillStyle = "#94a3b8";
-        ctx.fillRect(pr.x - 3, pr.y - pr.h - 5, pr.w + 6, 7);
-        ctx.strokeStyle = "#141821";
-        ctx.lineWidth = 2.5;
-        ctx.strokeRect(pr.x, pr.y - pr.h, pr.w, pr.h);
-        ctx.strokeRect(pr.x - 3, pr.y - pr.h - 5, pr.w + 6, 7);
-      } else if (pr.kind === "booth") {
-        var by = pr.y - pr.h;
-        ctx.fillStyle = pr.hp <= 0 ? "#856a12" : "#f5c828";
-        ctx.fillRect(pr.x, by, pr.w, pr.h);
-        ctx.strokeStyle = "#141821";
-        ctx.lineWidth = 3;
-        ctx.strokeRect(pr.x, by, pr.w, pr.h);
-        ctx.fillStyle = "#1e293b";
-        ctx.fillRect(pr.x + 4, by + 5, pr.w - 8, 12);
-        ctx.fillStyle = "#fef08a";
-        ctx.font = "bold 7.5px monospace";
-        ctx.textAlign = "center";
-        ctx.fillText("TELEPHONE", pr.x + pr.w * 0.5, by + 14);
-        ctx.fillStyle = pr.hp <= 0 ? "#1f2937" : "#7dd3fc";
-        ctx.fillRect(pr.x + 8, by + 22, pr.w - 16, 52);
-        ctx.strokeRect(pr.x + 8, by + 22, pr.w - 16, 52);
-      } else if (pr.kind === "car") {
-        var cy = pr.y - pr.h;
-        var dmgStage = pr.hp <= 0 ? 2 : (pr.hp <= 3 ? 1 : 0);
-        ctx.fillStyle = dmgStage === 2 ? "#94a3b8" : "#e2e8f0";
-        ctx.fillRect(pr.x, cy + 20, pr.w, 34);
-        ctx.fillRect(pr.x + 28, cy, 86, 24);
-        ctx.strokeStyle = "#141821";
-        ctx.lineWidth = 3;
-        ctx.strokeRect(pr.x, cy + 20, pr.w, 34);
-        ctx.strokeRect(pr.x + 28, cy, 86, 24);
-        ctx.fillStyle = dmgStage >= 1 ? "#334155" : "#64748b";
-        ctx.fillRect(pr.x + 34, cy + 4, 34, 16);
-        ctx.fillRect(pr.x + 74, cy + 4, 34, 16);
-        ctx.fillStyle = "#111827";
-        ctx.beginPath(); ctx.arc(pr.x + 32, pr.y - 2, 14, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.arc(pr.x + 116, pr.y - 2, 14, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = "#cbd5e1";
-        ctx.beginPath(); ctx.arc(pr.x + 32, pr.y - 2, 6, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.arc(pr.x + 116, pr.y - 2, 6, 0, Math.PI * 2); ctx.fill();
-        if (dmgStage >= 1 && Math.random() < 0.25) {
-          spawnParticles(pr.x + 18, cy + 16, 1, "#64748b", 35, -60);
-        }
-      } else {
-        ctx.fillStyle = "#a16207";
-        ctx.fillRect(pr.x, pr.y - pr.h, pr.w, pr.h);
-        ctx.strokeStyle = "#1c1917";
-        ctx.lineWidth = 3;
-        ctx.strokeRect(pr.x, pr.y - pr.h, pr.w, pr.h);
-        ctx.beginPath(); ctx.moveTo(pr.x, pr.y - pr.h); ctx.lineTo(pr.x + pr.w, pr.y); ctx.stroke();
+      if (pr.hp <= 0) ctx.filter = "brightness(0.55) contrast(1.2)";
+      var img = pr.kind === "booth" ? sprites.propBooth : sprites.propCar;
+      if (imgReady(img)) {
+        ctx.drawImage(img, Math.round(pr.x), Math.round(pr.y - pr.h), pr.w, pr.h);
       }
-      ctx.restore();
-    };
-  }
-
-  function drawPickupFn(pk) {
-    return function () {
-      var bob = Math.sin(state.time * 7 + pk.x) * 4;
-      var py = pk.y - pk.z - 18 + bob;
-      ctx.save();
-      ctx.fillStyle = "rgba(0,0,0,0.35)";
-      ctx.beginPath(); ctx.ellipse(pk.x, pk.y, 16, 5, 0, 0, Math.PI * 2); ctx.fill();
-      if (pk.kind === "pizza") {
-        ctx.fillStyle = "#f59e0b";
-        ctx.beginPath();
-        ctx.moveTo(pk.x - 14, py - 10);
-        ctx.lineTo(pk.x + 14, py - 10);
-        ctx.lineTo(pk.x, py + 14);
-        ctx.closePath();
-        ctx.fill();
-        ctx.strokeStyle = "#141821"; ctx.lineWidth = 2; ctx.stroke();
-        ctx.fillStyle = "#dc2626";
-        ctx.beginPath(); ctx.arc(pk.x - 3, py - 2, 3, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.arc(pk.x + 4, py - 4, 2.5, 0, Math.PI * 2); ctx.fill();
-      } else if (pk.kind === "pipe") {
-        ctx.fillStyle = "#cbd5e1";
-        ctx.strokeStyle = "#0f172a";
-        ctx.lineWidth = 2;
-        ctx.fillRect(pk.x - 20, py - 4, 40, 8);
-        ctx.strokeRect(pk.x - 20, py - 4, 40, 8);
-      } else {
-        drawMustacheShape(pk.x, py, 1.0, "#facc15", "#78350f");
-      }
+      ctx.filter = "none";
       ctx.restore();
     };
   }
@@ -2057,51 +1662,55 @@
     var h = state.hero;
     var perk = SKIN_PERKS[state.skinIdx] || SKIN_PERKS[0];
 
-    // Draw Cyan / Agent Blitz Dash Afterimages
     for (var ai = 0; ai < h.afterimages.length; ai++) {
       var af = h.afterimages[ai];
-      var aImg = sprites.heroKick;
-      if (aImg && aImg.complete && aImg.naturalWidth > 0) {
+      var aImg = sprites.heroCombSlash;
+      if (imgReady(aImg)) {
         ctx.save();
-        ctx.globalAlpha = af.life * 1.8;
+        ctx.globalAlpha = af.life * 1.6;
         ctx.translate(Math.round(af.x), Math.round(af.y - af.z));
         ctx.scale(af.facing, 1);
-        ctx.filter = "brightness(1.8) hue-rotate(170deg)";
-        var aw = Math.round(110 * (aImg.naturalWidth / aImg.naturalHeight));
-        ctx.drawImage(aImg, -Math.round(aw * 0.45), -110, aw, 110);
+        ctx.filter = "brightness(1.8) hue-rotate(155deg)";
+        var aw = Math.round(118 * (aImg.naturalWidth / aImg.naturalHeight));
+        ctx.drawImage(aImg, -Math.round(aw * 0.35), -118, aw, 118);
         ctx.restore();
       }
     }
 
-    ctx.fillStyle = "rgba(0,0,0,0.38)";
-    var shScale = Math.max(0.45, 1 - h.z / 260);
+    // Ground shadow
+    ctx.fillStyle = "rgba(0, 0, 0, 0.36)";
+    var shScale = Math.max(0.4, 1 - h.z / 280);
     ctx.beginPath();
-    ctx.ellipse(h.x, h.y + 2, 28 * shScale, 9 * shScale, 0, 0, Math.PI * 2);
+    ctx.ellipse(h.x, h.y + 3, 28 * shScale, 8 * shScale, 0, 0, Math.PI * 2);
     ctx.fill();
 
     if (state.phase === "playing" && h.invuln > 0 && h.armReloadTimer <= 0 && Math.floor(state.time * 18) % 2 === 0) return;
 
-    var img = sprites.heroIdle;
-    var drawH = 112;
-    if (h.attackType === "punch") {
-      img = sprites.heroPunch;
-      drawH = 116;
-    } else if (h.attackType === "kick" || h.z > 24) {
-      img = sprites.heroKick;
-      drawH = 110;
+    var img = sprites.heroGoldIdle;
+    var drawH = 114;
+    var anchorX = 0.48;
+    if (h.attackType === "comb_slash" || h.attackType === "whirlwind") {
+      img = sprites.heroCombSlash;
+      drawH = 118;
+      anchorX = 0.34;
+    } else if (h.attackType === "super_punch") {
+      img = sprites.heroGoldIdle;
+      drawH = 120;
     }
 
-    var bob = h.z <= 1 ? Math.abs(Math.sin(h.walkPhase)) * -6 : 0;
+    var bob = h.z <= 1 ? Math.abs(Math.sin(h.walkPhase)) * -5 : 0;
     ctx.save();
     ctx.translate(Math.round(h.x), Math.round(h.y - h.z + bob));
 
     if (h.armReloadTimer > 0) {
-      var aura = ctx.createRadialGradient(0, -54, 12, 0, -54, 74);
-      aura.addColorStop(0, "rgba(255, 226, 74, 0.75)");
+      var aura = ctx.createRadialGradient(0, -56, 12, 0, -56, 76);
+      aura.addColorStop(0, "rgba(255, 226, 74, 0.78)");
       aura.addColorStop(0.55, "rgba(255, 95, 46, 0.38)");
       aura.addColorStop(1, "rgba(255, 95, 46, 0)");
       ctx.fillStyle = aura;
-      ctx.beginPath(); ctx.arc(0, -54, 74, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath();
+      ctx.arc(0, -56, 76, 0, Math.PI * 2);
+      ctx.fill();
     }
 
     ctx.scale(h.facing, 1);
@@ -2109,38 +1718,26 @@
       ctx.filter = perk.filter;
     }
 
-    if (img && img.complete && img.naturalWidth > 0) {
+    if (imgReady(img)) {
       var drawW = Math.round(drawH * (img.naturalWidth / img.naturalHeight));
-      ctx.drawImage(img, -Math.round(drawW * 0.45), -drawH, drawW, drawH);
-    } else {
-      ctx.fillStyle = "#f59e0b";
-      ctx.fillRect(-20, -96, 40, 96);
+      ctx.drawImage(img, -Math.round(drawW * anchorX), -drawH, drawW, drawH);
     }
     ctx.filter = "none";
 
-    if (h.weapon) {
-      ctx.fillStyle = "#e2e8f0";
-      ctx.strokeStyle = "#0f172a";
-      ctx.lineWidth = 2;
-      ctx.fillRect(16, -64, 34, 7);
-      ctx.strokeRect(16, -64, 34, 7);
+    // Gleaming Golden Comb-Sword Slash Arc!
+    if (h.slashArcTimer > 0) {
+      ctx.strokeStyle = h.attackType === "whirlwind" ? "#38e8ff" : "#ffe652";
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.arc(28, -56, 56, -0.85, 0.95);
+      ctx.stroke();
     }
-    ctx.restore();
 
-    // Orbiting Golden Mustache Shield!
-    if (h.mustacheShieldTimer > 0) {
-      for (var m = 0; m < 2; m++) {
-        var ang = state.time * 6.2 + m * Math.PI;
-        var mx = h.x + Math.cos(ang) * 58;
-        var my = h.y - h.z - 52 + Math.sin(ang) * 20;
-        drawMustacheShape(mx, my, 0.72, "#ffe24a", "#78350f");
-      }
-    }
+    ctx.restore();
   }
 
   function drawEnemyFn(e) {
     return function () {
-      // Boss Telegraphed Seismic Slam Red Warning Ring!
       if (e.kind === "boss" && e.telegraphTimer > 0) {
         ctx.save();
         var tPulse = 0.25 + Math.sin(state.time * 28) * 0.15;
@@ -2148,118 +1745,75 @@
         ctx.strokeStyle = "#ffe24a";
         ctx.lineWidth = 3;
         ctx.beginPath();
-        ctx.ellipse(e.x, e.y, 185, 42, 0, 0, Math.PI * 2);
+        ctx.ellipse(e.x, e.y, 185, 40, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
         ctx.restore();
       }
 
-      ctx.fillStyle = "rgba(0,0,0,0.35)";
+      ctx.fillStyle = "rgba(0, 0, 0, 0.35)";
       ctx.beginPath();
-      ctx.ellipse(e.x, e.y + 2, e.kind === "boss" ? 38 : 26, 9, 0, 0, Math.PI * 2);
+      ctx.ellipse(e.x, e.y + 3, e.kind === "boss" ? 38 : 24, 8, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      var img = e.kind === "boss" ? sprites.bossKingpin : sprites.enemySuit;
-      var drawH = e.kind === "boss" ? 148 : (e.kind === "heavy" ? 116 : 104);
-      var bob = (e.dying || e.bowling) ? 0 : Math.abs(Math.sin(e.walkPhase)) * -5;
+      var img = e.kind === "boss"
+        ? sprites.bossKingpin
+        : (e.kind === "heavy" ? sprites.enemySuit : sprites.enemyScissor);
+      var drawH = e.kind === "boss" ? 148 : (e.kind === "heavy" ? 114 : 106);
+      var bob = e.dying ? 0 : Math.abs(Math.sin(e.walkPhase)) * -5;
 
       ctx.save();
       ctx.translate(Math.round(e.x), Math.round(e.y - e.z + bob));
-      if (e.dying || e.bowling) {
+      if (e.dying) {
         ctx.rotate((state.time * 12) * (e.vx >= 0 ? 1 : -1));
       }
-      ctx.scale(e.facing > 0 ? -1 : 1, 1);
+      // Note: enemyScissor faces RIGHT in its raw sprite; enemySuit & bossKingpin face LEFT
+      var rawFacesRight = (img === sprites.enemyScissor);
+      var scaleX = rawFacesRight ? (e.facing >= 0 ? 1 : -1) : (e.facing > 0 ? -1 : 1);
+      ctx.scale(scaleX, 1);
 
       if (e.hitFlash > 0) {
         ctx.filter = "brightness(2.4)";
       } else if (e.kind === "boss" && e.phase2) {
         ctx.filter = "saturate(1.6) drop-shadow(0 0 8px #c084fc)";
-      } else if (e.kind === "heavy") {
-        ctx.filter = "hue-rotate(-32deg) saturate(1.3)";
-      } else if (e.kind === "thrower") {
-        ctx.filter = "hue-rotate(155deg) saturate(1.15)";
+      } else if (e.kind === "scissor_olive") {
+        // Olive-green tailored suit variant matching v2_04.png!
+        ctx.filter = "hue-rotate(64deg) saturate(0.95)";
       }
 
-      if (img && img.complete && img.naturalWidth > 0) {
+      if (imgReady(img)) {
         var drawW = Math.round(drawH * (img.naturalWidth / img.naturalHeight));
-        ctx.drawImage(img, -Math.round(drawW * 0.5), -drawH, drawW, drawH);
-      } else {
-        ctx.fillStyle = "#78350f";
-        ctx.fillRect(-18, -90, 36, 90);
+        ctx.drawImage(img, -Math.round(drawW * 0.46), -drawH, drawW, drawH);
       }
       ctx.filter = "none";
       ctx.restore();
 
-      // Dizzy Spinning Stars above stunned goons & counter-stunned Boss!
-      if (!e.dying && !e.bowling && e.stunTimer > 0.1) {
+      if (!e.dying && e.stunTimer > 0.1) {
         for (var st = 0; st < 3; st++) {
           var sa = state.time * 7 + (st * Math.PI * 2) / 3;
-          var sx = e.x + Math.cos(sa) * 24;
-          var sy = e.y - e.z - drawH - 6 + Math.sin(sa) * 6;
+          var sx = e.x + Math.cos(sa) * 22;
+          var sy = e.y - e.z - drawH - 6 + Math.sin(sa) * 5;
           ctx.fillStyle = "#ffe24a";
           ctx.fillRect(Math.round(sx) - 3, Math.round(sy) - 3, 6, 6);
         }
       }
-
-      if (!e.dying && e.kind !== "boss" && e.hp < e.maxHp) {
-        var bw = 42;
-        ctx.fillStyle = "#141821";
-        ctx.fillRect(e.x - bw * 0.5, e.y - drawH - 12, bw, 6);
-        ctx.fillStyle = "#ef4444";
-        ctx.fillRect(e.x - bw * 0.5 + 1, e.y - drawH - 11, (bw - 2) * Math.max(0, e.hp / e.maxHp), 4);
-      }
     };
-  }
-
-  function drawMustacheShape(x, y, scale, fillCol, strokeCol) {
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.scale(scale, scale);
-    ctx.fillStyle = fillCol || "#7c3e18";
-    ctx.strokeStyle = strokeCol || "#181012";
-    ctx.lineWidth = 2.4;
-    ctx.beginPath();
-    ctx.moveTo(0, -2);
-    ctx.bezierCurveTo(-5, -10, -16, -10, -22, -2);
-    ctx.bezierCurveTo(-25, 2, -27, 4, -30, 1);
-    ctx.bezierCurveTo(-27, 10, -16, 12, -7, 7);
-    ctx.lineTo(0, 2);
-    ctx.lineTo(7, 7);
-    ctx.bezierCurveTo(16, 12, 27, 10, 30, 1);
-    ctx.bezierCurveTo(27, 4, 25, 2, 22, -2);
-    ctx.bezierCurveTo(16, -10, 5, -10, 0, -2);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.restore();
   }
 
   function drawProjectile(q) {
     ctx.save();
     ctx.translate(Math.round(q.x), Math.round(q.y));
     ctx.rotate(q.rot);
-    if (q.kind === "pipe") {
-      ctx.fillStyle = "#e2e8f0";
-      ctx.strokeStyle = "#0f172a";
-      ctx.lineWidth = 2.5;
-      ctx.fillRect(-20, -4, 40, 8);
-      ctx.strokeRect(-20, -4, 40, 8);
-    } else if (q.kind === "trashcan") {
-      ctx.fillStyle = "#64748b";
-      ctx.strokeStyle = "#0f172a";
-      ctx.lineWidth = 2.5;
-      ctx.fillRect(-14, -18, 28, 36);
-      ctx.strokeRect(-14, -18, 28, 36);
-    } else {
-      var fill = q.owner === "hero" ? "#38e8ff" : "#7c3e18";
-      var stroke = q.owner === "hero" ? "#ffe680" : "#141821";
-      drawMustacheShape(0, 0, 0.9, fill, stroke);
+    if (imgReady(sprites.pickupMustache)) {
+      if (q.owner === "hero") ctx.filter = "hue-rotate(155deg) brightness(1.5)";
+      ctx.drawImage(sprites.pickupMustache, -22, -11, 44, 22);
+      ctx.filter = "none";
     }
     ctx.restore();
   }
 
   // =========================================================================
-  // VINTAGE BRASS MERCURY THERMOMETER & DOM HUD SYNC
+  // ORNATE CONNECTED BRASS & RUBY MERCURY THERMOMETER (Exact v2_01/v2_04!)
   // =========================================================================
   function drawThermometer() {
     if (!thermoCtx) return;
@@ -2269,51 +1823,95 @@
     c.clearRect(0, 0, tw, th);
 
     var pct = state.hero.armReloadTimer > 0
-      ? Math.max(0.1, state.hero.armReloadTimer / 8.0)
+      ? Math.max(0.08, state.hero.armReloadTimer / 8.0)
       : Math.max(0, Math.min(1, state.thermo / 100));
 
-    c.fillStyle = "#5c1124";
-    c.strokeStyle = "#f5b82e";
-    c.lineWidth = 3;
-    c.beginPath(); c.arc(27, 22, 18, 0, Math.PI * 2); c.fill(); c.stroke();
+    // 1. Top Burgundy-Gold Circular Medallion (v2_01/v2_04!)
+    c.fillStyle = "#7a142c";
+    c.strokeStyle = "#e6a825";
+    c.lineWidth = 3.5;
+    c.beginPath();
+    c.arc(30, 24, 20, 0, Math.PI * 2);
+    c.fill();
+    c.stroke();
+    c.strokeStyle = "#260710";
+    c.lineWidth = 1.5;
+    c.beginPath();
+    c.arc(30, 24, 22, 0, Math.PI * 2);
+    c.stroke();
     if (pct >= 0.99 || state.hero.armReloadTimer > 0) {
       c.fillStyle = "#ffe24a";
-      c.beginPath(); c.arc(27, 22, 11, 0, Math.PI * 2); c.fill();
+      c.beginPath();
+      c.arc(30, 24, 11, 0, Math.PI * 2);
+      c.fill();
     }
 
+    // 2. Ornate Crimson & Brass Vertical Thermometer Body
+    c.fillStyle = "#8c1630";
+    c.strokeStyle = "#e6a825";
+    c.lineWidth = 3;
+    c.beginPath();
+    c.roundRect(14, 46, 32, 146, 14);
+    c.fill();
+    c.stroke();
+
+    // Inner gold bezel & white segmented glass tube (matching v2_04.png!)
     c.fillStyle = "#d99b26";
-    c.strokeStyle = "#3a1a08";
-    c.lineWidth = 2.5;
-    c.beginPath(); c.roundRect(14, 44, 26, 150, 12); c.fill(); c.stroke();
+    c.fillRect(19, 54, 22, 130);
+    c.fillStyle = "#e8f1fc";
+    c.fillRect(22, 58, 16, 122);
 
-    c.fillStyle = "#dbeafe";
-    c.fillRect(20, 54, 14, 130);
-
-    var fillH = Math.round(126 * pct);
-    var grad = c.createLinearGradient(0, 184, 0, 54);
+    // Rising Sky-Blue / Blazing Gold Energy Fill (v2_04.png shows sky-blue energy in the glass tube!)
+    var fillH = Math.round(120 * pct);
+    var grad = c.createLinearGradient(0, 180, 0, 58);
     if (pct >= 0.99 || state.hero.armReloadTimer > 0) {
       grad.addColorStop(0, "#ff5f2e");
       grad.addColorStop(1, "#ffe24a");
     } else {
-      grad.addColorStop(0, "#2563eb");
-      grad.addColorStop(0.55, "#38bdf8");
-      grad.addColorStop(1, "#e11d48");
+      grad.addColorStop(0, "#1d74d8");
+      grad.addColorStop(1, "#54c8ff");
     }
     c.fillStyle = grad;
-    c.fillRect(21, 182 - fillH, 12, fillH);
+    c.fillRect(23, 179 - fillH, 14, fillH);
 
-    c.strokeStyle = "#1e293b";
+    // Horizontal dark pixel tick marks + center vertical glass highlight line
+    c.strokeStyle = "#334155";
     c.lineWidth = 1.5;
-    for (var ty = 64; ty <= 174; ty += 14) {
-      c.beginPath(); c.moveTo(20, ty); c.lineTo(28, ty); c.stroke();
+    for (var ty = 70; ty <= 170; ty += 14) {
+      c.beginPath();
+      c.moveTo(22, ty);
+      c.lineTo(38, ty);
+      c.stroke();
     }
+    c.strokeStyle = "rgba(30, 41, 59, 0.55)";
+    c.beginPath();
+    c.moveTo(30, 58);
+    c.lineTo(30, 179);
+    c.stroke();
 
-    c.fillStyle = "#b81d33";
-    c.strokeStyle = "#f5b82e";
+    // 3. Ornate Winged Brass & Ruby Bottom Bulb (v2_01/v2_04!)
+    c.fillStyle = "#e6a825";
+    c.strokeStyle = "#260710";
+    c.lineWidth = 2;
+    c.beginPath();
+    c.moveTo(8, 194);
+    c.lineTo(30, 224);
+    c.lineTo(52, 194);
+    c.closePath();
+    c.fill();
+    c.stroke();
+
+    c.fillStyle = "#9e1836";
+    c.strokeStyle = "#e6a825";
     c.lineWidth = 3;
-    c.beginPath(); c.arc(27, 198, 17, 0, Math.PI * 2); c.fill(); c.stroke();
-    c.fillStyle = pct >= 0.99 ? "#ffe24a" : "#fb7185";
-    c.beginPath(); c.arc(27, 198, 9, 0, Math.PI * 2); c.fill();
+    c.beginPath();
+    c.arc(30, 196, 16, 0, Math.PI * 2);
+    c.fill();
+    c.stroke();
+    c.fillStyle = pct >= 0.99 ? "#ffe24a" : "#38bdf8";
+    c.beginPath();
+    c.arc(30, 196, 8, 0, Math.PI * 2);
+    c.fill();
   }
 
   function setVisible(id, show) {
@@ -2323,7 +1921,30 @@
     else el.classList.add("is-hidden");
   }
 
+  function updateSkillBadge(btnId, ringId, cdTextId, glyphId, remSec, maxSec) {
+    var btn = document.getElementById(btnId);
+    var ring = document.getElementById(ringId);
+    var cdTxt = document.getElementById(cdTextId);
+    var glyph = document.getElementById(glyphId);
+    if (remSec > 0.05) {
+      var frac = Math.max(0, Math.min(1, remSec / maxSec));
+      if (ring) ring.setAttribute("stroke-dashoffset", String(Math.round(119 * (1 - frac))));
+      if (btn) btn.classList.add("on-cd");
+      if (cdTxt) {
+        cdTxt.textContent = Math.ceil(remSec) + "s";
+        cdTxt.classList.remove("is-hidden");
+      }
+      if (glyph) glyph.classList.add("is-hidden");
+    } else {
+      if (ring) ring.setAttribute("stroke-dashoffset", "119");
+      if (btn) btn.classList.remove("on-cd");
+      if (cdTxt) cdTxt.classList.add("is-hidden");
+      if (glyph) glyph.classList.remove("is-hidden");
+    }
+  }
+
   function syncHud() {
+    if (state.phase !== "playing" && state.phase !== "paused" && state.phase !== "arm_reload") return;
     drawThermometer();
 
     var h = state.hero;
@@ -2338,33 +1959,43 @@
       }
     }
 
-    var rO = document.getElementById("ring-o");
-    if (rO) rO.setAttribute("stroke-dashoffset", String(Math.round(113 * Math.min(1, h.oCd / 0.21))));
-    var rK = document.getElementById("ring-k");
-    if (rK) rK.setAttribute("stroke-dashoffset", String(Math.round(113 * Math.min(1, h.kCd / 0.52))));
-    var rL = document.getElementById("ring-l");
-    var ultPct = h.armReloadTimer > 0 ? h.armReloadTimer / 8.0 : state.thermo / 100;
-    if (rL) rL.setAttribute("stroke-dashoffset", String(Math.round(113 * (1 - ultPct))));
+    updateSkillBadge("btn-skill-o", "ring-o", "cd-text-o", "glyph-o", 0, 1);
+    updateSkillBadge("btn-skill-k", "ring-k", "cd-text-k", "glyph-k", h.kCd, 5.0);
 
+    var rL = document.getElementById("ring-l");
+    var cdL = document.getElementById("cd-text-l");
+    var glL = document.getElementById("glyph-l");
     var btnL = document.getElementById("btn-skill-l");
     var readyTag = document.getElementById("thermo-ready-tag");
     var ultReady = state.thermo >= 100 || h.armReloadTimer > 0;
+
+    if (h.armReloadTimer > 0) {
+      if (rL) rL.setAttribute("stroke-dashoffset", String(Math.round(119 * (1 - h.armReloadTimer / 8.0))));
+      if (cdL) { cdL.textContent = Math.ceil(h.armReloadTimer) + "s"; cdL.classList.remove("is-hidden"); }
+      if (glL) glL.classList.add("is-hidden");
+    } else {
+      if (rL) rL.setAttribute("stroke-dashoffset", String(Math.round(119 * (1 - state.thermo / 100))));
+      if (cdL) cdL.classList.add("is-hidden");
+      if (glL) glL.classList.remove("is-hidden");
+    }
+
     if (btnL) {
       if (ultReady) btnL.classList.add("ready-glow");
       else btnL.classList.remove("ready-glow");
     }
     if (readyTag) {
-      if (ultReady) readyTag.classList.remove("is-hidden");
+      if (state.thermo >= 100 && h.armReloadTimer <= 0) readyTag.classList.remove("is-hidden");
       else readyTag.classList.add("is-hidden");
     }
 
-    var koEl = document.getElementById("hud-ko-counter");
-    if (koEl) {
-      var kStr = String(state.kos).padStart(3, "0");
-      koEl.textContent = state.endless ? kStr + " KO" : kStr + "/" + String(GOAL_KOS).padStart(3, "0");
-    }
+    var mEl = document.getElementById("hud-mustache-counter");
+    if (mEl) mEl.textContent = String(state.mustaches).padStart(3, "0");
+
     var scEl = document.getElementById("hud-score-pill");
-    if (scEl) scEl.textContent = "SCORE " + String(state.score).padStart(5, "0");
+    if (scEl) {
+      var kPart = state.endless ? (state.kos + " KOs") : ("KOs " + String(state.kos).padStart(2, "0") + "/" + GOAL_KOS);
+      scEl.textContent = kPart + " · " + String(state.score).padStart(5, "0") + " PTS";
+    }
 
     setVisible("go-banner", state.goTimer > 0 && state.phase === "playing");
 
@@ -2380,7 +2011,7 @@
       var bpct = Math.max(0, Math.min(1, boss.hp / boss.maxHp));
       var tpct = Math.max(bpct, Math.min(1, boss.trailHp / boss.maxHp));
       var bn = document.getElementById("boss-hud-name");
-      if (bn) bn.textContent = boss.phase2 ? "DON MUSTACHIO · RAGE!" : "DON MUSTACHIO";
+      if (bn) bn.textContent = boss.phase2 ? "CYBER-BARON VEX · OVERDRIVE!" : "CYBER-BARON VEX";
       var pctEl = document.getElementById("boss-hud-pct");
       if (pctEl) pctEl.textContent = Math.ceil(bpct * 100) + "%";
       var fillEl = document.getElementById("boss-hp-fill");
@@ -2391,13 +2022,14 @@
   }
 
   // =========================================================================
-  // GAME FLOW, MEDALS & REDDIT SUBMISSIONS
+  // CAMPAIGN FLOW, MODALS & REDDIT SCORE SUBMISSION
   // =========================================================================
-  function startRun(endless, skipIntroFlag) {
+  function startRun(stageIdx, skipIntroFlag) {
     ensureAudio();
     startMusic();
-    resetWorld(endless);
+    resetWorld(stageIdx);
     setVisible("arcade-title-screen", false);
+    setVisible("arcade-level-modal", false);
     setVisible("arcade-pause-modal", false);
     setVisible("arcade-end-modal", false);
     setVisible("arm-reload-screen", false);
@@ -2405,6 +2037,7 @@
     if (skipIntroFlag) {
       state.phase = "intro";
       finishIntro();
+      if (stageIdx === 2) summonKingpinBoss();
     } else {
       beginIntroCinematic();
     }
@@ -2415,25 +2048,36 @@
       .catch(function () {});
   }
 
+  function returnToTitle() {
+    state.phase = "title";
+    state.camX = 0;
+    var tc = document.getElementById("touch-controls");
+    if (tc) tc.classList.remove("active");
+    setVisible("arcade-hud", false);
+    setVisible("arcade-pause-modal", false);
+    setVisible("arcade-end-modal", false);
+    setVisible("arcade-level-modal", false);
+    setVisible("btn-skip-intro", false);
+    setVisible("arcade-title-screen", true);
+  }
+
   function computeRank(score, victory) {
-    if (victory && score >= 14000) return "SSS";
-    if (victory && score >= 9500) return "SS";
-    if (score >= 7000) return "S";
-    if (score >= 4500) return "A";
-    if (score >= 2500) return "B";
-    if (score >= 1200) return "C";
-    return "D";
+    if (victory && score >= 12000) return "SSS";
+    if (victory && score >= 8500) return "SS";
+    if (score >= 6000) return "S";
+    if (score >= 3800) return "A";
+    if (score >= 2000) return "B";
+    return "C";
   }
 
   function buildMedals() {
     var m = [];
+    if (state.mustaches >= 15) m.push("MUSTACHE GUARDIAN (" + state.mustaches + ")");
     if (state.reloadsUsed >= 1) m.push("ARM RELOAD MASTER");
-    if (state.parries >= 1) m.push("PARRY ACE");
-    if (state.throws >= 1) m.push("BOWLING KING");
-    if (state.maxCombo >= 15) m.push("COMBO x" + state.maxCombo);
-    if (state.kos >= GOAL_KOS) m.push("QUAY CLEANER");
-    if (state.bossSlain) m.push("KINGPIN SLAYER");
-    if (m.length === 0) m.push("HARBOR ROOKIE");
+    if (state.parries >= 1) m.push("SCISSOR PARRY ACE");
+    if (state.maxCombo >= 12) m.push("COMBO x" + state.maxCombo);
+    if (state.bossSlain) m.push("HARBOR SAVIOR");
+    if (m.length === 0) m.push("PROTOCOL AGENT");
     return m;
   }
 
@@ -2451,16 +2095,17 @@
 
     var rank = computeRank(state.score, victory);
     var tag = document.getElementById("end-outcome-tag");
-    if (tag) tag.textContent = victory ? "STAGE CLEAR! HARBOR SAVED" : "KNOCKED OUT!";
+    if (tag) tag.textContent = victory ? "PROTOCOL COMPLETE! HARBOR SAVED" : "MISSION FAILED!";
     var sc = document.getElementById("end-score-val");
     if (sc) sc.textContent = state.score.toLocaleString("en-US") + " PTS";
     var rk = document.getElementById("end-rank-val");
     if (rk) rk.textContent = rank;
     var sum = document.getElementById("end-summary-box");
-    var chronicle = victory
-      ? "Cleared the Harbor Quay with " + state.kos + " KOs, max combo " + state.maxCombo + "x, " + state.parries + " mustache parries, and crushed Don Mustachio!"
-      : "Battled through " + state.kos + " suited goons on the Harbor Quay (max combo " + state.maxCombo + "x, " + state.score + " PTS).";
-    if (sum) sum.textContent = chronicle;
+    if (sum) {
+      sum.textContent = victory
+        ? "Recovered " + state.mustaches + " stolen mustaches, defeated " + state.kos + " scissor-agents, and crushed Cyber-Baron Vex!"
+        : "Recovered " + state.mustaches + " mustaches and defeated " + state.kos + " scissor-agents on Harbor Island (" + state.score + " PTS).";
+    }
 
     var mStrip = document.getElementById("end-medals-strip");
     if (mStrip) {
@@ -2491,9 +2136,9 @@
           kills: state.kos,
           bossSlain: state.bossSlain,
           bossReached: state.bossActive || state.bossSlain,
-          level: Math.max(1, Math.floor(state.kos / 4) + 1),
+          level: state.stageIdx + 1,
           heroClass: state.skinIdx % 3,
-          buildSummary: (SKIN_PERKS[state.skinIdx] || SKIN_PERKS[0]).name + " · ARM RELOAD",
+          buildSummary: "MUSTACHE PROTOCOL · " + state.mustaches + " STACHES",
           isEndless: state.endless
         })
       }).catch(function () {});
@@ -2505,9 +2150,11 @@
       state.phase = "paused";
       setVisible("arcade-pause-modal", true);
       var ps = document.getElementById("pause-stats-line");
-      if (ps) ps.textContent = "KOs: " + state.kos + "/" + GOAL_KOS + " · Score: " + state.score + " · Combo: " + state.maxCombo + "x · Parries: " + state.parries;
+      if (ps) ps.textContent = "Mustaches: " + String(state.mustaches).padStart(3, "0") + " · KOs: " + state.kos + "/" + GOAL_KOS + " · Score: " + state.score;
     } else if (state.phase === "paused") {
       state.phase = "playing";
+      setVisible("arcade-pause-modal", false);
+    } else if (state.phase === "title") {
       setVisible("arcade-pause-modal", false);
     }
   }
@@ -2528,11 +2175,11 @@
   }
 
   // =========================================================================
-  // INPUT & DOM BINDINGS
+  // INPUT & UI EVENT LISTENERS
   // =========================================================================
   window.addEventListener("keydown", function (ev) {
     keys[ev.code] = true;
-    if (state.phase === "intro" && (ev.code === "Space" || ev.code === "Enter" || ev.code === "KeyO" || ev.code === "KeyK")) {
+    if (state.phase === "intro" && (ev.code === "Space" || ev.code === "Enter" || ev.code === "Escape")) {
       ev.preventDefault();
       finishIntro();
       return;
@@ -2544,7 +2191,7 @@
     }
     if (state.phase === "title" && (ev.code === "Enter" || ev.code === "Space")) {
       ev.preventDefault();
-      startRun(state.endless, false);
+      startRun(state.stageIdx, false);
       return;
     }
     if (ev.code === "Escape" || ev.code === "KeyP") {
@@ -2552,8 +2199,10 @@
       return;
     }
     if (state.phase !== "playing") return;
-    if (ev.code === "Space") { ev.preventDefault(); heroJump(); }
-    else if (ev.code === "KeyO" || ev.code === "KeyJ") heroPunch();
+    if (ev.code === "Space" || ev.code === "KeyW" || ev.code === "ArrowUp") {
+      if (ev.code === "Space") { ev.preventDefault(); heroJump(); }
+    }
+    if (ev.code === "KeyO" || ev.code === "KeyJ") heroPunch();
     else if (ev.code === "KeyK") heroKick();
     else if (ev.code === "KeyL" || ev.code === "KeyQ") triggerArmReload(false);
   });
@@ -2577,6 +2226,31 @@
   var armBtn = document.getElementById("btn-arm-continue");
   if (armBtn) armBtn.addEventListener("click", function (e) { e.stopPropagation(); dismissArmReload(); });
 
+  var btnStart = document.getElementById("btn-press-start");
+  if (btnStart) btnStart.addEventListener("click", function () { startRun(state.stageIdx, false); });
+
+  var btnOpenLevels = document.getElementById("btn-open-levels");
+  if (btnOpenLevels) btnOpenLevels.addEventListener("click", function () { setVisible("arcade-level-modal", true); });
+  var btnCloseLevels = document.getElementById("btn-close-levels");
+  if (btnCloseLevels) btnCloseLevels.addEventListener("click", function () { setVisible("arcade-level-modal", false); });
+  var btnLaunchSelected = document.getElementById("btn-launch-selected");
+  if (btnLaunchSelected) btnLaunchSelected.addEventListener("click", function () { startRun(state.stageIdx, false); });
+
+  var btnTitleGear = document.getElementById("btn-title-settings");
+  if (btnTitleGear) btnTitleGear.addEventListener("click", function () { setVisible("arcade-pause-modal", true); });
+
+  var levelBtns = document.querySelectorAll("#level-selector .level-card-btn");
+  levelBtns.forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var idx = Number(btn.getAttribute("data-stage")) || 0;
+      levelBtns.forEach(function (b) { b.classList.remove("selected"); });
+      btn.classList.add("selected");
+      state.stageIdx = idx;
+      var lbl = document.getElementById("selected-level-label");
+      if (lbl) lbl.textContent = idx === 3 ? "ENDLESS MODE" : ("LEVEL " + (idx + 1) + " SELECTED");
+    });
+  });
+
   var skinBtns = document.querySelectorAll("#skin-selector .skin-btn");
   skinBtns.forEach(function (btn) {
     btn.addEventListener("click", function () {
@@ -2588,22 +2262,6 @@
     });
   });
 
-  var modeStory = document.getElementById("btn-mode-story");
-  var modeEndless = document.getElementById("btn-mode-endless");
-  if (modeStory) modeStory.addEventListener("click", function () {
-    state.endless = false;
-    modeStory.classList.add("selected");
-    if (modeEndless) modeEndless.classList.remove("selected");
-  });
-  if (modeEndless) modeEndless.addEventListener("click", function () {
-    state.endless = true;
-    modeEndless.classList.add("selected");
-    if (modeStory) modeStory.classList.remove("selected");
-  });
-
-  var btnStart = document.getElementById("btn-press-start");
-  if (btnStart) btnStart.addEventListener("click", function () { startRun(state.endless, false); });
-
   var btnSkillO = document.getElementById("btn-skill-o");
   if (btnSkillO) btnSkillO.addEventListener("click", heroPunch);
   var btnSkillK = document.getElementById("btn-skill-k");
@@ -2614,11 +2272,17 @@
   var btnPause = document.getElementById("btn-pause");
   if (btnPause) btnPause.addEventListener("click", togglePause);
   var btnResumeTop = document.getElementById("btn-pause-resume-top");
-  if (btnResumeTop) btnResumeTop.addEventListener("click", togglePause);
+  if (btnResumeTop) btnResumeTop.addEventListener("click", function () {
+    if (state.phase === "title") setVisible("arcade-pause-modal", false);
+    else togglePause();
+  });
   var btnResumeBot = document.getElementById("btn-pause-resume");
-  if (btnResumeBot) btnResumeBot.addEventListener("click", togglePause);
+  if (btnResumeBot) btnResumeBot.addEventListener("click", function () {
+    if (state.phase === "title") setVisible("arcade-pause-modal", false);
+    else togglePause();
+  });
   var btnRestart = document.getElementById("btn-pause-restart");
-  if (btnRestart) btnRestart.addEventListener("click", function () { startRun(state.endless, true); });
+  if (btnRestart) btnRestart.addEventListener("click", returnToTitle);
 
   var btnAudio = document.getElementById("btn-toggle-audio");
   if (btnAudio) btnAudio.addEventListener("click", function () {
@@ -2650,13 +2314,13 @@
   });
 
   var btnEndReplay = document.getElementById("btn-end-replay");
-  if (btnEndReplay) btnEndReplay.addEventListener("click", function () { startRun(false, true); });
+  if (btnEndReplay) btnEndReplay.addEventListener("click", function () { startRun(state.stageIdx, true); });
   var btnEndEndless = document.getElementById("btn-end-endless");
-  if (btnEndEndless) btnEndEndless.addEventListener("click", function () { startRun(true, true); });
+  if (btnEndEndless) btnEndEndless.addEventListener("click", function () { startRun(3, true); });
   var btnEndShare = document.getElementById("btn-end-share");
   if (btnEndShare) btnEndShare.addEventListener("click", function () {
     var st = document.getElementById("end-status-msg");
-    if (st) st.textContent = "Posting arcade chronicle to Reddit...";
+    if (st) st.textContent = "Posting Mustache Protocol chronicle to Reddit...";
     fetch("/api/share-comment", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2664,12 +2328,12 @@
         score: state.score,
         kills: state.kos,
         bossSlain: state.bossSlain,
-        level: Math.max(1, Math.floor(state.kos / 4) + 1),
+        level: state.stageIdx + 1,
         heroClass: state.skinIdx % 3,
         streak: apiState.streak,
-        buildEmojis: "🥊⚡👨🏻",
+        buildEmojis: "⚔️〰️🥊",
         rank: computeRank(state.score, state.victory),
-        chronicle: "HENRY'S ARCADE STREETS · " + state.kos + " KOs · " + state.maxCombo + "x Combo · " + buildMedals().join(" · ")
+        chronicle: "MUSTACHE PROTOCOL · " + state.mustaches + " Mustaches · " + state.kos + " KOs · " + buildMedals().join(" · ")
       })
     })
       .then(function (r) { return r.json().catch(function () { return {}; }); })
@@ -2700,9 +2364,11 @@
   var tL = document.getElementById("touch-l");
   if (tL) tL.addEventListener("pointerdown", function (e) { e.preventDefault(); triggerArmReload(false); });
 
+  // Headless QA & Gameplay Verification Hooks
   window.__ARCADE_DEBUG__ = {
     getState: function () { return state; },
-    startStory: function (skipIntro) { startRun(false, Boolean(skipIntro)); },
+    startCampaign: function (skipIntro) { startRun(0, Boolean(skipIntro)); },
+    setIntroTime: function (t) { state.phase = "intro"; state.introTimer = t; },
     finishIntro: finishIntro,
     punch: heroPunch,
     kick: heroKick,
@@ -2715,7 +2381,7 @@
 
   applyCrtVisual();
   applyAudioVisual();
-  resetWorld(false);
+  resetWorld(0);
   state.phase = "title";
 
   var lastTs = performance.now();

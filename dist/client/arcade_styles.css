@@ -1,20 +1,18 @@
 /* ============================================================================
-   HENRY'S ARCADE STREETS (EMBERFALL v0.3.0) — 16-BIT RETRO BEAT'EM UP UI
+   MUSTACHE PROTOCOL — 16-BIT SNES PIXEL-ART ARCADE EDITION (v0.7.0)
    100% Reddit Devvit CSP Compliant (Zero external URLs / Zero inline styles)
    ============================================================================ */
 
 :root {
-  --crt-bg: #05070c;
+  --crt-bg: #03050a;
   --gold: #f5b82e;
   --gold-bright: #ffe680;
   --gold-dark: #9a5b08;
-  --crimson: #b81d33;
-  --crimson-deep: #6b0f1f;
+  --crimson: #9e1836;
+  --crimson-deep: #5e0c20;
   --navy: #0e2442;
-  --navy-border: #e6f2ff;
-  --ink: #0a0c12;
+  --ink: #0a0c14;
   --text: #fff9eb;
-  --muted: #cbd5e1;
 }
 
 * {
@@ -45,7 +43,7 @@ body {
 }
 
 /* ============================================================================
-   ARCADE CRT CABINET FRAME (Exact 16:9 Framing from Reference Video)
+   CURVED 16:9 CRT ARCADE MONITOR STAGE (Exact Framing of v1_01 & v2_01)
    ============================================================================ */
 .arcade-root {
   position: fixed;
@@ -53,7 +51,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle at 50% 50%, #101626 0%, #020305 82%);
+  background: #020306;
   touch-action: none;
 }
 
@@ -65,12 +63,12 @@ body {
   max-height: calc(100vw * 9 / 16);
   aspect-ratio: 16 / 9;
   overflow: hidden;
-  border-radius: 14px;
-  background: #1a58b8;
+  border-radius: 18px;
+  background: #0f3d91;
   box-shadow:
-    0 0 0 3px #141926,
-    0 0 0 6px #07090f,
-    0 18px 54px rgba(0, 0, 0, 0.92);
+    0 0 0 4px #090b12,
+    0 0 0 8px #020306,
+    0 22px 60px rgba(0, 0, 0, 0.96);
 }
 
 @media (max-width: 720px) and (orientation: portrait) {
@@ -83,7 +81,7 @@ body {
   }
   #arcade-canvas {
     object-fit: cover;
-    object-position: center center;
+    object-position: center bottom;
   }
 }
 
@@ -105,22 +103,22 @@ body {
   background:
     repeating-linear-gradient(
       0deg,
-      rgba(0, 0, 0, 0.14) 0px,
-      rgba(0, 0, 0, 0.14) 1px,
+      rgba(0, 0, 0, 0.13) 0px,
+      rgba(0, 0, 0, 0.13) 1px,
       transparent 1px,
       transparent 3px
     ),
-    radial-gradient(ellipse at center, transparent 62%, rgba(0, 0, 0, 0.42) 100%);
-  box-shadow: inset 0 0 36px rgba(0, 0, 0, 0.55);
+    radial-gradient(ellipse at center, transparent 64%, rgba(0, 0, 0, 0.52) 100%);
+  box-shadow: inset 0 0 42px rgba(0, 0, 0, 0.65);
 }
 
 .crt-scanlines.crt-off {
-  background: radial-gradient(ellipse at center, transparent 74%, rgba(0, 0, 0, 0.24) 100%);
+  background: radial-gradient(ellipse at center, transparent 76%, rgba(0, 0, 0, 0.28) 100%);
   box-shadow: none;
 }
 
 /* ============================================================================
-   EXACT 1:1 RETRO ARCADE HUD OVERLAY (Top-Left, Left Thermo, Pause, Counter)
+   UNIFIED ORNATE PIXEL-ART HUD (Exact 1:1 Match v2_01.png & v2_04.png)
    ============================================================================ */
 .arcade-hud {
   position: absolute;
@@ -129,34 +127,39 @@ body {
   pointer-events: none;
 }
 
-/* Top-Left Portrait + 3 Hearts + [O][K][L] Skill Badges */
-.hud-tl {
+.hud-tl-assembly {
   position: absolute;
   top: 12px;
-  left: 14px;
+  left: 16px;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  align-items: flex-start;
 }
 
 .hud-hero-bar {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+}
+
+.portrait-frame-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 3;
 }
 
 .portrait-box {
-  width: 60px;
-  height: 60px;
-  border-radius: 8px;
-  border: 3px solid var(--gold);
+  width: 68px;
+  height: 68px;
+  border-radius: 6px;
+  border: 4px solid #e6a825;
+  outline: 2px solid #2a0a14;
   box-shadow:
-    0 0 0 2px #4c1118,
-    0 4px 0 rgba(0, 0, 0, 0.65),
-    inset 0 0 8px rgba(0, 0, 0, 0.5);
-  background: #173680;
+    inset 0 0 0 2px #7a182c,
+    0 4px 0 rgba(0, 0, 0, 0.65);
+  background: #1848a0;
   overflow: hidden;
-  flex-shrink: 0;
 }
 
 .portrait-box img {
@@ -167,29 +170,50 @@ body {
   display: block;
 }
 
+/* Diagonal crimson-gold connector leading from Portrait down to Thermometer */
+.thermo-neck {
+  width: 24px;
+  height: 16px;
+  margin-top: -2px;
+  margin-left: -18px;
+  background: linear-gradient(135deg, #9e1836 0%, #630c22 100%);
+  border-left: 3px solid #e6a825;
+  border-right: 3px solid #e6a825;
+  transform: skewX(26deg);
+  box-shadow: 0 2px 0 #2a0a14;
+}
+
 .hud-vitals-col {
   display: flex;
   flex-direction: column;
   gap: 5px;
+  margin-left: -4px;
   padding-top: 2px;
+  z-index: 2;
 }
 
-.hearts-row {
+/* Angled Crimson & Gold Ribbon holding the 3 Glossy 3D Hearts */
+.hearts-ribbon {
   display: flex;
   align-items: center;
-  gap: 4px;
-  background: linear-gradient(180deg, rgba(107, 15, 31, 0.9), rgba(58, 7, 16, 0.9));
-  border: 2px solid var(--gold);
-  border-radius: 7px;
-  padding: 3px 8px;
-  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.55);
+  gap: 6px;
+  background: linear-gradient(180deg, #9e1836 0%, #6e0e24 100%);
+  border-top: 3px solid #e6a825;
+  border-bottom: 3px solid #e6a825;
+  border-right: 4px solid #e6a825;
+  border-radius: 0 8px 12px 0;
+  padding: 3px 16px 3px 12px;
+  box-shadow:
+    0 0 0 2px #2a0a14,
+    0 4px 0 rgba(0, 0, 0, 0.55);
 }
 
 .heart-icon {
-  width: 24px;
-  height: 22px;
+  width: 26px;
+  height: 24px;
   display: block;
-  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.7));
+  margin-top: -6px;
+  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.72));
   transition: transform 0.14s ease, opacity 0.14s ease;
 }
 
@@ -199,14 +223,15 @@ body {
 }
 
 .heart-icon.half {
-  opacity: 0.72;
-  transform: scale(0.92);
+  opacity: 0.68;
+  transform: scale(0.88);
 }
 
 .skill-row {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
+  padding-left: 10px;
   pointer-events: auto;
 }
 
@@ -215,14 +240,14 @@ body {
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  border: 2.5px solid var(--gold);
-  background: radial-gradient(circle at 35% 30%, #9b1838, #4d0a1e);
-  color: var(--gold-bright);
+  border: 3px solid #e6a825;
+  background: radial-gradient(circle at 38% 32%, #9e1836 0%, #5c0c20 100%);
+  color: rgba(255, 230, 128, 0.85);
   display: grid;
   place-items: center;
   cursor: pointer;
   box-shadow:
-    0 0 0 1.5px #2d0710,
+    0 0 0 2px #260710,
     0 3px 0 rgba(0, 0, 0, 0.65);
   transition: transform 0.1s ease, filter 0.15s ease;
 }
@@ -231,17 +256,18 @@ body {
   transform: scale(0.92);
 }
 
+.arcade-skill.on-cd {
+  background: radial-gradient(circle at 50% 50%, #2d1424 0%, #160912 100%);
+}
+
 .arcade-skill.ready-glow {
-  border-color: #fff08a;
-  background: radial-gradient(circle at 35% 30%, #ff7a18, #b81d33);
+  border-color: #fff394;
+  background: radial-gradient(circle at 35% 30%, #ff881c, #b81d33);
+  color: #ffffff;
   box-shadow:
     0 0 16px rgba(255, 224, 71, 0.95),
     0 0 0 2px #520c14;
-  animation: skillPulse 0.85s ease-in-out infinite;
-}
-
-.arcade-skill.on-cd {
-  filter: brightness(0.62);
+  animation: skillPulse 0.8s ease-in-out infinite;
 }
 
 @keyframes skillPulse {
@@ -251,47 +277,66 @@ body {
 
 .skill-ring {
   position: absolute;
-  inset: -3px;
+  inset: -4px;
   width: 42px;
   height: 42px;
   transform: rotate(-90deg);
   pointer-events: none;
 }
 
+.skill-glyph {
+  pointer-events: none;
+}
+
+/* Live Cooldown Seconds Readout Inside Skill Circle (Exact v2_04.png "5s" Match!) */
+.skill-cd-num {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 900;
+  color: #ffffff;
+  text-shadow:
+    0 2px 0 #000000,
+    0 0 6px rgba(56, 232, 255, 0.85);
+  pointer-events: none;
+}
+
 .skill-keycap {
   position: absolute;
-  bottom: -7px;
+  bottom: -9px;
   left: 50%;
   transform: translateX(-50%);
-  padding: 0 4px;
-  min-width: 17px;
+  padding: 0 5px;
+  min-width: 18px;
   border-radius: 3px;
-  background: #141720;
-  border: 1.5px solid var(--gold-bright);
+  background: #7c162e;
+  border: 1.5px solid #f5c242;
+  outline: 1.5px solid #1e0710;
   color: #ffffff;
   font-size: 9px;
   font-weight: 900;
   text-align: center;
-  line-height: 1.3;
-  letter-spacing: 0.04em;
+  line-height: 1.25;
 }
 
-/* Left-Edge Vintage Brass Mercury Thermometer */
+/* Left-Edge Connected Brass & Ruby Mercury Thermometer */
 .hud-thermo {
-  position: absolute;
-  top: 90px;
-  left: 16px;
+  margin-top: -6px;
+  margin-left: -4px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
 }
 
 #thermo-canvas {
-  width: 46px;
-  height: 192px;
+  width: 56px;
+  height: 216px;
   display: block;
-  filter: drop-shadow(0 4px 4px rgba(0, 0, 0, 0.65));
+  image-rendering: pixelated;
+  filter: drop-shadow(0 4px 3px rgba(0, 0, 0, 0.65));
 }
 
 .thermo-tag {
@@ -302,16 +347,16 @@ body {
   color: var(--gold-bright);
   font-size: 8.5px;
   font-weight: 900;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-shadow: 0 1px 0 #000;
   animation: skillPulse 0.7s infinite;
 }
 
-/* Top-Center PAUSE Button (Exact Reference Video Style) */
+/* Top-Center PAUSE Button (Exact v2_01.png & v2_04.png Match!) */
 .hud-tc {
   position: absolute;
-  top: 12px;
-  left: 50%;
+  top: 14px;
+  left: 65%;
   transform: translateX(-50%);
   display: flex;
   flex-direction: column;
@@ -321,24 +366,24 @@ body {
 }
 
 .btn-arcade-pause {
-  background: linear-gradient(180deg, #16335c 0%, #0b1c36 100%);
+  background: linear-gradient(180deg, #132c4e 0%, #0b1b32 100%);
   color: #ffffff;
-  border: 3px solid #f0f6ff;
-  border-radius: 10px;
-  padding: 6px 20px;
-  font-size: 14px;
+  border: 2.5px solid #f8fbff;
+  border-radius: 9px;
+  padding: 7px 18px;
+  font-size: 13px;
   font-weight: 900;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.12em;
   cursor: pointer;
   box-shadow:
-    0 0 0 2px #091326,
-    0 4px 0 rgba(0, 0, 0, 0.65);
+    0 0 0 2px #071020,
+    0 4px 0 rgba(0, 0, 0, 0.6);
   text-shadow: 0 2px 0 #050a14;
   transition: transform 0.1s ease, filter 0.12s ease;
 }
 
 .btn-arcade-pause:hover {
-  filter: brightness(1.15);
+  filter: brightness(1.16);
 }
 
 .btn-arcade-pause:active {
@@ -346,12 +391,12 @@ body {
 }
 
 .boss-hud-bar {
-  width: 260px;
-  background: rgba(10, 14, 26, 0.9);
-  border: 2px solid var(--gold);
+  width: 248px;
+  background: rgba(10, 14, 26, 0.92);
+  border: 2.5px solid var(--gold);
   border-radius: 8px;
   padding: 4px 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.75);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.78);
 }
 
 .boss-hud-label {
@@ -370,61 +415,68 @@ body {
   display: block;
 }
 
-/* Top-Right Retro Digital Counter [ 000 / 025 ] + Mustache Emblem */
+/* Top-Right Crimson & White Mustache Counter [ 003 ] + Mustache Emblem (Exact v2_01/v2_04) */
 .hud-tr {
   position: absolute;
   top: 12px;
-  right: 16px;
+  right: 18px;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 4px;
 }
 
-.counter-plaque {
+.mustache-counter-plaque {
   display: flex;
   align-items: center;
-  gap: 8px;
-  background: linear-gradient(180deg, #a61b34 0%, #680d1e 100%);
-  border: 3px solid var(--gold);
-  border-radius: 10px;
-  padding: 4px 12px 4px 10px;
+  gap: 6px;
+  background: linear-gradient(180deg, #9e1836 0%, #680d22 100%);
+  border: 3px solid #e6a825;
+  border-radius: 12px;
+  padding: 4px 10px 4px 8px;
   box-shadow:
-    0 0 0 2px #2b0710,
-    0 4px 0 rgba(0, 0, 0, 0.65);
+    0 0 0 2px #290710,
+    0 4px 0 rgba(0, 0, 0, 0.62);
+}
+
+.mustache-white-box {
+  background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
+  border: 2px solid #781226;
+  border-radius: 6px;
+  padding: 2px 10px;
+  min-width: 56px;
+  text-align: center;
+  box-shadow: inset 0 2px 0 rgba(0, 0, 0, 0.12);
 }
 
 .counter-digits {
   font-family: "Courier New", monospace;
-  font-size: 19px;
+  font-size: 18px;
   font-weight: 900;
   letter-spacing: 0.08em;
-  color: #ffffff;
-  background: #230912;
-  border: 2px solid #df9b22;
-  border-radius: 5px;
-  padding: 1px 8px;
-  text-shadow: 0 0 8px rgba(255, 215, 64, 0.65);
+  color: #9e1836;
   font-variant-numeric: tabular-nums;
 }
 
-.mustache-crest {
-  width: 44px;
-  height: 22px;
+.hud-mustache-icon {
+  width: 52px;
+  height: 28px;
+  object-fit: contain;
+  image-rendering: pixelated;
   display: block;
-  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.7));
+  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.65));
 }
 
 .score-subpill {
-  background: rgba(11, 18, 36, 0.86);
+  background: rgba(11, 18, 36, 0.88);
   border: 1.5px solid var(--gold);
   border-radius: 6px;
-  padding: 2px 9px;
+  padding: 2px 8px;
   font-family: "Courier New", monospace;
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 900;
   color: var(--gold-bright);
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
   box-shadow: 0 2px 0 rgba(0, 0, 0, 0.6);
 }
 
@@ -452,7 +504,192 @@ body {
 }
 
 /* ============================================================================
-   FULL-SCREEN "NEW POWER UP: ARM RELOAD" OVERLAY (Exact 1:1 Match frame_20s)
+   EXACT 1:1 16-BIT ARCADE TITLE SCREEN (v1_01.png Match!)
+   ============================================================================ */
+.arcade-title-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 35;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 36px 20px 28px;
+  background: radial-gradient(
+    ellipse at 50% 44%,
+    rgba(6, 12, 30, 0.42) 0%,
+    rgba(3, 6, 16, 0.78) 100%
+  );
+}
+
+.title-logo-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  max-width: 680px;
+  width: 100%;
+}
+
+.title-collab-line {
+  font-size: clamp(13px, 2vw, 21px);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #ffffff;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.92);
+  margin-bottom: 2px;
+}
+
+.title-pixel-logo {
+  width: min(76vw, 570px);
+  max-height: 39vh;
+  height: auto;
+  object-fit: contain;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 10px 22px rgba(0, 0, 0, 0.85));
+}
+
+.title-the-game {
+  margin-top: 4px;
+  font-size: clamp(18px, 2.7vw, 29px);
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  color: #ffe652;
+  text-shadow:
+    0 3px 0 #c8225a,
+    0 6px 0 #1b1544,
+    0 8px 16px rgba(0, 0, 0, 0.85);
+}
+
+.title-cta-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  max-width: 380px;
+}
+
+/* Sky-Blue Pixel-Beveled START CAMPAIGN Button with Golden Mustache on Left (v1_01.png!) */
+.btn-start-campaign {
+  position: relative;
+  width: 100%;
+  min-height: 54px;
+  background: linear-gradient(180deg, #5cc2ff 0%, #3597ec 52%, #2478cc 100%);
+  border: 3px solid #9e2248;
+  outline: 2px solid #160918;
+  border-radius: 8px;
+  padding: 10px 24px 10px 36px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.65),
+    inset 0 -3px 0 rgba(12, 48, 98, 0.65),
+    0 6px 0 rgba(10, 8, 22, 0.82),
+    0 0 24px rgba(56, 189, 248, 0.35);
+  transition: transform 0.1s ease, filter 0.12s ease;
+}
+
+.btn-start-campaign:hover {
+  filter: brightness(1.08);
+}
+
+.btn-start-campaign:active {
+  transform: translateY(3px);
+}
+
+.btn-start-stache {
+  position: absolute;
+  left: -16px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 58px;
+  height: 31px;
+  image-rendering: pixelated;
+  filter: brightness(1.32) saturate(1.35) drop-shadow(0 3px 0 #140a0e);
+  pointer-events: none;
+}
+
+.btn-start-label {
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  color: #ffffff;
+  text-shadow:
+    -2px -2px 0 #091326,
+     2px -2px 0 #091326,
+    -2px  2px 0 #091326,
+     2px  2px 0 #091326,
+     0    3px 0 #091326;
+}
+
+.modal-launch-btn {
+  margin-top: 4px;
+}
+
+.title-sub-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.btn-select-level {
+  min-width: 196px;
+  height: 44px;
+  background: linear-gradient(180deg, rgba(64, 48, 66, 0.92), rgba(36, 26, 40, 0.95));
+  border: 2.5px solid #a8764c;
+  outline: 2px solid #140c16;
+  border-radius: 6px;
+  padding: 0 16px;
+  color: #d8c8d8;
+  font-size: 12.5px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.14),
+    0 4px 0 rgba(0, 0, 0, 0.72);
+  transition: filter 0.12s ease, transform 0.1s ease;
+}
+
+.btn-select-level:hover,
+.btn-title-gear:hover {
+  filter: brightness(1.18);
+  color: #fff6d6;
+  border-color: #f5b82e;
+}
+
+.level-lock-icon {
+  color: #f5b82e;
+  font-size: 14px;
+}
+
+.btn-title-gear {
+  width: 48px;
+  height: 44px;
+  background: linear-gradient(180deg, rgba(78, 52, 68, 0.94), rgba(44, 26, 42, 0.96));
+  border: 2.5px solid #c28854;
+  outline: 2px solid #140c16;
+  border-radius: 6px;
+  color: #ffffff;
+  font-size: 20px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.18),
+    0 4px 0 rgba(0, 0, 0, 0.72);
+}
+
+/* ============================================================================
+   FULL-SCREEN "NEW POWER UP: ARM RELOAD" OVERLAY (Exact 1:1 Match v2_02.png)
    ============================================================================ */
 .arm-reload-screen {
   position: absolute;
@@ -463,9 +700,9 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: space-between;
-  padding: 18px 16px 20px;
+  padding: 20px 16px 24px;
   cursor: pointer;
-  animation: fadeInFast 0.2s ease-out;
+  animation: fadeInFast 0.18s ease-out;
 }
 
 @keyframes fadeInFast {
@@ -484,31 +721,31 @@ body {
   font-size: 13px;
   font-weight: 800;
   color: #ffffff;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
 }
 
 .arm-reload-title {
-  font-size: clamp(28px, 4.5vw, 44px);
+  font-size: clamp(28px, 4.4vw, 42px);
   font-weight: 900;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   color: #ffe24a;
   text-shadow:
-    0 0 18px rgba(255, 214, 41, 0.85),
+    0 0 20px rgba(255, 214, 41, 0.85),
     0 3px 0 #7c3c00;
 }
 
 .arm-reload-sub {
-  font-size: 13.5px;
-  font-weight: 700;
-  color: #e8eef8;
+  font-size: 14px;
+  font-weight: 800;
+  color: #ffffff;
 }
 
 .arm-reload-art {
-  max-height: 62%;
+  height: 56%;
   width: auto;
   object-fit: contain;
   image-rendering: pixelated;
-  filter: drop-shadow(0 0 26px rgba(255, 180, 32, 0.35));
+  filter: drop-shadow(0 0 24px rgba(255, 180, 32, 0.28));
 }
 
 .arm-reload-btn {
@@ -517,11 +754,10 @@ body {
   border: 2px solid #ffffff;
   border-radius: 999px;
   padding: 8px 26px;
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 800;
   letter-spacing: 0.04em;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .arm-reload-btn:hover {
@@ -530,72 +766,121 @@ body {
 }
 
 /* ============================================================================
-   RETRO ARCADE TITLE SCREEN (Open Viewport over Live 60 FPS Harbor Street)
+   LEVEL SELECT, PAUSE & RESULTS MODALS
    ============================================================================ */
-.arcade-title-overlay {
+.skip-intro-pill {
   position: absolute;
-  inset: 0;
-  z-index: 35;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: space-between;
-  padding: 18px 16px 20px;
-  background: linear-gradient(
-    180deg,
-    rgba(6, 14, 34, 0.78) 0%,
-    rgba(6, 14, 34, 0.16) 44%,
-    rgba(6, 14, 34, 0.84) 100%
-  );
-}
-
-.title-crest {
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-
-.title-tag {
-  background: #b81d33;
+  top: 16px;
+  right: 18px;
+  z-index: 32;
+  background: rgba(14, 36, 66, 0.9);
   border: 2px solid var(--gold-bright);
   border-radius: 999px;
-  padding: 2px 12px;
-  font-size: 10px;
-  font-weight: 900;
-  letter-spacing: 0.18em;
+  padding: 6px 15px;
   color: var(--gold-bright);
-  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.6);
-}
-
-.title-main {
-  font-family: Georgia, "Impact", serif;
-  font-size: clamp(26px, 5vw, 48px);
-  font-weight: 900;
-  letter-spacing: 0.06em;
-  color: #ffe66d;
-  text-shadow:
-    0 4px 0 #8a2010,
-    0 7px 18px rgba(0, 0, 0, 0.88);
-  line-height: 1.05;
-}
-
-.title-sub {
   font-size: 11.5px;
-  font-weight: 800;
-  letter-spacing: 0.16em;
-  color: #e2efff;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.9);
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.72);
 }
 
-.title-dock {
+.arcade-modal-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  background: rgba(4, 9, 22, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+}
+
+.arcade-card {
   width: 100%;
   max-width: 470px;
+  max-height: 92%;
+  overflow-y: auto;
+  background: linear-gradient(180deg, #13254a 0%, #091327 100%);
+  border: 3px solid var(--gold);
+  border-radius: 14px;
+  padding: 14px 16px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.92);
+}
+
+.arcade-card-head {
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  border-bottom: 2px solid rgba(245, 184, 46, 0.35);
+  padding-bottom: 8px;
+}
+
+.arcade-card-title {
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  color: var(--gold-bright);
+}
+
+.arcade-panel-sec {
+  background: rgba(0, 0, 0, 0.34);
+  border: 1.5px solid rgba(245, 184, 46, 0.28);
+  border-radius: 9px;
+  padding: 8px 10px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: #e8eef8;
+}
+
+.arcade-panel-sec h4 {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--gold);
+  text-transform: uppercase;
+  margin-bottom: 5px;
+}
+
+.arcade-panel-sec ul {
+  padding-left: 16px;
+}
+
+.level-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.level-card-btn {
+  background: rgba(12, 24, 52, 0.88);
+  border: 2px solid rgba(245, 184, 46, 0.38);
+  border-radius: 8px;
+  padding: 7px 8px;
+  text-align: left;
+  color: #fff9eb;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.level-card-btn strong {
+  font-size: 10.5px;
+  color: var(--gold-bright);
+}
+
+.level-card-btn span {
+  font-size: 9px;
+  color: #cbd5e1;
+}
+
+.level-card-btn.selected {
+  border-color: #ffe680;
+  background: linear-gradient(180deg, rgba(158, 24, 54, 0.9), rgba(88, 12, 28, 0.95));
+  box-shadow: 0 0 12px rgba(255, 214, 41, 0.4);
 }
 
 .skin-row {
@@ -607,8 +892,8 @@ body {
 
 .skin-btn {
   background: rgba(12, 24, 52, 0.88);
-  border: 2px solid rgba(245, 184, 46, 0.48);
-  border-radius: 10px;
+  border: 2px solid rgba(245, 184, 46, 0.45);
+  border-radius: 8px;
   padding: 6px 4px;
   color: #fff9eb;
   cursor: pointer;
@@ -616,26 +901,22 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  transition: transform 0.12s ease, border-color 0.12s ease, opacity 0.12s ease;
 }
 
 .skin-btn.locked {
-  opacity: 0.56;
+  opacity: 0.54;
   border-style: dashed;
 }
 
 .skin-btn.selected {
   border-color: #ffe680;
   background: linear-gradient(180deg, rgba(184, 29, 51, 0.9), rgba(88, 12, 26, 0.94));
-  box-shadow: 0 0 16px rgba(255, 214, 41, 0.45);
-  transform: translateY(-2px);
 }
 
 .skin-name {
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 900;
   color: var(--gold-bright);
-  letter-spacing: 0.04em;
 }
 
 .skin-role {
@@ -643,21 +924,16 @@ body {
   color: #dbeafe;
 }
 
-.skip-intro-pill {
-  position: absolute;
-  bottom: 18px;
-  right: 18px;
-  z-index: 32;
-  background: rgba(14, 36, 66, 0.9);
+.title-tag {
+  background: #b81d33;
   border: 2px solid var(--gold-bright);
   border-radius: 999px;
-  padding: 6px 14px;
-  color: var(--gold-bright);
-  font-size: 11px;
+  padding: 2px 11px;
+  font-size: 10px;
   font-weight: 900;
-  letter-spacing: 0.1em;
-  cursor: pointer;
-  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.7);
+  letter-spacing: 0.14em;
+  color: var(--gold-bright);
+  display: inline-block;
 }
 
 .medals-strip {
@@ -674,138 +950,6 @@ body {
   font-size: 9.5px;
   font-weight: 900;
   color: var(--gold-bright);
-  letter-spacing: 0.05em;
-}
-
-.mode-switch-row {
-  width: 100%;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-
-.arcade-mode-btn {
-  background: rgba(12, 24, 52, 0.86);
-  border: 2px solid rgba(245, 184, 46, 0.4);
-  border-radius: 8px;
-  padding: 6px 8px;
-  color: #cbd5e1;
-  font-size: 11px;
-  font-weight: 900;
-  letter-spacing: 0.06em;
-  cursor: pointer;
-}
-
-.arcade-mode-btn.selected {
-  border-color: var(--gold-bright);
-  background: rgba(245, 184, 46, 0.22);
-  color: var(--gold-bright);
-}
-
-.btn-press-start {
-  width: 100%;
-  background: linear-gradient(180deg, #ff5f2e 0%, #c81e2c 100%);
-  border: 3px solid var(--gold-bright);
-  border-radius: 12px;
-  padding: 11px 16px;
-  color: #ffffff;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  box-shadow:
-    0 5px 0 #640c16,
-    0 0 24px rgba(255, 95, 46, 0.55);
-  transition: transform 0.1s ease, filter 0.12s ease;
-}
-
-.btn-press-start:hover {
-  filter: brightness(1.1);
-}
-
-.btn-press-start:active {
-  transform: translateY(3px);
-}
-
-.start-main {
-  font-size: 17px;
-  font-weight: 900;
-  letter-spacing: 0.14em;
-  text-shadow: 0 2px 0 #4d0810;
-}
-
-.start-sub {
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  color: #ffe680;
-}
-
-/* ============================================================================
-   RETRO ARCADE MODALS (PAUSE & RESULTS)
-   ============================================================================ */
-.arcade-modal-bg {
-  position: absolute;
-  inset: 0;
-  z-index: 40;
-  background: rgba(4, 9, 22, 0.82);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 14px;
-}
-
-.arcade-card {
-  width: 100%;
-  max-width: 450px;
-  max-height: 92%;
-  overflow-y: auto;
-  background: linear-gradient(180deg, #122346 0%, #091327 100%);
-  border: 3px solid var(--gold);
-  border-radius: 14px;
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.9);
-}
-
-.arcade-card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 2px solid rgba(245, 184, 46, 0.35);
-  padding-bottom: 8px;
-}
-
-.arcade-card-title {
-  font-size: 17px;
-  font-weight: 900;
-  letter-spacing: 0.1em;
-  color: var(--gold-bright);
-}
-
-.arcade-panel-sec {
-  background: rgba(0, 0, 0, 0.32);
-  border: 1.5px solid rgba(245, 184, 46, 0.28);
-  border-radius: 9px;
-  padding: 8px 10px;
-  font-size: 11.5px;
-  line-height: 1.45;
-  color: #e8eef8;
-}
-
-.arcade-panel-sec h4 {
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  color: var(--gold);
-  text-transform: uppercase;
-  margin-bottom: 4px;
-}
-
-.arcade-panel-sec ul {
-  padding-left: 16px;
 }
 
 .end-top-row {
@@ -824,31 +968,31 @@ body {
 .end-portrait {
   width: 58px;
   height: 58px;
-  border-radius: 10px;
+  border-radius: 8px;
   border: 2.5px solid var(--gold);
   object-fit: cover;
+  image-rendering: pixelated;
 }
 
 .end-score-big {
   font-family: "Courier New", monospace;
-  font-size: 24px;
+  font-size: 23px;
   font-weight: 900;
   color: #ffe680;
 }
 
 .end-rank-stamp {
-  width: 58px;
-  height: 58px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
   border: 3px solid var(--gold-bright);
   background: radial-gradient(circle, #c81e2c, #5c0b16);
   display: grid;
   place-items: center;
-  font-size: 21px;
+  font-size: 20px;
   font-weight: 900;
   color: #ffe680;
   flex-shrink: 0;
-  box-shadow: 0 0 18px rgba(255, 214, 41, 0.5);
 }
 
 .arcade-btn-row {
@@ -866,8 +1010,8 @@ body {
 .btn-arcade-sec {
   background: #17305c;
   border: 2px solid var(--gold);
-  border-radius: 9px;
-  padding: 8px 6px;
+  border-radius: 8px;
+  padding: 8px 8px;
   color: var(--gold-bright);
   font-size: 11px;
   font-weight: 900;
@@ -880,6 +1024,7 @@ body {
 }
 
 .status-micro {
+  margin-top: 9px;
   font-size: 10.5px;
   text-align: center;
   color: #fde68a;
@@ -924,30 +1069,12 @@ body {
   background: rgba(255, 255, 255, 0.06);
 }
 
-.mutator-pill-title {
-  background: rgba(14, 36, 66, 0.92);
-  border: 1.5px solid #38e8ff;
-  border-radius: 999px;
-  padding: 2px 11px;
-  font-size: 9.5px;
-  font-weight: 900;
-  letter-spacing: 0.1em;
-  color: #bae6fd;
-  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.6);
-}
-
-@media (max-width: 540px) {
-  .skin-row {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
 /* ============================================================================
-   MOBILE TOUCH CONTROLS (Auto-Shown on Narrow / Touch Devices)
+   MOBILE TOUCH CONTROLS & COMPACT SCALING (390x844 Reddit Portrait)
    ============================================================================ */
 .touch-controls {
   position: absolute;
-  inset: auto 0 10px 0;
+  inset: auto 0 12px 0;
   z-index: 25;
   display: none;
   justify-content: space-between;
@@ -974,96 +1101,62 @@ body {
   width: 48px;
   height: 48px;
   border-radius: 50%;
-  background: rgba(14, 36, 66, 0.72);
-  border: 2px solid rgba(255, 230, 128, 0.78);
+  background: rgba(14, 36, 66, 0.78);
+  border: 2px solid rgba(255, 230, 128, 0.85);
   color: #ffffff;
   font-size: 13px;
   font-weight: 900;
   display: grid;
   place-items: center;
-  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.55);
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.6);
 }
 
 .touch-btn.act-punch {
-  background: rgba(184, 29, 51, 0.82);
+  background: rgba(158, 24, 54, 0.88);
 }
 
 .touch-btn.act-super {
-  background: rgba(217, 119, 6, 0.85);
+  background: rgba(217, 119, 6, 0.88);
 }
 
-/* Compact Mobile Scaling for 390px Reddit Portrait */
-@media (max-width: 540px) {
-  .hud-tl {
+@media (max-width: 580px) {
+  .hud-tl-assembly {
     top: 8px;
     left: 8px;
-  }
-  .portrait-box {
-    width: 40px;
-    height: 40px;
-  }
-  .hearts-row {
-    padding: 2px 5px;
-    gap: 2px;
-  }
-  .heart-icon {
-    width: 15px;
-    height: 14px;
-  }
-  .arcade-skill {
-    width: 30px;
-    height: 30px;
-  }
-  .skill-ring {
-    width: 32px;
-    height: 32px;
-  }
-  .hud-thermo {
-    top: 76px;
-    left: 8px;
-  }
-  #thermo-canvas {
-    width: 32px;
-    height: 136px;
+    transform: scale(0.76);
+    transform-origin: top left;
   }
   .hud-tc {
     top: 8px;
-    left: 52%;
+    left: 53%;
   }
   .btn-arcade-pause {
-    padding: 3px 9px;
+    padding: 4px 10px;
     font-size: 10px;
-    border-width: 2px;
   }
   .hud-tr {
     top: 8px;
     right: 8px;
+    transform: scale(0.78);
+    transform-origin: top right;
   }
-  .counter-plaque {
-    padding: 2px 6px;
-    gap: 4px;
+  .level-grid,
+  .skin-row {
+    grid-template-columns: 1fr 1fr;
   }
-  .counter-digits {
-    font-size: 11.5px;
-    padding: 1px 4px;
+  .title-pixel-logo {
+    width: 88vw;
   }
-  .mustache-crest {
-    width: 24px;
-    height: 12px;
-  }
-  .score-subpill {
-    font-size: 9px;
-  }
-  .boss-hud-bar {
-    width: 185px;
+  .title-cta-stack {
+    max-width: 310px;
   }
 }
 
 /* ============================================================================
-   RETRO ARCADE SPLASH CARD (splash.html — Reddit Feed Entry)
+   REDDIT FEED SPLASH SCREEN (splash.html — 16-Bit Pixel-Art Harbor Card)
    ============================================================================ */
 .arcade-splash-body {
-  background: #0b2454;
+  background: #081838;
   color: var(--text);
   overflow: hidden;
 }
@@ -1075,6 +1168,7 @@ body {
   height: 100%;
   display: block;
   z-index: 0;
+  image-rendering: pixelated;
 }
 
 .splash-arcade-shell {
@@ -1084,16 +1178,16 @@ body {
   max-width: 500px;
   height: 100%;
   margin: 0 auto;
-  padding: 12px 14px;
+  padding: 10px 16px 14px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 8px;
+  gap: 5px;
   background: linear-gradient(
     180deg,
-    rgba(6, 16, 40, 0.72) 0%,
-    rgba(6, 16, 40, 0.28) 48%,
-    rgba(6, 16, 40, 0.86) 100%
+    rgba(4, 10, 26, 0.78) 0%,
+    rgba(4, 10, 26, 0.34) 48%,
+    rgba(4, 10, 26, 0.88) 100%
   );
 }
 
@@ -1105,7 +1199,7 @@ body {
 }
 
 .splash-chip {
-  background: rgba(14, 36, 66, 0.9);
+  background: rgba(14, 36, 66, 0.92);
   border: 2px solid var(--gold);
   border-radius: 999px;
   padding: 3px 10px;
@@ -1115,11 +1209,26 @@ body {
   color: var(--gold-bright);
 }
 
+.splash-logo-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
+}
+
+.splash-logo-img {
+  width: min(74vw, 326px);
+  height: auto;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.85));
+}
+
 .splash-hero-card {
-  background: rgba(12, 24, 52, 0.86);
+  background: rgba(10, 20, 44, 0.88);
   border: 2.5px solid var(--gold);
   border-radius: 12px;
-  padding: 10px 12px;
+  padding: 9px 12px;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -1127,19 +1236,20 @@ body {
 }
 
 .splash-portrait {
-  width: 68px;
-  height: 68px;
-  border-radius: 10px;
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
   border: 2.5px solid var(--gold-bright);
   object-fit: cover;
+  image-rendering: pixelated;
   flex-shrink: 0;
 }
 
 .splash-card-panel {
-  background: rgba(10, 20, 44, 0.86);
+  background: rgba(10, 20, 44, 0.88);
   border: 2px solid rgba(245, 184, 46, 0.65);
   border-radius: 11px;
-  padding: 9px 11px;
+  padding: 8px 11px;
   display: flex;
   flex-direction: column;
   gap: 5px;

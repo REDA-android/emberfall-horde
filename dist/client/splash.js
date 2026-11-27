@@ -84,7 +84,7 @@
       if (!d) return;
       if (seedEl && d.seed) seedEl.textContent = "DAILY #" + d.seed;
       var sc = document.getElementById("siege-count");
-      if (sc) sc.textContent = (Number(d.bossKillsToday) || 0) + " KINGPIN KOs TODAY";
+      if (sc) sc.textContent = (Number(d.bossKillsToday) || 0) + " BOSS KOs TODAY";
       var lbEl = document.getElementById("lb-list");
       if (lbEl && Array.isArray(d.leaderboard) && d.leaderboard.length > 0) {
         lbEl.innerHTML = d.leaderboard.slice(0, 3).map(function (row, idx) {
@@ -98,67 +98,33 @@
     })
     .catch(function () {});
 
-  // Animated 16-bit Harbor Street & Rolling Waves Background Canvas
+  // Genuine 16-bit SNES Pixel-Art Harbor Panorama & Rolling Surf on Splash Background!
   var bgCanvas = document.getElementById("splash-harbor-bg");
   var bctx = bgCanvas ? bgCanvas.getContext("2d") : null;
+  var bgImg = new Image();
+  bgImg.src = "./arcade/bg_street_a.webp";
   var t = 0;
 
   function drawSplashHarbor() {
     if (!bctx) return;
-    var w = window.innerWidth || 480;
-    var h = window.innerHeight || 640;
-    if (bgCanvas.width !== w || bgCanvas.height !== h) {
-      bgCanvas.width = w;
-      bgCanvas.height = h;
+    if (bgCanvas.width !== 960 || bgCanvas.height !== 540) {
+      bgCanvas.width = 960;
+      bgCanvas.height = 540;
     }
-    t += 0.025;
+    bctx.imageSmoothingEnabled = false;
+    t += 0.016;
 
-    var sky = bctx.createLinearGradient(0, 0, 0, h * 0.65);
-    sky.addColorStop(0, "#104db5");
-    sky.addColorStop(1, "#6ebbf7");
-    bctx.fillStyle = sky;
-    bctx.fillRect(0, 0, w, h);
-
-    // Colorful 16-bit Harbor Facades Silhouette
-    var houses = [
-      { col: "#92b59c", h: 0.34 },
-      { col: "#e7b944", h: 0.44 },
-      { col: "#255aa8", h: 0.46 },
-      { col: "#e04248", h: 0.38 },
-      { col: "#dce4ee", h: 0.32 }
-    ];
-    var bw = Math.ceil(w / houses.length);
-    var groundY = Math.round(h * 0.78);
-    for (var i = 0; i < houses.length; i++) {
-      var bh = Math.round(h * houses[i].h);
-      var bx = i * bw;
-      bctx.fillStyle = houses[i].col;
-      bctx.fillRect(bx, groundY - bh, bw, bh);
-      bctx.fillStyle = "#3f5066";
-      bctx.fillRect(bx, groundY - bh, bw, 32);
-      bctx.strokeStyle = "#141821";
-      bctx.lineWidth = 2;
-      bctx.strokeRect(bx, groundY - bh, bw, bh);
-    }
-
-    // Quay sidewalk
-    bctx.fillStyle = "#9aa4b2";
-    bctx.fillRect(0, groundY, w, Math.round(h * 0.09));
-
-    // Rolling Royal Blue Harbor Water
-    var waterY = Math.round(h * 0.87);
-    bctx.fillStyle = "#124ca6";
-    bctx.fillRect(0, waterY, w, h - waterY);
-    for (var layer = 0; layer < 3; layer++) {
-      bctx.strokeStyle = layer % 2 === 0 ? "#e0f2fe" : "#38bdf8";
-      bctx.lineWidth = 3;
-      bctx.beginPath();
-      for (var x = 0; x <= w; x += 10) {
-        var wy = waterY + 12 + layer * 16 + Math.sin(x * 0.04 + t * (layer + 1.5)) * 4;
-        if (x === 0) bctx.moveTo(x, wy);
-        else bctx.lineTo(x, wy);
-      }
-      bctx.stroke();
+    if (bgImg.complete && bgImg.naturalWidth > 0) {
+      var pan = Math.round((Math.sin(t * 0.35) * 0.5 + 0.5) * 180);
+      bctx.drawImage(bgImg, -pan, 0, 960, 540);
+      bctx.drawImage(bgImg, 960 - pan, 0, 960, 540);
+      // Animated pixel surf strip
+      var surfShift = Math.round((t * 36) % 960);
+      bctx.drawImage(bgImg, 0, 472, 960, 68, -surfShift, 472, 960, 68);
+      bctx.drawImage(bgImg, 0, 472, 960, 68, 960 - surfShift, 472, 960, 68);
+    } else {
+      bctx.fillStyle = "#0e2442";
+      bctx.fillRect(0, 0, 960, 540);
     }
     requestAnimationFrame(drawSplashHarbor);
   }
