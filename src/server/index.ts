@@ -49,28 +49,28 @@ interface DailyBountyInfo {
 const THIRTY_DAYS_SEC = 30 * 86400;
 const SIEGE_TARGET = 25;
 const DAILY_MODIFIERS = [
-  'BLOOD MOON',
-  'ARCANE SURGE',
-  'SWARM RUSH',
-  "TITAN'S WRATH",
+  'MUSTACHE STORM',
+  'TURBO RELOAD',
+  'HEAVY SYNDICATE',
+  'CAR SMASH BONUS',
 ] as const;
 
 const DAILY_BIOMES = [
-  'OBSIDIAN SANCTUARY',
-  'VOLCANIC RIFT',
-  'FROST ABYSS',
+  'HARBOR DOCKS',
+  'SUNSET BOULEVARD',
+  'SYNDICATE NIGHT',
 ] as const;
 
 const BIOME_BOSSES = [
-  'MALAKOR, VOID LICH',
-  'IGNIS REX, MAGMA TITAN',
-  'SKADI, GLACIAL EMPRESS',
+  'DON MUSTACHIO, HARBOR KINGPIN',
+  'DON MUSTACHIO, HARBOR KINGPIN',
+  'DON MUSTACHIO, HARBOR KINGPIN',
 ] as const;
 
 const HERO_CLASSES = [
-  { title: 'AURELIUS, SOLAR VANGUARD', faction: 'SOLAR ORDER', emoji: '☀️' },
-  { title: 'SERAPHINA, RIFT PYROMANCER', faction: 'ARCANE CONCLAVE', emoji: '🔮' },
-  { title: 'NYX, UMBRAL BLADE', faction: 'SHADOW GUILD', emoji: '🗡️' },
+  { title: 'GOLDEN TITAN (ARM RELOAD)', faction: 'HARBOR VANGUARD', emoji: '🥊' },
+  { title: 'ROYAL RANGER (BLITZ DASH)', faction: 'QUAY PATROL', emoji: '⚡' },
+  { title: 'CRIMSON FIST (DRAGON UPPERCUT)', faction: 'STREET BRAWLERS', emoji: '🔥' },
 ] as const;
 
 const BOUNTY_POOL: readonly DailyBountyInfo[] = [
