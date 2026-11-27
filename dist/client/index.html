@@ -138,6 +138,7 @@
           <div class="title-tag" id="title-daily-tag">16-BIT HARBOR BEAT'EM UP · DAILY RUN</div>
           <h1 class="title-main">HENRY'S ARCADE STREETS</h1>
           <div class="title-sub">EMBERFALL HARBOR · ARM RELOAD EDITION</div>
+          <div class="mutator-pill-title" id="title-mutator-pill">DAILY MUTATOR: MUSTACHE STORM</div>
         </div>
 
         <div class="title-dock">
@@ -180,18 +181,28 @@
             <button class="btn-arcade-sec" id="btn-pause-resume-top" type="button">RESUME</button>
           </div>
           <div class="arcade-panel-sec">
-            <h4>Street Fighter Controls</h4>
+            <h4>Street Fighter Controls (Keyboard · Touch · Gamepad)</h4>
             <ul>
-              <li><strong>WASD / Arrows:</strong> Walk Left/Right &amp; Shift Sidewalk Lane</li>
-              <li><strong>Space:</strong> Jump onto Phone Booth &amp; Car Roofs / Dodge Boss Slams</li>
-              <li><strong>[O] / [J]:</strong> 3-Hit Punch Combo, Parry Mustaches &amp; Grab-Throw Stunned Goons!</li>
-              <li><strong>[K]:</strong> Fighter Signature Move (Power Kick / Blitz Dash / Rising Uppercut)</li>
-              <li><strong>[L]:</strong> Trigger <strong>ARM RELOAD</strong> (Super Punches + Invincibility)</li>
+              <li><strong>WASD / Arrows / Stick:</strong> Walk Left/Right &amp; Shift Sidewalk Lane</li>
+              <li><strong>Space / (A):</strong> Jump onto Phone Booth &amp; Car Roofs / Dodge Boss Slams</li>
+              <li><strong>[O] / [J] / (X):</strong> 3-Hit Punch Combo, Parry Mustaches &amp; Grab-Throw Stunned Goons!</li>
+              <li><strong>[K] / (Y):</strong> Fighter Signature Move (Power Kick / Blitz Dash / Rising Uppercut)</li>
+              <li><strong>[L] / (RB):</strong> Trigger <strong>ARM RELOAD</strong> (Super Punches + Invincibility)</li>
             </ul>
           </div>
           <div class="arcade-panel-sec">
-            <h4>Live Run Stats</h4>
-            <div id="pause-stats-line">KOs: 0 / 25 · Score: 0 · Max Combo: 0</div>
+            <h4>Live Run Stats &amp; Audio Mixer</h4>
+            <div id="pause-stats-line">KOs: 0 / 25 · Score: 0 · Accuracy: 100%</div>
+            <div class="mixer-grid">
+              <label class="mixer-row">
+                <span>MUSIC VOLUME</span>
+                <input class="mixer-slider" id="slider-music" type="range" min="0" max="100" value="70" />
+              </label>
+              <label class="mixer-row">
+                <span>SFX VOLUME</span>
+                <input class="mixer-slider" id="slider-sfx" type="range" min="0" max="100" value="85" />
+              </label>
+            </div>
           </div>
           <div class="arcade-btn-row">
             <button class="btn-arcade-sec" id="btn-toggle-audio" type="button">AUDIO: ON</button>
@@ -223,6 +234,10 @@
           <div class="arcade-panel-sec">
             <h4>Earned Arcade Medals</h4>
             <div class="medals-strip" id="end-medals-strip"></div>
+          </div>
+          <div class="arcade-panel-sec">
+            <h4>Today's Harbor Top Champions</h4>
+            <div class="end-lb-list" id="end-lb-list"></div>
           </div>
           <div class="arcade-btn-row-3">
             <button class="btn-arcade-sec" id="btn-end-share" type="button">SHARE REDDIT</button>

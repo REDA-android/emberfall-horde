@@ -100,7 +100,10 @@
   }
 
   function sfx(name) {
-    if (isMuted) return;
+    if (isMuted || sfxVol <= 0.01) return;
+    if (masterGain && audioCtx) {
+      masterGain.gain.setTargetAtTime(0.72 * Math.max(0.15, sfxVol), audioCtx.currentTime, 0.02);
+    }
     if (name === "punch") {
       tone(210, 68, 0.08, "square", 0.11, 0);
       noise(0.06, 820, "bandpass", 0.09, 0);
@@ -171,16 +174,21 @@
       var lead = intense ? BOSS_LEAD : STREET_LEAD;
       var i = seqStep % 16;
       seqStep++;
+      var mScale = musicVol;
+      if (mScale <= 0.01) return;
       var bn = bass[i];
-      if (bn > 0) tone(bn, bn * 0.99, 0.13, "triangle", intense ? 0.068 : 0.052, 0);
+      if (bn > 0) tone(bn, bn * 0.99, 0.13, "triangle", (intense ? 0.068 : 0.052) * mScale, 0);
       var ln = lead[i];
       if (ln > 0 && (intense || seqStep % 32 >= 16)) {
-        tone(ln, ln, 0.12, "square", intense ? 0.038 : 0.026, 0);
+        tone(ln, ln, 0.12, "square", (intense ? 0.038 : 0.026) * mScale, 0);
       }
-      if (i % 4 === 0) tone(122, 42, 0.09, "sine", 0.082, 0);
-      if (i === 4 || i === 12) noise(0.06, 1600, "bandpass", 0.042, 0);
+      if (i % 4 === 0) tone(122, 42, 0.09, "sine", 0.082 * mScale, 0);
+      if (i === 4 || i === 12) noise(0.06, 1600, "bandpass", 0.042 * mScale, 0);
     }, 142);
   }
+
+  var musicVol = 0.70;
+  var sfxVol = 0.85;
 
   // =========================================================================
   // SPRITE LOADER (16-bit Pixel Art Transparent WebPs)
@@ -200,22 +208,45 @@
   });
 
   // =========================================================================
-  // REDDIT DEVVIT BACKEND & LOCAL PROFILE + UNLOCKS
+  // DAILY ARCADE MUTATORS & REDDIT DEVVIT BACKEND
   // =========================================================================
+  var DAILY_MUTATORS = [
+    { key: "MUSTACHE STORM", desc: "+50% Parry PTS · Swift Boomerangs", parryMul: 1.5, thermoMul: 1.0, scoreMul: 1.0, propMul: 1.0 },
+    { key: "TURBO RELOAD", desc: "+35% Mercury Thermometer Charge", parryMul: 1.0, thermoMul: 1.35, scoreMul: 1.0, propMul: 1.0 },
+    { key: "HEAVY SYNDICATE", desc: "+40% KO Score · Elite Harbor Goons", parryMul: 1.0, thermoMul: 1.0, scoreMul: 1.4, propMul: 1.0 },
+    { key: "CAR SMASH BONUS", desc: "2x Street Prop & Car Smash PTS", parryMul: 1.0, thermoMul: 1.15, scoreMul: 1.0, propMul: 2.0 }
+  ];
+
   var apiState = {
     seed: new Date().toISOString().slice(0, 10),
     username: "",
     streak: 1,
     bestScore: 0,
     secretUnlocked: false,
+    mutatorIdx: 0,
+    leaderboard: [],
     runId: "",
     submitted: false
   };
 
+  function seedToMutatorIdx(seedStr) {
+    var h = 2166136261;
+    for (var i = 0; i < seedStr.length; i++) {
+      h ^= seedStr.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return Math.abs(h) % DAILY_MUTATORS.length;
+  }
+
+  function applyMutatorUi() {
+    var m = DAILY_MUTATORS[apiState.mutatorIdx % DAILY_MUTATORS.length] || DAILY_MUTATORS[0];
+    var pill = document.getElementById("title-mutator-pill");
+    if (pill) pill.textContent = "DAILY MUTATOR: " + m.key + " · " + m.desc;
+  }
+
   function loadLocal() {
     try {
-      var raw = localStorage.getItem("henry_arcade_v4");
-      if (!raw) raw = localStorage.getItem("henry_arcade_v3");
+      var raw = localStorage.getItem("henry_arcade_v5") || localStorage.getItem("henry_arcade_v4") || localStorage.getItem("henry_arcade_v3");
       if (!raw) return;
       var d = JSON.parse(raw);
       if (d) {
@@ -224,18 +255,22 @@
         apiState.secretUnlocked = Boolean(d.secretUnlocked) || apiState.bestScore >= 5000;
         if (typeof d.muted === "boolean") isMuted = d.muted;
         if (typeof d.crt === "boolean") crtEnabled = d.crt;
+        if (typeof d.musicVol === "number") musicVol = Math.max(0, Math.min(1, d.musicVol));
+        if (typeof d.sfxVol === "number") sfxVol = Math.max(0, Math.min(1, d.sfxVol));
       }
     } catch (_) {}
   }
 
   function saveLocal() {
     try {
-      localStorage.setItem("henry_arcade_v4", JSON.stringify({
+      localStorage.setItem("henry_arcade_v5", JSON.stringify({
         bestScore: apiState.bestScore,
         streak: apiState.streak,
         secretUnlocked: apiState.secretUnlocked,
         muted: isMuted,
-        crt: crtEnabled
+        crt: crtEnabled,
+        musicVol: musicVol,
+        sfxVol: sfxVol
       }));
     } catch (_) {}
   }
@@ -262,8 +297,15 @@
         if (d.username) apiState.username = d.username;
         if (typeof d.streak === "number") apiState.streak = Math.max(1, d.streak);
         if (typeof d.personalBest === "number") apiState.bestScore = Math.max(apiState.bestScore, d.personalBest);
+        if (typeof d.mutatorOverride === "number" && d.mutatorOverride >= 0) {
+          apiState.mutatorIdx = d.mutatorOverride % DAILY_MUTATORS.length;
+        } else {
+          apiState.mutatorIdx = seedToMutatorIdx(apiState.seed);
+        }
+        if (Array.isArray(d.leaderboard)) apiState.leaderboard = d.leaderboard.slice(0, 5);
         if (apiState.bestScore >= 5000) apiState.secretUnlocked = true;
         refreshSecretUnlockUi();
+        applyMutatorUi();
         var tag = document.getElementById("title-daily-tag");
         if (tag) tag.textContent = "16-BIT HARBOR BEAT'EM UP · DAILY #" + apiState.seed;
       })
@@ -271,7 +313,9 @@
   }
 
   loadLocal();
+  apiState.mutatorIdx = seedToMutatorIdx(apiState.seed);
   refreshSecretUnlockUi();
+  applyMutatorUi();
   fetchInit();
 
   // =========================================================================
@@ -835,8 +879,9 @@
       e.vy = 145;
     }
 
+    var mut = DAILY_MUTATORS[apiState.mutatorIdx % DAILY_MUTATORS.length] || DAILY_MUTATORS[0];
     var comboMult = state.thermo >= 80 ? 3 : (state.thermo >= 40 ? 2 : 1);
-    var pts = (e.kind === "boss" ? 5000 : (e.kind === "heavy" ? 300 : 150)) * comboMult;
+    var pts = Math.round((e.kind === "boss" ? 5000 : (e.kind === "heavy" ? 300 : 150)) * comboMult * mut.scoreMul);
     state.score += pts;
     addPopup(e.x, e.y - 96, "+" + pts, "#ffe680", 19);
 
@@ -859,6 +904,13 @@
     }
 
     state.kos++;
+
+    // Act II: Sunset Boulevard Transition at 12 KOs!
+    if (state.kos === 12) {
+      state.hero.hp = Math.min(state.hero.maxHp, state.hero.hp + 1);
+      sfx("go");
+      addPopup(state.camX + W * 0.5, 210, "ACT II · SUNSET BOULEVARD! (+HEAL)", "#ffe24a", 25);
+    }
 
     if (state.kos % 5 === 0) {
       state.pickups.push({ kind: "gold_mustache", x: e.x, y: e.y, z: 22, vz: 190 });
@@ -887,7 +939,7 @@
     state.limoPhase = 1;
     state.limoX = Math.min(WORLD_W - 220, state.camX + W + 180);
     sfx("boss_rage");
-    addPopup(state.camX + W * 0.5, 220, "WARNING: DON MUSTACHIO ARRIVES!", "#ff5f2e", 26);
+    addPopup(state.camX + W * 0.5, 220, "ACT III · SYNDICATE NIGHT — DON MUSTACHIO!", "#ff5f2e", 25);
     var bx = Math.min(WORLD_W - 120, state.camX + W - 110);
     spawnEnemy("boss", bx, 420);
   }
@@ -935,7 +987,7 @@
     var tc = document.getElementById("touch-controls");
     if (tc) tc.classList.add("active");
     sfx("go");
-    addPopup(state.hero.x + 120, 250, "ROUND 1 · FIGHT!", "#ffe24a", 34);
+    addPopup(state.hero.x + 120, 250, "ACT I · HARBOR DOCKS — FIGHT!", "#ffe24a", 30);
   }
 
   function updateIntro(dt) {
@@ -976,13 +1028,59 @@
     }
   }
 
+  // Gamepad polling (Xbox / PlayStation / Switch Pro)
+  var gpPrev = {};
+  var gpAxisX = 0;
+  var gpAxisY = 0;
+  function pollGamepad() {
+    gpAxisX = 0;
+    gpAxisY = 0;
+    try {
+      var pads = navigator.getGamepads ? navigator.getGamepads() : null;
+      if (!pads) return;
+      for (var i = 0; i < pads.length; i++) {
+        var gp = pads[i];
+        if (!gp || !gp.connected) continue;
+        if (gp.axes && gp.axes.length >= 2) {
+          if (Math.abs(gp.axes[0]) > 0.25) gpAxisX = gp.axes[0];
+          if (Math.abs(gp.axes[1]) > 0.25) gpAxisY = gp.axes[1];
+        }
+        var btns = gp.buttons || [];
+        var pressed = function (idx) { return Boolean(btns[idx] && (btns[idx].pressed || btns[idx].value > 0.5)); };
+        if (pressed(14)) gpAxisX = -1;
+        if (pressed(15)) gpAxisX = 1;
+        if (pressed(12)) gpAxisY = -1;
+        if (pressed(13)) gpAxisY = 1;
+
+        var edge = function (idx) {
+          var cur = pressed(idx);
+          var was = Boolean(gpPrev[idx]);
+          gpPrev[idx] = cur;
+          return cur && !was;
+        };
+        if (edge(9)) togglePause();
+        if (state.phase === "playing") {
+          if (edge(0)) heroJump();
+          if (edge(2) || edge(1)) heroPunch();
+          if (edge(3)) heroKick();
+          if (edge(4) || edge(5)) triggerArmReload(false);
+        } else if (state.phase === "arm_reload" && (edge(0) || edge(2))) {
+          dismissArmReload();
+        } else if (state.phase === "title" && (edge(0) || edge(9))) {
+          startRun(state.endless, false);
+        }
+        break;
+      }
+    } catch (_) {}
+  }
+
   // =========================================================================
   // MAIN 60 FPS UPDATE LOOP
   // =========================================================================
   function update(dt) {
     state.time += dt;
+    pollGamepad();
 
-    // Living sky seagulls!
     for (var si = 0; si < state.seagulls.length; si++) {
       var sg = state.seagulls[si];
       sg.x -= sg.speed * dt;
@@ -991,10 +1089,22 @@
     }
 
     if (state.phase === "title") {
-      state.camX = 120 + Math.sin(state.time * 0.35) * 110;
-      state.hero.x = state.camX + 340;
+      // Live 1991 Arcade Attract Mode Demo behind the Title Dock!
+      state.camX = 110 + Math.sin(state.time * 0.38) * 105;
+      state.hero.x = state.camX + 340 + Math.sin(state.time * 1.4) * 35;
       state.hero.y = 420;
-      state.hero.walkPhase += dt * 4;
+      state.hero.walkPhase += dt * 7;
+      var demoCycle = state.time % 3.2;
+      if (demoCycle > 1.8 && demoCycle < 2.12) {
+        state.hero.attackType = "punch";
+        if (Math.random() < 0.25) spawnParticles(state.hero.x + 56, 368, 2, "#ffe24a", 150, 220);
+      } else if (demoCycle > 2.55 && demoCycle < 2.9) {
+        state.hero.attackType = "kick";
+        state.hero.z = Math.sin((demoCycle - 2.55) / 0.35 * Math.PI) * 44;
+      } else {
+        state.hero.attackType = "none";
+        state.hero.z = 0;
+      }
       updateParticles(dt);
       return;
     }
@@ -1071,13 +1181,13 @@
       if (h.attackTimer <= 0) h.attackType = "none";
     }
 
-    // Movement input
-    var mx = 0;
-    var my = 0;
-    if (keys.ArrowLeft || keys.KeyA || touchInput.left) mx -= 1;
-    if (keys.ArrowRight || keys.KeyD || touchInput.right) mx += 1;
-    if (keys.ArrowUp || keys.KeyW) my -= 1;
-    if (keys.ArrowDown || keys.KeyS) my += 1;
+    // Movement input (Keyboard + Touch + Gamepad)
+    var mx = gpAxisX;
+    var my = gpAxisY;
+    if (keys.ArrowLeft || keys.KeyA || touchInput.left) mx = -1;
+    if (keys.ArrowRight || keys.KeyD || touchInput.right) mx = 1;
+    if (keys.ArrowUp || keys.KeyW) my = -1;
+    if (keys.ArrowDown || keys.KeyS) my = 1;
 
     var spd = 265 * perk.speedMul * (h.armReloadTimer > 0 ? 1.2 : 1.0);
     if (mx !== 0) {
@@ -1516,6 +1626,13 @@
       ctx.fillStyle = state.combo >= 15 ? "#ffe24a" : "#ffffff";
       ctx.fillText(label, W - 26, 132);
       ctx.restore();
+    }
+
+    if (state.phase === "playing" && (state.combo >= 10 || state.hero.armReloadTimer > 0)) {
+      var gPulse = 0.22 + Math.sin(state.time * 12) * 0.12;
+      ctx.strokeStyle = "rgba(255, 226, 74, " + gPulse.toFixed(2) + ")";
+      ctx.lineWidth = 10;
+      ctx.strokeRect(5, 5, W - 10, H - 10);
     }
 
     if (state.phase === "playing" && state.hero.hp === 1) {
@@ -2352,6 +2469,17 @@
       }).join("");
     }
 
+    var lbBox = document.getElementById("end-lb-list");
+    if (lbBox) {
+      var rows = (apiState.leaderboard && apiState.leaderboard.length > 0)
+        ? apiState.leaderboard.slice(0, 3)
+        : [{ username: apiState.username || "You", score: state.score }];
+      lbBox.innerHTML = rows.map(function (r, idx) {
+        var u = String(r.username || "Player").replace(/[<>&"']/g, "");
+        return '<div class="end-lb-row"><span>#' + (idx + 1) + ' u/' + u + '</span><strong>' + Number(r.score || 0).toLocaleString("en-US") + ' PTS</strong></div>';
+      }).join("");
+    }
+
     if (!apiState.submitted) {
       apiState.submitted = true;
       fetch("/api/submit-run", {
@@ -2498,6 +2626,22 @@
     applyAudioVisual();
     saveLocal();
   });
+  var slMusic = document.getElementById("slider-music");
+  if (slMusic) {
+    slMusic.value = String(Math.round(musicVol * 100));
+    slMusic.addEventListener("input", function () {
+      musicVol = Math.max(0, Math.min(1, Number(slMusic.value) / 100));
+      saveLocal();
+    });
+  }
+  var slSfx = document.getElementById("slider-sfx");
+  if (slSfx) {
+    slSfx.value = String(Math.round(sfxVol * 100));
+    slSfx.addEventListener("input", function () {
+      sfxVol = Math.max(0, Math.min(1, Number(slSfx.value) / 100));
+      saveLocal();
+    });
+  }
   var btnCrt = document.getElementById("btn-toggle-crt");
   if (btnCrt) btnCrt.addEventListener("click", function () {
     crtEnabled = !crtEnabled;
