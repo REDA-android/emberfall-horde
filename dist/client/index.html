@@ -3,270 +3,227 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-  <meta name="theme-color" content="#090A0F" />
-  <title>EMBERFALL: DAILY HORDE</title>
-  <link rel="stylesheet" href="./styles.css" />
+  <meta name="theme-color" content="#0e2442" />
+  <title>HENRY'S ARCADE STREETS — EMBERFALL EDITION</title>
+  <link rel="stylesheet" href="./arcade_styles.css" />
 </head>
-<body class="game-body biome-obsidian">
-  <div id="ef-loader">
-    <div>EMBERFALL</div>
-    <small id="ef-status">Awakening Sanctuary Engine...</small>
-  </div>
+<body>
+  <div class="arcade-root">
+    <div class="crt-stage" id="crt-stage">
+      <!-- 16-bit Retro 2D Side-Scroller Canvas (960x540 crisp pixel art) -->
+      <canvas id="arcade-canvas" width="960" height="540" tabindex="1"></canvas>
+      <div class="crt-scanlines" id="crt-scanlines" aria-hidden="true"></div>
 
-  <canvas id="glcanvas" tabindex="1"></canvas>
-
-  <!-- 1.2s High-Voltage Electric Awakening Cut-In (133503.mp4 Inspired) -->
-  <div class="electric-cutin is-hidden" id="electric-cutin" aria-hidden="true">
-    <canvas class="cutin-canvas" id="cutin-canvas"></canvas>
-    <div class="cutin-banner">
-      <img class="cutin-portrait" id="cutin-portrait" src="./portrait_knight.webp" alt="" />
-      <div class="cutin-text-col">
-        <div class="cutin-eyebrow" id="cutin-champ">AURELIUS AWAKENED</div>
-        <div class="cutin-title">EMBER OVERDRIVE!</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Diegetic Perimeter HUD Layer (92% Unobstructed Combat Viewport) -->
-  <div class="hud-layer is-hidden" id="hud-layer">
-    <div class="hud-top">
-      <div class="hero-medallion-v2">
-        <div class="hero-medallion-main">
-          <div class="portrait-frame">
-            <img class="portrait-img" id="hud-portrait" src="./portrait_knight.webp" alt="Champion Portrait" />
+      <!-- Exact 1:1 Reference Video Arcade HUD -->
+      <div class="arcade-hud is-hidden" id="arcade-hud">
+        <!-- Top-Left: Portrait Medallion + 3 Red Hearts + [O][K][L] Circular Badges -->
+        <div class="hud-tl">
+          <div class="hud-hero-bar">
+            <div class="portrait-box">
+              <img id="hud-portrait" src="./arcade/hero_portrait.webp" alt="Hero Portrait" />
+            </div>
+            <div class="hud-vitals-col">
+              <div class="hearts-row" id="hearts-row" aria-label="Health Hearts">
+                <svg class="heart-icon" viewBox="0 0 24 22">
+                  <path d="M12 20.5L2.6 11.4C0.5 9.3 0.5 5.6 2.8 3.4C4.9 1.3 8.4 1.5 10.5 3.7L12 5.3L13.5 3.7C15.6 1.5 19.1 1.3 21.2 3.4C23.5 5.6 23.5 9.3 21.4 11.4L12 20.5Z" fill="#e11d48" stroke="#ffe680" stroke-width="1.8" />
+                </svg>
+                <svg class="heart-icon" viewBox="0 0 24 22">
+                  <path d="M12 20.5L2.6 11.4C0.5 9.3 0.5 5.6 2.8 3.4C4.9 1.3 8.4 1.5 10.5 3.7L12 5.3L13.5 3.7C15.6 1.5 19.1 1.3 21.2 3.4C23.5 5.6 23.5 9.3 21.4 11.4L12 20.5Z" fill="#e11d48" stroke="#ffe680" stroke-width="1.8" />
+                </svg>
+                <svg class="heart-icon" viewBox="0 0 24 22">
+                  <path d="M12 20.5L2.6 11.4C0.5 9.3 0.5 5.6 2.8 3.4C4.9 1.3 8.4 1.5 10.5 3.7L12 5.3L13.5 3.7C15.6 1.5 19.1 1.3 21.2 3.4C23.5 5.6 23.5 9.3 21.4 11.4L12 20.5Z" fill="#e11d48" stroke="#ffe680" stroke-width="1.8" />
+                </svg>
+              </div>
+              <div class="skill-row">
+                <button class="arcade-skill" id="btn-skill-o" type="button" aria-label="Punch Combo O">
+                  <svg class="skill-ring" viewBox="0 0 42 42">
+                    <circle id="ring-o" cx="21" cy="21" r="18" fill="none" stroke="#ffe680" stroke-width="2.4" stroke-dasharray="113" stroke-dashoffset="0" />
+                  </svg>
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
+                    <path d="M4 12C4 8.7 6.7 6 10 6H15C17.8 6 20 8.2 20 11V14C20 16.8 17.8 19 15 19H9C6.2 19 4 16.8 4 14V12Z" fill="currentColor" />
+                  </svg>
+                  <span class="skill-keycap">O</span>
+                </button>
+                <button class="arcade-skill" id="btn-skill-k" type="button" aria-label="Flying Kick K">
+                  <svg class="skill-ring" viewBox="0 0 42 42">
+                    <circle id="ring-k" cx="21" cy="21" r="18" fill="none" stroke="#38e8ff" stroke-width="2.4" stroke-dasharray="113" stroke-dashoffset="0" />
+                  </svg>
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
+                    <path d="M13 3L4 14H12L11 21L20 10H12L13 3Z" fill="currentColor" />
+                  </svg>
+                  <span class="skill-keycap">K</span>
+                </button>
+                <button class="arcade-skill" id="btn-skill-l" type="button" aria-label="Arm Reload Super L">
+                  <svg class="skill-ring" viewBox="0 0 42 42">
+                    <circle id="ring-l" cx="21" cy="21" r="18" fill="none" stroke="#ff5f2e" stroke-width="2.6" stroke-dasharray="113" stroke-dashoffset="113" />
+                  </svg>
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
+                    <path d="M12 2L14.8 8.5L22 9.3L16.5 14L18.2 21L12 17.3L5.8 21L7.5 14L2 9.3L9.2 8.5L12 2Z" fill="currentColor" />
+                  </svg>
+                  <span class="skill-keycap">L</span>
+                </button>
+              </div>
+            </div>
           </div>
-          <div class="hero-meta-col">
-            <div class="hero-lv-row">
-              <span id="hud-champ-name">AURELIUS</span>
-              <span id="hud-lv">LV.1</span>
-              <span id="hud-score">0 PTS</span>
+        </div>
+
+        <!-- Left Edge: Tall Vintage Brass Mercury Thermometer -->
+        <div class="hud-thermo">
+          <canvas id="thermo-canvas" width="54" height="226"></canvas>
+          <div class="thermo-tag is-hidden" id="thermo-ready-tag">RELOAD!</div>
+        </div>
+
+        <!-- Top-Center: Navy Blue Arcade PAUSE Button + Optional Boss HP Bar -->
+        <div class="hud-tc">
+          <button class="btn-arcade-pause" id="btn-pause" type="button">PAUSE</button>
+          <div class="boss-hud-bar is-hidden" id="boss-hud-bar">
+            <div class="boss-hud-label">
+              <span id="boss-hud-name">DON MUSTACHIO</span>
+              <span id="boss-hud-pct">100%</span>
             </div>
-            <div class="hp-vessels" id="hp-vessels">
-              <span class="hp-vial full"></span>
-              <span class="hp-vial full"></span>
-              <span class="hp-vial full"></span>
-              <span class="hp-vial full"></span>
-              <span class="hp-vial full"></span>
-            </div>
-            <div class="xp-mini-track">
-              <svg class="xp-mini-svg" viewBox="0 0 100 4" preserveAspectRatio="none">
-                <rect id="hud-xp-rect" x="0" y="0" width="0" height="4" fill="#E5B85C" rx="2" />
-              </svg>
-            </div>
+            <svg class="boss-hp-svg" viewBox="0 0 240 10" preserveAspectRatio="none">
+              <rect x="0" y="0" width="240" height="10" rx="3" fill="#1e0914" />
+              <rect id="boss-hp-trail" x="1" y="1" width="238" height="8" rx="2" fill="#facc15" />
+              <rect id="boss-hp-fill" x="1" y="1" width="238" height="8" rx="2" fill="#e11d48" />
+            </svg>
           </div>
         </div>
 
-        <!-- 3 Active Circular Skill Badges (SPACE Dash · E Runic Strike · Q Overdrive) -->
-        <div class="skill-badges-row">
-          <button class="skill-badge ready" id="btn-skill-dash" type="button" aria-label="Witch-Time Dash">
-            <svg class="skill-ring-svg" viewBox="0 0 40 40">
-              <circle id="ring-dash" cx="20" cy="20" r="18" fill="none" stroke="#38E8FF" stroke-width="2.2" stroke-dasharray="113" stroke-dashoffset="0" />
+        <!-- Top-Right: Crimson Digital Counter [ 000 / 025 ] + Mustache Emblem -->
+        <div class="hud-tr">
+          <div class="counter-plaque">
+            <span class="counter-digits" id="hud-ko-counter">000/025</span>
+            <svg class="mustache-crest" viewBox="0 0 64 30" fill="none">
+              <path d="M32 14C28 7 18 5 11 11C7 14.5 5 18 2 16C4 23 13 26 22 22C26.5 20 30 17.5 32 15.5C34 17.5 37.5 20 42 22C51 26 60 23 62 16C59 18 57 14.5 53 11C46 5 36 7 32 14Z" fill="#7c3e18" stroke="#ffe680" stroke-width="2.4" />
             </svg>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-              <path d="M13 3L4 14H12L11 21L20 10H12L13 3Z" fill="currentColor" />
-            </svg>
-            <span class="skill-key">SPC</span>
+          </div>
+          <div class="score-subpill" id="hud-score-pill">SCORE 00000</div>
+        </div>
+
+        <!-- Flashing GO -> Arcade Arrow -->
+        <div class="go-banner is-hidden" id="go-banner">GO &#10140;</div>
+      </div>
+
+      <!-- Mobile Touch Controls -->
+      <div class="touch-controls" id="touch-controls">
+        <div class="touch-pad-left">
+          <button class="touch-btn" id="touch-left" type="button" aria-label="Move Left">&#9664;</button>
+          <button class="touch-btn" id="touch-right" type="button" aria-label="Move Right">&#9654;</button>
+          <button class="touch-btn" id="touch-jump" type="button" aria-label="Jump">&#9650;</button>
+        </div>
+        <div class="touch-pad-right">
+          <button class="touch-btn act-punch" id="touch-o" type="button">O</button>
+          <button class="touch-btn" id="touch-k" type="button">K</button>
+          <button class="touch-btn act-super" id="touch-l" type="button">L</button>
+        </div>
+      </div>
+
+      <!-- Full-Screen "NEW POWER UP: ARM RELOAD" (Exact 1:1 Reference Video Frame) -->
+      <div class="arm-reload-screen is-hidden" id="arm-reload-screen" role="dialog" aria-modal="true">
+        <div class="arm-reload-head">
+          <div class="arm-reload-eyebrow">New Power Up:</div>
+          <div class="arm-reload-title">ARM RELOAD</div>
+          <div class="arm-reload-sub">Henry gets super punches and invincibility</div>
+        </div>
+        <img class="arm-reload-art" src="./arcade/hero_arm_reload.webp" alt="Henry Arm Reload Thumbs Up" />
+        <button class="arm-reload-btn" id="btn-arm-continue" type="button">click to continue</button>
+      </div>
+
+      <!-- Open-Viewport 16-Bit Arcade Title Screen -->
+      <div class="arcade-title-overlay" id="arcade-title-screen">
+        <div class="title-crest">
+          <div class="title-tag" id="title-daily-tag">16-BIT HARBOR BEAT'EM UP · DAILY RUN</div>
+          <h1 class="title-main">HENRY'S ARCADE STREETS</h1>
+          <div class="title-sub">EMBERFALL HARBOR · ARM RELOAD EDITION</div>
+        </div>
+
+        <div class="title-dock">
+          <div class="skin-row" id="skin-selector">
+            <button class="skin-btn selected" data-skin="0" type="button">
+              <span class="skin-name">GOLDEN TITAN</span>
+              <span class="skin-role">Classic Arm Reload</span>
+            </button>
+            <button class="skin-btn" data-skin="1" type="button">
+              <span class="skin-name">ROYAL RANGER</span>
+              <span class="skin-role">+15% Speed &amp; Kick</span>
+            </button>
+            <button class="skin-btn" data-skin="2" type="button">
+              <span class="skin-name">CRIMSON BRAWLER</span>
+              <span class="skin-role">+20% Punch Power</span>
+            </button>
+          </div>
+
+          <div class="mode-switch-row">
+            <button class="arcade-mode-btn selected" id="btn-mode-story" type="button">25 GOONS + BOSS</button>
+            <button class="arcade-mode-btn" id="btn-mode-endless" type="button">ENDLESS QUAY</button>
+          </div>
+
+          <button class="btn-press-start" id="btn-press-start" type="button">
+            <span class="start-main">PRESS START · ENTER THE STREETS</span>
+            <span class="start-sub">MOVE · SPACE JUMP · [O] PUNCH · [K] KICK · [L] ARM RELOAD</span>
           </button>
-
-          <button class="skill-badge ready" id="btn-skill-runic" type="button" aria-label="Signature Runic Strike">
-            <svg class="skill-ring-svg" viewBox="0 0 40 40">
-              <circle id="ring-runic" cx="20" cy="20" r="18" fill="none" stroke="#A855F7" stroke-width="2.2" stroke-dasharray="113" stroke-dashoffset="0" />
-            </svg>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-              <path d="M19 3L21 5L9 17L6 18L7 15L19 3Z" fill="currentColor" />
-            </svg>
-            <span class="skill-key">E</span>
-          </button>
-
-          <button class="skill-badge" id="btn-skill-ult" type="button" aria-label="Ember Overdrive">
-            <svg class="skill-ring-svg" viewBox="0 0 40 40">
-              <circle id="ring-ult" cx="20" cy="20" r="18" fill="none" stroke="#FF4D2D" stroke-width="2.4" stroke-dasharray="113" stroke-dashoffset="113" />
-            </svg>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-              <path d="M12 2C15.5 6.5 19 9.5 19 14A7 7 0 1 1 5 14C5 9.5 8.5 6.5 12 2Z" fill="currentColor" />
-            </svg>
-            <span class="skill-key">Q</span>
-          </button>
         </div>
       </div>
 
-      <div class="hud-top-right hud-interactive">
-        <div class="hud-stat-pill">
-          <span class="hud-stat-timer" id="hud-timer">01:30</span>
-          <span id="hud-kills">0 SLAIN</span>
+      <!-- Arcade Pause Modal -->
+      <div class="arcade-modal-bg is-hidden" id="arcade-pause-modal">
+        <div class="arcade-card">
+          <div class="arcade-card-head">
+            <div class="arcade-card-title">ARCADE PAUSE</div>
+            <button class="btn-arcade-sec" id="btn-pause-resume-top" type="button">RESUME</button>
+          </div>
+          <div class="arcade-panel-sec">
+            <h4>Street Fighter Controls</h4>
+            <ul>
+              <li><strong>WASD / Arrows:</strong> Walk Left/Right &amp; Shift Sidewalk Lane</li>
+              <li><strong>Space:</strong> Jump onto Phone Booth &amp; Car Roofs</li>
+              <li><strong>[O] or [J]:</strong> 3-Hit Punch Combo &amp; Deflect Mustache Boomerangs!</li>
+              <li><strong>[K]:</strong> Flying Jump-Kick / Throw Picked-Up Weapon</li>
+              <li><strong>[L]:</strong> Trigger <strong>ARM RELOAD</strong> (Super Punches + Invincibility)</li>
+            </ul>
+          </div>
+          <div class="arcade-panel-sec">
+            <h4>Live Run Stats</h4>
+            <div id="pause-stats-line">KOs: 0 / 25 · Score: 0 · Max Combo: 0</div>
+          </div>
+          <div class="arcade-btn-row">
+            <button class="btn-arcade-sec" id="btn-toggle-audio" type="button">AUDIO: ON</button>
+            <button class="btn-arcade-sec" id="btn-toggle-crt" type="button">CRT: ON</button>
+          </div>
+          <div class="arcade-btn-row">
+            <button class="btn-arcade-sec" id="btn-pause-restart" type="button">RESTART RUN</button>
+            <button class="btn-arcade-sec" id="btn-pause-resume" type="button">BACK TO STREET</button>
+          </div>
         </div>
-        <button class="hud-icon-btn" id="btn-mute" type="button" aria-label="Toggle Audio">AUDIO</button>
-        <button class="hud-icon-btn" id="btn-pause" type="button" aria-label="Tactical Grimoire &amp; Pause">PAUSE</button>
-      </div>
-    </div>
-
-    <div class="ghost-delta-pill is-hidden" id="hud-ghost-delta">+0 PTS VS #1</div>
-
-    <!-- Left-Edge Vertical Carnage Thermometer -->
-    <div class="carnage-rail" id="carnage-rail">
-      <canvas class="carnage-canvas" id="carnage-canvas" width="22" height="146"></canvas>
-      <div class="carnage-badge" id="carnage-badge">x1</div>
-    </div>
-
-    <div class="onboarding-hint is-hidden" id="onboarding-hint">
-      WASD / Drag Move · Space Dash · E Runic Strike · Q Overdrive
-    </div>
-
-    <!-- Bottom Diablo-Style Liquid Orbs + Elden Ring Boss Bar -->
-    <div class="hud-bottom">
-      <div class="orb-wrap">
-        <canvas class="orb-canvas" id="orb-hp" width="148" height="148"></canvas>
-        <div class="orb-label" id="orb-hp-label">100 / 100</div>
       </div>
 
-      <div class="boss-bar-wrap is-hidden" id="boss-bar-wrap">
-        <div class="boss-title-row">
-          <span id="boss-bar-name">MALAKOR, VOID LICH</span>
-          <span id="boss-bar-hp">100%</span>
+      <!-- Victory / Game Over Modal -->
+      <div class="arcade-modal-bg is-hidden" id="arcade-end-modal">
+        <div class="arcade-card">
+          <div class="end-top-row">
+            <div class="end-hero-wrap">
+              <img class="end-portrait" src="./arcade/hero_portrait.webp" alt="Hero Victory" />
+              <div>
+                <div class="title-tag" id="end-outcome-tag">STAGE CLEAR!</div>
+                <div class="end-score-big" id="end-score-val">00000 PTS</div>
+              </div>
+            </div>
+            <div class="end-rank-stamp" id="end-rank-val">S</div>
+          </div>
+          <div class="arcade-panel-sec" id="end-summary-box">
+            Cleared the Harbor Quay with 25 KOs and defeated Don Mustachio!
+          </div>
+          <div class="arcade-btn-row-3">
+            <button class="btn-arcade-sec" id="btn-end-share" type="button">SHARE REDDIT</button>
+            <button class="btn-arcade-sec" id="btn-end-replay" type="button">FIGHT AGAIN</button>
+            <button class="btn-arcade-sec" id="btn-end-endless" type="button">ENDLESS</button>
+          </div>
+          <div class="status-micro" id="end-status-msg"></div>
         </div>
-        <svg class="boss-bar-svg" viewBox="0 0 400 14" preserveAspectRatio="none">
-          <rect x="1" y="2" width="398" height="10" rx="4" fill="rgba(9,10,15,0.88)" stroke="#E5B85C" stroke-width="1.5" />
-          <rect id="boss-bar-trail" x="3" y="4" width="394" height="6" rx="2" fill="#FACC15" />
-          <rect id="boss-bar-fill" x="3" y="4" width="394" height="6" rx="2" fill="#DC2626" />
-          <line x1="200" y1="2" x2="200" y2="12" stroke="#E5B85C" stroke-width="1.5" />
-        </svg>
-      </div>
-
-      <div class="orb-wrap">
-        <button class="orb-btn" id="btn-overdrive-orb" type="button" aria-label="Trigger Ember Overdrive">
-          <canvas class="orb-canvas" id="orb-ember" width="148" height="148"></canvas>
-        </button>
-        <div class="orb-label" id="orb-ember-label">0% EMBER</div>
       </div>
     </div>
   </div>
 
-  <!-- Intro Cinematic Skip Button -->
-  <button class="skip-intro-btn is-hidden" id="btn-skip-intro" type="button">SKIP INTRO ▸</button>
-
-  <!-- Open-Viewport SplashOrbit Sanctuary Overlay (Reveals Live 60 FPS WASM Arena) -->
-  <div class="orbit-hud-shell is-hidden" id="modal-title">
-    <div class="orbit-top-crest">
-      <p class="eyebrow-runic" id="title-seed-sub">DAILY SANCTUARY · #----</p>
-      <h1 class="game-logo">EMBERFALL</h1>
-      <div class="subtitle-divider">
-        <span></span>
-        <h2 id="title-boss-line">DAILY HORDE</h2>
-        <span></span>
-      </div>
-    </div>
-
-    <div class="orbit-bottom-dock">
-      <div class="class-grid" id="title-class-grid">
-        <button class="class-card selected" data-class="0" type="button">
-          <img class="class-portrait-thumb" src="./portrait_knight.webp" alt="Aurelius" />
-          <span class="class-name">AURELIUS</span>
-          <span class="class-role">Solar Vanguard</span>
-        </button>
-        <button class="class-card" data-class="1" type="button">
-          <img class="class-portrait-thumb" src="./portrait_mage.webp" alt="Seraphina" />
-          <span class="class-name">SERAPHINA</span>
-          <span class="class-role">Rift Pyromancer</span>
-        </button>
-        <button class="class-card" data-class="2" type="button">
-          <img class="class-portrait-thumb" src="./portrait_rogue.webp" alt="Nyx" />
-          <span class="class-name">NYX</span>
-          <span class="class-role">Umbral Blade</span>
-        </button>
-      </div>
-
-      <div class="mode-row">
-        <button class="mode-btn selected" id="mode-daily" type="button">90s DAILY RANKED</button>
-        <button class="mode-btn" id="mode-endless" type="button">ENDLESS ABYSS</button>
-      </div>
-
-      <button class="cta-abyss" id="btn-enter-abyss" type="button">
-        <span class="cta-main-txt">ENTER THE ABYSS</span>
-        <span class="cta-sub-txt" id="title-mutator-line">SEAMLESS BOSS INVOCATION · 60 FPS</span>
-      </button>
-    </div>
-  </div>
-
-  <!-- 3-Tier Rarity Roguelite Level-Up Modal -->
-  <div class="modal-backdrop is-hidden" id="modal-levelup">
-    <div class="ornate-panel modal-card wide">
-      <div class="hero-crest-head">
-        <p class="eyebrow-runic">ASCENSION FORGE</p>
-        <h2 class="boss-name-serif">CHOOSE A RUNIC BOON</h2>
-      </div>
-      <div class="upgrade-grid" id="upgrade-grid"></div>
-    </div>
-  </div>
-
-  <!-- Tactical Grimoire / Pause Modal -->
-  <div class="modal-backdrop is-hidden" id="modal-pause">
-    <div class="ornate-panel modal-card">
-      <div class="drawer-head">
-        <div class="drawer-title">TACTICAL GRIMOIRE</div>
-        <button class="close-btn" id="btn-resume" type="button">RESUME</button>
-      </div>
-      <div class="d-sec">
-        <h3>Today's 3 Daily Bounties (+750 PTS Each)</h3>
-        <ul id="pause-bounties"></ul>
-      </div>
-      <div class="d-sec">
-        <h3>Elemental Synergies</h3>
-        <ul>
-          <li><strong>Crimson Reaper:</strong> Arcane Slash Lv.4 + Overclock Haste</li>
-          <li><strong>Storm Sovereign:</strong> Chain Lightning Lv.4 + Ember Bolts</li>
-          <li><strong>Inferno Vortex:</strong> Runic Orbit Lv.4 + Nova Dash</li>
-        </ul>
-      </div>
-      <div class="d-sec">
-        <h3>Sanctuary Settings</h3>
-        <div class="action-row">
-          <button class="btn-secondary" id="btn-pause-mute" type="button">AUDIO: ON</button>
-          <button class="btn-secondary" id="btn-pause-crt" type="button">CRT: OFF</button>
-        </div>
-      </div>
-      <button class="cta-abyss" id="btn-pause-resume" type="button">
-        <span class="cta-main-txt">RETURN TO BATTLE</span>
-      </button>
-    </div>
-  </div>
-
-  <!-- End-of-Run Blood Chronicle (RunChronicle) Modal -->
-  <div class="modal-backdrop is-hidden" id="modal-chronicle">
-    <div class="ornate-panel modal-card">
-      <div class="chronicle-head">
-        <div>
-          <div class="badge-overlord" id="chronicle-outcome">BLOOD CHRONICLE</div>
-          <h2 class="boss-name-serif" id="chronicle-score">0 PTS</h2>
-          <div class="mutator-desc" id="chronicle-stats">0 Slain · Lv.1 · 1-Day Streak</div>
-        </div>
-        <div class="rank-seal" id="chronicle-rank">S</div>
-      </div>
-
-      <div class="chronicle-scroll" id="chronicle-text">
-        "Entered the Abyss and faced the Daily Horde."
-      </div>
-
-      <div class="d-sec">
-        <h3>Shape Tomorrow's Dungeon (Community Poll)</h3>
-        <div class="mutator-vote-grid" id="chronicle-votes">
-          <button class="vote-card" data-mut="0" type="button">BLOOD</button>
-          <button class="vote-card" data-mut="1" type="button">ARCANE</button>
-          <button class="vote-card" data-mut="2" type="button">SWARM</button>
-          <button class="vote-card" data-mut="3" type="button">TITAN</button>
-        </div>
-        <div class="siege-feed" id="chronicle-siege-feed"></div>
-      </div>
-
-      <div class="action-row-3">
-        <button class="btn-secondary" id="btn-share-reddit" type="button">SHARE REDDIT</button>
-        <button class="btn-secondary" id="btn-replay-daily" type="button">FIGHT AGAIN</button>
-        <button class="btn-secondary" id="btn-play-endless" type="button">ENDLESS</button>
-      </div>
-      <div class="micro-label" id="chronicle-status"></div>
-    </div>
-  </div>
-
-  <script src="./mq_js_bundle.js"></script>
-  <script src="./game_bridge.js"></script>
+  <script src="./arcade_engine.js"></script>
 </body>
 </html>

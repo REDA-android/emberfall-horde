@@ -1,124 +1,77 @@
 <!doctype html>
-<html lang="en" data-biome="obsidian">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-  <meta name="theme-color" id="meta-theme" content="#090A0F" />
-  <title>EMBERFALL: DAILY HORDE</title>
-  <link rel="stylesheet" href="./styles.css" />
+  <meta name="theme-color" content="#0e2442" />
+  <title>HENRY'S ARCADE STREETS — EMBERFALL EDITION</title>
+  <link rel="stylesheet" href="./arcade_styles.css" />
 </head>
-<body class="splash-body biome-obsidian">
-  <canvas class="splash-canvas-bg" id="splash-bg-fx" aria-hidden="true"></canvas>
-  <div class="vignette-scrim" aria-hidden="true"></div>
+<body class="arcade-splash-body">
+  <canvas class="splash-harbor-canvas" id="splash-harbor-bg" aria-hidden="true"></canvas>
 
-  <main class="splash-shell">
-    <header class="top-relic-bar">
-      <div class="relic-pill">
-        <span class="pulse-dot"></span>
-        <span id="seed-pill">DAY #----</span>
-      </div>
-      <div class="hdr-right">
-        <div class="relic-pill" title="Next Daily Dungeon Reset (UTC)">
-          <span class="micro-label">RIFT</span>
-          <strong id="utc-countdown">--:--:--</strong>
-        </div>
-        <button class="btn-grimoire" id="help-btn" type="button" aria-label="Tactical Grimoire">GRIMOIRE</button>
+  <main class="splash-arcade-shell">
+    <header class="splash-topbar">
+      <div class="splash-chip" id="seed-pill">DAILY RUN · #----</div>
+      <div class="splash-topbar">
+        <div class="splash-chip" id="utc-countdown">--:--:--</div>
+        <button class="btn-arcade-sec" id="help-btn" type="button">CONTROLS</button>
       </div>
     </header>
 
-    <section class="hero-crest-head">
-      <p class="eyebrow-runic" id="biome-eyebrow">THE OBSIDIAN SANCTUARY</p>
-      <h1 class="game-logo">EMBERFALL</h1>
-      <div class="subtitle-divider">
-        <span></span>
-        <h2>DAILY HORDE</h2>
-        <span></span>
-      </div>
+    <section class="title-crest">
+      <div class="title-tag">16-BIT RETRO HARBOR BEAT'EM UP</div>
+      <h1 class="title-main">HENRY'S ARCADE STREETS</h1>
+      <div class="title-sub">EMBERFALL EDITION · ARM RELOAD</div>
     </section>
 
-    <article class="ornate-panel">
-      <div class="dossier-head">
-        <span class="badge-overlord">TODAY'S OVERLORD</span>
-        <span class="badge-mutator" id="mutator-badge">BLOOD MOON</span>
+    <article class="splash-hero-card">
+      <img class="splash-portrait" src="./arcade/hero_portrait.webp" alt="Henry Golden Armor Portrait" />
+      <div>
+        <div class="title-tag">TODAY'S HARBOR MISSION</div>
+        <h3 class="arcade-card-title" id="boss-headline">25 SUITED GOONS + DON MUSTACHIO</h3>
+        <div class="arm-reload-sub">Deflect flying mustaches, smash the phone booth &amp; car, and unleash ARM RELOAD!</div>
       </div>
-      <h3 class="boss-name-serif" id="boss-headline">MALAKOR, VOID LICH</h3>
-      <p class="mutator-desc" id="mutator-desc">Dual Void Slams + Soul Obelisk Shields · Witch-Time Dodge +12% Overdrive</p>
-      <div class="bounty-chips" id="bounty-chips"></div>
     </article>
 
-    <section class="ornate-panel" aria-label="Subreddit Faction War and Siege">
-      <div class="siege-head">
-        <span class="micro-label">SUBREDDIT FACTION WAR</span>
-        <span class="blessing-tag" id="blessing-line">SOLAR AEGIS</span>
+    <section class="splash-card-panel">
+      <div class="arcade-card-head">
+        <span class="title-tag">TOP HARBOR CHAMPIONS</span>
+        <span class="score-subpill" id="siege-count">0 BOSS KOs TODAY</span>
       </div>
-
-      <div class="faction-bar">
-        <div class="f-seg f-solar" id="f-seg-0"></div>
-        <div class="f-seg f-arcane" id="f-seg-1"></div>
-        <div class="f-seg f-shadow" id="f-seg-2"></div>
-      </div>
-
-      <div class="faction-line" id="faction-line">
-        <span class="faction-pill"><i class="f-dot solar"></i>SOLAR <strong>34%</strong></span>
-        <span class="faction-pill"><i class="f-dot arcane"></i>ARCANE <strong>33%</strong></span>
-        <span class="faction-pill"><i class="f-dot shadow"></i>SHADOW <strong>33%</strong></span>
-      </div>
-
-      <div class="siege-subrow">
-        <span class="micro-label">COMMUNITY BOSS SIEGE</span>
-        <span class="siege-count" id="siege-count">0 / 25 SLAIN</span>
-      </div>
-      <div class="bar-track"><div class="bar-fill" id="siege-fill"></div></div>
-      <div class="siege-feed" id="siege-feed">Strike today's Overlord to etch your name in the Siege Feed!</div>
-    </section>
-
-    <section class="ornate-panel lb-compact">
-      <div class="lb-head">
-        <span class="micro-label">CHAMPIONS OF THE RIFT</span>
-        <span class="yday-champ" id="yday-champ">90s Ranked</span>
-      </div>
-      <div class="lb-list" id="lb-list">
-        <div class="lb-row"><span class="lb-user">No runs yet today — claim #1 &amp; set the Champion Ghost!</span></div>
+      <div id="lb-list">
+        <div class="splash-lb-row">
+          <span>No runs yet today — claim #1 on the Harbor Quay!</span>
+        </div>
       </div>
     </section>
 
-    <footer class="cta-dock">
-      <button class="cta-abyss" id="enter-btn" type="button">
-        <span class="cta-main-txt">ENTER THE ABYSS</span>
-        <span class="cta-sub-txt" id="tomorrow-info">INSTANT 60 FPS WASM · ZERO LOADING</span>
+    <footer>
+      <button class="btn-press-start" id="enter-btn" type="button">
+        <span class="start-main">PRESS START · ENTER THE STREETS</span>
+        <span class="start-sub">INSTANT 60 FPS · ZERO LOADING · REDDIT ARCADE</span>
       </button>
-      <div class="me-bar">
-        <span id="me-rank">Ranked Daily · Shape Tomorrow's Mutator</span>
-        <span id="me-streak">0-Day Streak</span>
-      </div>
+      <div class="status-micro" id="me-rank">Daily Harbor Leaderboard · Beat 25 Goons &amp; the Kingpin</div>
     </footer>
   </main>
 
-  <aside class="drawer" id="guide-drawer" role="dialog" aria-modal="true" aria-label="Tactical Grimoire">
-    <div class="drawer-head">
-      <div class="drawer-title" id="drawer-title">TACTICAL GRIMOIRE</div>
-      <button class="close-btn" id="close-guide-btn" type="button">CLOSE</button>
+  <aside class="splash-drawer" id="guide-drawer" role="dialog" aria-modal="true" aria-label="Arcade Controls">
+    <div class="arcade-card-head">
+      <div class="arcade-card-title">ARCADE STREET CONTROLS</div>
+      <button class="btn-arcade-sec" id="close-guide-btn" type="button">CLOSE</button>
     </div>
-    <div class="d-sec">
-      <h3>Combat &amp; Controls (90s Run)</h3>
+    <div class="arcade-panel-sec">
+      <h4>Moves &amp; Super Combos</h4>
       <ul>
-        <li><strong>Move &amp; Auto-Strike:</strong> Drag anywhere (1-Thumb), <strong>WASD / Arrows</strong>, or Gamepad.</li>
-        <li><strong>Witch-Time Dodge:</strong> Tap <strong>Space / Shift</strong> right before enemy rings for slow-mo &amp; +12% Ember.</li>
-        <li><strong>Signature Runic Strike:</strong> Tap <strong>E</strong> (or Skill Badge) to unleash Solar Judgement, Rift Pyronova, or Umbral Execution.</li>
-        <li><strong>Ember Overdrive:</strong> Unleash at 100% (<strong>Q</strong> or Ember Badge) for Electric Awakening, 2× speed &amp; meteor rain.</li>
+        <li><strong>WASD / Arrows / Touch Pad:</strong> Move along the harbor quay sidewalk.</li>
+        <li><strong>Space / Jump Button:</strong> Leap onto the yellow Phone Booth &amp; white Car roofs!</li>
+        <li><strong>[O] Punch Combo:</strong> Rapid 3-hit combo &amp; parry flying Mustache Boomerangs!</li>
+        <li><strong>[K] Flying Kick:</strong> Launch across the street or throw picked-up Steel Pipes!</li>
+        <li><strong>[L] ARM RELOAD:</strong> When the left Mercury Thermometer hits 100%, unleash invincible Super Punches!</li>
       </ul>
     </div>
-    <div class="d-sec">
-      <h3>Today's Overlord &amp; Mutator</h3>
-      <p id="drawer-boss">Loading today's Boss...</p>
-      <p id="drawer-mutator"></p>
-    </div>
-    <div class="d-sec">
-      <h3>Today's 3 Daily Bounties (+750 PTS Each)</h3>
-      <ul id="drawer-bounties"></ul>
-    </div>
-    <button class="cta-abyss" id="drawer-play-btn" type="button">
-      <span class="cta-main-txt">ENTER THE ABYSS</span>
+    <button class="btn-press-start" id="drawer-play-btn" type="button">
+      <span class="start-main">PRESS START · ENTER THE STREETS</span>
     </button>
   </aside>
 
