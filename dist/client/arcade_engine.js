@@ -110,13 +110,21 @@
     } else if (name === "kick") {
       tone(340, 120, 0.11, "triangle", 0.10, 0);
       noise(0.07, 1500, "highpass", 0.06, 0);
+    } else if (name === "uppercut") {
+      tone(190, 740, 0.18, "sawtooth", 0.12, 0);
+      noise(0.10, 1800, "bandpass", 0.08, 0);
+    } else if (name === "throw") {
+      tone(420, 110, 0.16, "sawtooth", 0.11, 0);
+      noise(0.12, 1200, "bandpass", 0.08, 0.02);
     } else if (name === "jump") {
       tone(220, 520, 0.12, "square", 0.07, 0);
+    } else if (name === "land") {
+      tone(130, 36, 0.22, "sawtooth", 0.16, 0);
+      noise(0.18, 380, "lowpass", 0.15, 0);
     } else if (name === "parry") {
       tone(880, 1480, 0.11, "triangle", 0.12, 0);
       tone(1320, 1760, 0.12, "sine", 0.09, 0.05);
     } else if (name === "reload") {
-      // Iconic mechanical Arm Reload clicks + triumphant fanfare
       noise(0.05, 2200, "highpass", 0.12, 0);
       tone(190, 260, 0.07, "sawtooth", 0.11, 0.02);
       noise(0.06, 2600, "highpass", 0.13, 0.11);
@@ -136,11 +144,18 @@
     } else if (name === "hurt") {
       tone(180, 58, 0.19, "sawtooth", 0.13, 0);
       noise(0.11, 450, "lowpass", 0.09, 0);
+    } else if (name === "boss_rage") {
+      tone(110, 62, 0.42, "sawtooth", 0.15, 0);
+      tone(164.81, 82.41, 0.38, "square", 0.11, 0.08);
     } else if (name === "victory") {
       tone(523.25, 523.25, 0.14, "square", 0.10, 0);
       tone(659.25, 659.25, 0.14, "square", 0.10, 0.12);
       tone(783.99, 783.99, 0.16, "square", 0.11, 0.24);
       tone(1046.5, 1046.5, 0.45, "sawtooth", 0.12, 0.36);
+    } else if (name === "gameover") {
+      tone(330, 294, 0.22, "sawtooth", 0.10, 0);
+      tone(262, 220, 0.26, "sawtooth", 0.10, 0.2);
+      tone(196, 130, 0.48, "triangle", 0.11, 0.42);
     } else if (name === "go") {
       tone(880, 880, 0.07, "square", 0.07, 0);
       tone(1174.6, 1174.6, 0.11, "square", 0.08, 0.09);
@@ -150,21 +165,21 @@
   function startMusic() {
     if (seqTimer) return;
     seqTimer = setInterval(function () {
-      if (isMuted || state.phase !== "playing") return;
+      if (isMuted || (state.phase !== "playing" && state.phase !== "intro")) return;
       var intense = state.bossActive || state.hero.armReloadTimer > 0;
       var bass = intense ? BOSS_BASS : STREET_BASS;
       var lead = intense ? BOSS_LEAD : STREET_LEAD;
       var i = seqStep % 16;
       seqStep++;
       var bn = bass[i];
-      if (bn > 0) tone(bn, bn * 0.99, 0.13, "triangle", intense ? 0.065 : 0.05, 0);
+      if (bn > 0) tone(bn, bn * 0.99, 0.13, "triangle", intense ? 0.068 : 0.052, 0);
       var ln = lead[i];
       if (ln > 0 && (intense || seqStep % 32 >= 16)) {
-        tone(ln, ln, 0.12, "square", intense ? 0.036 : 0.025, 0);
+        tone(ln, ln, 0.12, "square", intense ? 0.038 : 0.026, 0);
       }
-      if (i % 4 === 0) tone(122, 42, 0.09, "sine", 0.08, 0);
-      if (i === 4 || i === 12) noise(0.06, 1600, "bandpass", 0.04, 0);
-    }, 145);
+      if (i % 4 === 0) tone(122, 42, 0.09, "sine", 0.082, 0);
+      if (i === 4 || i === 12) noise(0.06, 1600, "bandpass", 0.042, 0);
+    }, 142);
   }
 
   // =========================================================================
@@ -185,25 +200,28 @@
   });
 
   // =========================================================================
-  // REDDIT DEVVIT BACKEND & LOCAL PROFILE
+  // REDDIT DEVVIT BACKEND & LOCAL PROFILE + UNLOCKS
   // =========================================================================
   var apiState = {
     seed: new Date().toISOString().slice(0, 10),
     username: "",
     streak: 1,
     bestScore: 0,
+    secretUnlocked: false,
     runId: "",
     submitted: false
   };
 
   function loadLocal() {
     try {
-      var raw = localStorage.getItem("henry_arcade_v3");
+      var raw = localStorage.getItem("henry_arcade_v4");
+      if (!raw) raw = localStorage.getItem("henry_arcade_v3");
       if (!raw) return;
       var d = JSON.parse(raw);
       if (d) {
         apiState.bestScore = Number(d.bestScore) || 0;
         apiState.streak = Math.max(1, Number(d.streak) || 1);
+        apiState.secretUnlocked = Boolean(d.secretUnlocked) || apiState.bestScore >= 5000;
         if (typeof d.muted === "boolean") isMuted = d.muted;
         if (typeof d.crt === "boolean") crtEnabled = d.crt;
       }
@@ -212,13 +230,27 @@
 
   function saveLocal() {
     try {
-      localStorage.setItem("henry_arcade_v3", JSON.stringify({
+      localStorage.setItem("henry_arcade_v4", JSON.stringify({
         bestScore: apiState.bestScore,
         streak: apiState.streak,
+        secretUnlocked: apiState.secretUnlocked,
         muted: isMuted,
         crt: crtEnabled
       }));
     } catch (_) {}
+  }
+
+  function refreshSecretUnlockUi() {
+    var btn = document.getElementById("skin-secret-btn");
+    var role = document.getElementById("skin-secret-role");
+    if (!btn) return;
+    if (apiState.secretUnlocked) {
+      btn.classList.remove("locked");
+      if (role) role.textContent = "+15% Thermo [K]";
+    } else {
+      btn.classList.add("locked");
+      if (role) role.textContent = "5K PTS Unlock";
+    }
   }
 
   function fetchInit() {
@@ -230,6 +262,8 @@
         if (d.username) apiState.username = d.username;
         if (typeof d.streak === "number") apiState.streak = Math.max(1, d.streak);
         if (typeof d.personalBest === "number") apiState.bestScore = Math.max(apiState.bestScore, d.personalBest);
+        if (apiState.bestScore >= 5000) apiState.secretUnlocked = true;
+        refreshSecretUnlockUi();
         var tag = document.getElementById("title-daily-tag");
         if (tag) tag.textContent = "16-BIT HARBOR BEAT'EM UP · DAILY #" + apiState.seed;
       })
@@ -237,20 +271,21 @@
   }
 
   loadLocal();
+  refreshSecretUnlockUi();
   fetchInit();
 
   // =========================================================================
-  // GAME STATE & WORLD DEFINITIONS (Exact Reference Street Architecture)
+  // WORLD ARCHITECTURE & PLAYABLE FIGHTERS (PHASE 2 ENHANCED)
   // =========================================================================
   var BUILDINGS = [
     { x: 0, w: 195, h: 215, col: "#92b59c", roof: "#4a5a6a", style: "barber", label: "barbershop", windows: 1 },
-    { x: 195, w: 220, h: 315, col: "#e7b944", roof: "#4c5c6e", style: "townhouse", doorCol: "#a06d2c", windows: 2 },
-    { x: 415, w: 225, h: 315, col: "#255aa8", roof: "#3a4d66", style: "townhouse", doorCol: "#1a3c7c", quoins: true, windows: 2 },
+    { x: 195, w: 220, h: 315, col: "#e7b944", roof: "#4c5c6e", style: "townhouse", doorCol: "#a06d2c", windows: 2, flowers: true },
+    { x: 415, w: 225, h: 315, col: "#255aa8", roof: "#3a4d66", style: "townhouse", doorCol: "#1a3c7c", quoins: true, windows: 2, flowers: true },
     { x: 640, w: 205, h: 268, col: "#e04248", roof: "#475769", style: "townhouse", doorCol: "#991b22", windows: 2 },
     { x: 845, w: 230, h: 218, col: "#dce4ee", roof: "#556475", style: "fancy", label: "FANCY", windows: 0 },
-    { x: 1075, w: 215, h: 315, col: "#2f74c0", roof: "#3c4e64", style: "townhouse", doorCol: "#6d747d", quoins: true, windows: 2 },
+    { x: 1075, w: 215, h: 315, col: "#2f74c0", roof: "#3c4e64", style: "townhouse", doorCol: "#6d747d", quoins: true, windows: 2, flowers: true },
     { x: 1290, w: 265, h: 318, col: "#ea5b5c", roof: "#455568", style: "townhouse", doorCol: "#9e2a2b", windows: 3 },
-    { x: 1555, w: 200, h: 240, col: "#f0d24b", roof: "#4b5b6c", style: "townhouse", doorCol: "#7c5218", windows: 2 },
+    { x: 1555, w: 200, h: 240, col: "#f0d24b", roof: "#4b5b6c", style: "townhouse", doorCol: "#7c5218", windows: 2, flowers: true },
     { x: 1755, w: 215, h: 285, col: "#1d5aa6", roof: "#36465c", style: "townhouse", doorCol: "#133166", quoins: true, windows: 2 },
     { x: 1970, w: 230, h: 220, col: "#8fb79f", roof: "#485869", style: "barber", label: "barbershop", windows: 1 },
     { x: 2200, w: 220, h: 310, col: "#d9464a", roof: "#425062", style: "townhouse", doorCol: "#7f1d1d", windows: 2 },
@@ -260,17 +295,22 @@
   var LAMPS_X = [358, 780, 1215, 1680, 2110];
 
   var SKIN_PERKS = [
-    { name: "GOLDEN TITAN", speedMul: 1.0, dmgMul: 1.0, aura: "#ffe24a" },
-    { name: "ROYAL RANGER", speedMul: 1.15, dmgMul: 1.0, aura: "#38e8ff" },
-    { name: "CRIMSON BRAWLER", speedMul: 1.0, dmgMul: 1.2, aura: "#ff5f2e" }
+    { name: "GOLDEN TITAN", speedMul: 1.0, dmgMul: 1.0, thermoMul: 1.0, special: "kick", aura: "#ffe24a", filter: "none" },
+    { name: "ROYAL RANGER", speedMul: 1.16, dmgMul: 1.0, thermoMul: 1.0, special: "blitz", aura: "#38e8ff", filter: "hue-rotate(178deg) saturate(1.25)" },
+    { name: "CRIMSON FIST", speedMul: 1.0, dmgMul: 1.2, thermoMul: 1.0, special: "uppercut", aura: "#ff5f2e", filter: "hue-rotate(-28deg) saturate(1.42)" },
+    { name: "SECRET AGENT", speedMul: 1.12, dmgMul: 1.12, thermoMul: 1.18, special: "blitz", aura: "#f8fafc", filter: "grayscale(0.68) contrast(1.24)" }
   ];
 
   var state = {
-    phase: "title", // title | playing | arm_reload | paused | ended
+    phase: "title", // title | intro | playing | arm_reload | paused | ended
     endless: false,
     skinIdx: 0,
     time: 0,
+    introTimer: 0,
+    introDropped: false,
     camX: 0,
+    camZoom: 1.0,
+    zoomTimer: 0,
     shake: 0,
     hitstop: 0,
     kos: 0,
@@ -278,37 +318,41 @@
     combo: 0,
     maxCombo: 0,
     comboTimer: 0,
-    thermo: 15, // 0..100
+    thermo: 18,
+    parries: 0,
+    throws: 0,
+    reloadsUsed: 0,
     armReloadShownOnce: false,
     bossActive: false,
     bossSlain: false,
     limoX: -400,
-    limoPhase: 0, // 0 none, 1 arriving, 2 leaving
+    limoPhase: 0,
     goTimer: 0,
-    zoneLockX: 1050,
     spawnTimer: 0.9,
     victory: false,
+    speech: null, // { x, y, text, timer }
     hero: {
-      x: 260,
-      y: 416,
+      x: 340,
+      y: 418,
       z: 0,
       vz: 0,
       vx: 0,
       vy: 0,
       facing: 1,
-      hp: 6, // 3 hearts = 6 half-hearts
+      hp: 6,
       maxHp: 6,
       invuln: 0,
-      attackType: "none", // none | punch | kick
+      attackType: "none",
       attackTimer: 0,
-      attackHitDone: false,
       comboStep: 0,
       comboWindow: 0,
       oCd: 0,
       kCd: 0,
       armReloadTimer: 0,
-      weapon: null, // null | { kind: "pipe", uses: 3 }
-      walkPhase: 0
+      mustacheShieldTimer: 0,
+      weapon: null,
+      walkPhase: 0,
+      afterimages: []
     },
     props: [],
     enemies: [],
@@ -316,16 +360,34 @@
     pickups: [],
     particles: [],
     popups: [],
+    debris: [], // flying glasses & spinning trash cans!
+    seagulls: [],
     shatteredWindows: {}
   };
 
   var keys = {};
   var touchInput = { left: false, right: false };
 
+  function initSeagulls() {
+    state.seagulls = [];
+    for (var i = 0; i < 4; i++) {
+      state.seagulls.push({
+        x: 120 + i * 260,
+        y: 38 + (i % 3) * 24,
+        speed: 32 + i * 7,
+        wing: i * 1.4
+      });
+    }
+  }
+
   function resetWorld(endlessMode) {
     state.endless = Boolean(endlessMode);
     state.time = 0;
+    state.introTimer = 0;
+    state.introDropped = false;
     state.camX = 0;
+    state.camZoom = 1.0;
+    state.zoomTimer = 0;
     state.shake = 0;
     state.hitstop = 0;
     state.kos = 0;
@@ -334,14 +396,18 @@
     state.maxCombo = 0;
     state.comboTimer = 0;
     state.thermo = 18;
+    state.parries = 0;
+    state.throws = 0;
+    state.reloadsUsed = 0;
     state.armReloadShownOnce = false;
     state.bossActive = false;
     state.bossSlain = false;
     state.limoX = -400;
     state.limoPhase = 0;
     state.goTimer = 0;
-    state.spawnTimer = 0.7;
+    state.spawnTimer = 0.85;
     state.victory = false;
+    state.speech = null;
     state.shatteredWindows = {};
     apiState.submitted = false;
 
@@ -358,21 +424,24 @@
       invuln: 0,
       attackType: "none",
       attackTimer: 0,
-      attackHitDone: false,
       comboStep: 0,
       comboWindow: 0,
       oCd: 0,
       kCd: 0,
       armReloadTimer: 0,
+      mustacheShieldTimer: 0,
       weapon: null,
-      walkPhase: 0
+      walkPhase: 0,
+      afterimages: []
     };
 
-    // Destructible & Jumpable Iconic Street Props (Phone Booths, White Hatchback Car, Crates)
+    // Destructible & Jumpable Iconic Street Props (+ Kickable Trash Cans!)
     state.props = [
+      { id: "trash1", kind: "trash", x: 430, y: 392, w: 30, h: 42, hp: 1, maxHp: 1, hitFlash: 0, dropped: false },
       { id: "booth1", kind: "booth", x: 585, y: 382, w: 54, h: 102, hp: 3, maxHp: 3, hitFlash: 0, dropped: false },
       { id: "car1", kind: "car", x: 930, y: 404, w: 148, h: 56, hp: 6, maxHp: 6, hitFlash: 0, dropped: false },
       { id: "crate1", kind: "crate", x: 1380, y: 394, w: 46, h: 42, hp: 2, maxHp: 2, hitFlash: 0, dropped: false },
+      { id: "trash2", kind: "trash", x: 1585, y: 392, w: 30, h: 42, hp: 1, maxHp: 1, hitFlash: 0, dropped: false },
       { id: "booth2", kind: "booth", x: 1715, y: 382, w: 54, h: 102, hp: 3, maxHp: 3, hitFlash: 0, dropped: false },
       { id: "car2", kind: "car", x: 2050, y: 404, w: 148, h: 56, hp: 6, maxHp: 6, hitFlash: 0, dropped: false }
     ];
@@ -382,15 +451,16 @@
     state.pickups = [];
     state.particles = [];
     state.popups = [];
+    state.debris = [];
+    initSeagulls();
 
-    // Initial street squad right on screen (instant action!)
     spawnEnemy("brawler", 620, 422);
     spawnEnemy("thrower", 815, 410);
   }
 
   function spawnEnemy(kind, x, y) {
     var isBoss = kind === "boss";
-    var maxHp = isBoss ? 22 : (kind === "heavy" ? 6 : (kind === "thrower" ? 3 : 4));
+    var maxHp = isBoss ? 26 : (kind === "heavy" ? 6 : (kind === "thrower" ? 3 : 4));
     state.enemies.push({
       kind: kind,
       x: x,
@@ -404,13 +474,17 @@
       maxHp: maxHp,
       hitFlash: 0,
       stunTimer: 0,
-      attackCd: isBoss ? 1.4 : (1.1 + Math.random() * 1.1),
+      attackCd: isBoss ? 1.5 : (1.15 + Math.random() * 1.0),
       walkPhase: Math.random() * 6,
       dying: false,
       splashKO: false,
+      bowling: false,
       dieTimer: 0,
       glassesLost: false,
-      trailHp: maxHp
+      trailHp: maxHp,
+      phase2: false,
+      telegraphTimer: 0,
+      counterWindow: 0
     });
   }
 
@@ -421,8 +495,8 @@
       text: text,
       color: color || "#ffe680",
       size: size || 20,
-      life: 0.9,
-      maxLife: 0.9
+      life: 0.92,
+      maxLife: 0.92
     });
   }
 
@@ -444,64 +518,113 @@
   }
 
   // =========================================================================
-  // COMBAT ACTIONS: [O] PUNCH, [K] JUMP-KICK / THROW, [L] ARM RELOAD, SPACE JUMP
+  // COMBAT ACTIONS: [O] PUNCH / GRAB-THROW, [K] SIGNATURE SPECIAL, [L] ARM RELOAD
   // =========================================================================
   function heroJump() {
+    if (state.phase === "intro") { finishIntro(); return; }
     if (state.phase !== "playing") return;
     var h = state.hero;
     if (h.z <= 1 || isStandingOnProp(h)) {
-      h.vz = 470;
+      h.vz = 475;
       sfx("jump");
       spawnParticles(h.x, h.y, 6, "#e2e8f0", 90, 220);
     }
   }
 
   function heroPunch() {
+    if (state.phase === "intro") { finishIntro(); return; }
     if (state.phase !== "playing") return;
     var h = state.hero;
     if (h.oCd > 0) return;
+
+    // Grab & Bowl-Throw if right next to a stunned non-boss goon!
+    for (var gi = 0; gi < state.enemies.length; gi++) {
+      var ge = state.enemies[gi];
+      if (!ge.dying && ge.kind !== "boss" && ge.stunTimer > 0.08 && !ge.bowling) {
+        if (Math.abs(ge.x - h.x) < 62 && Math.abs(ge.y - h.y) < 34) {
+          h.oCd = 0.28;
+          h.attackType = "punch";
+          h.attackTimer = 0.24;
+          ge.bowling = true;
+          ge.stunTimer = 0.9;
+          ge.vx = h.facing * 590;
+          ge.vz = 140;
+          state.throws++;
+          state.score += 400;
+          state.shake = 8;
+          sfx("throw");
+          addPopup(h.x + h.facing * 32, h.y - 96, "BOWLING THROW! +400", "#38e8ff", 21);
+          spawnParticles(ge.x, ge.y - 45, 12, "#38e8ff", 220, 220);
+          return;
+        }
+      }
+    }
+
     h.oCd = h.armReloadTimer > 0 ? 0.16 : 0.21;
     h.attackType = "punch";
     h.attackTimer = 0.20;
-    h.attackHitDone = false;
     h.comboStep = h.comboWindow > 0 ? (h.comboStep + 1) % 3 : 0;
     h.comboWindow = 0.65;
-    h.vx += h.facing * (h.armReloadTimer > 0 ? 150 : 65);
+    h.vx += h.facing * (h.armReloadTimer > 0 ? 155 : 65);
     sfx(h.comboStep === 2 || h.armReloadTimer > 0 ? "heavy" : "punch");
-    performMeleeHit(false);
+    performMeleeHit("punch");
   }
 
   function heroKick() {
+    if (state.phase === "intro") { finishIntro(); return; }
     if (state.phase !== "playing") return;
     var h = state.hero;
     if (h.kCd > 0) return;
-    // If holding a picked-up street pipe, throw it!
+
+    // Throw picked-up street pipe if holding one
     if (h.weapon) {
-      h.kCd = 0.35;
+      h.kCd = 0.34;
       state.projectiles.push({
         kind: "pipe",
         owner: "hero",
         x: h.x + h.facing * 28,
         y: h.y - h.z - 42,
-        vx: h.facing * 540,
+        vx: h.facing * 560,
         vy: 0,
         rot: 0,
         life: 1.5
       });
       h.weapon = null;
-      sfx("kick");
+      sfx("throw");
       addPopup(h.x, h.y - h.z - 88, "PIPE THROW!", "#38e8ff", 18);
       return;
     }
 
-    h.kCd = 0.55;
+    var perk = SKIN_PERKS[state.skinIdx] || SKIN_PERKS[0];
+    h.kCd = 0.52;
     h.attackType = "kick";
-    h.attackTimer = 0.32;
-    h.attackHitDone = false;
-    if (h.z < 18) h.vz = 290;
-    h.vx = h.facing * 360 * SKIN_PERKS[state.skinIdx].speedMul;
-    sfx("kick");
-    performMeleeHit(true);
+    h.attackTimer = 0.34;
+
+    if (perk.special === "uppercut") {
+      // CRIMSON FIST Signature: Rising Dragon Uppercut!
+      h.vz = 460;
+      h.vx = h.facing * 230;
+      sfx("uppercut");
+      spawnParticles(h.x + h.facing * 20, h.y - h.z - 40, 16, "#ff5f2e", 260, 140);
+      addPopup(h.x, h.y - h.z - 98, "DRAGON UPPERCUT!", "#ff5f2e", 20);
+      performMeleeHit("uppercut");
+    } else if (perk.special === "blitz") {
+      // ROYAL RANGER / SECRET AGENT Signature: High-Speed Cyan Blitz Dash!
+      if (h.z < 18) h.vz = 210;
+      h.vx = h.facing * 490;
+      sfx("kick");
+      for (var a = 0; a < 3; a++) {
+        h.afterimages.push({ x: h.x - h.facing * a * 18, y: h.y, z: h.z, facing: h.facing, life: 0.25 });
+      }
+      addPopup(h.x, h.y - h.z - 94, "BLITZ DASH!", perk.aura, 19);
+      performMeleeHit("kick");
+    } else {
+      // GOLDEN TITAN Signature: Flying Power Kick!
+      if (h.z < 18) h.vz = 290;
+      h.vx = h.facing * 375;
+      sfx("kick");
+      performMeleeHit("kick");
+    }
   }
 
   function triggerArmReload(forceShowCutin) {
@@ -509,40 +632,46 @@
     var h = state.hero;
     if (!forceShowCutin && state.thermo < 100 && h.armReloadTimer <= 0) return;
     state.thermo = 0;
+    state.reloadsUsed++;
     h.armReloadTimer = 8.0;
     h.invuln = 8.0;
-    state.shake = 12;
+    state.shake = 13;
     sfx("reload");
-    spawnParticles(h.x, h.y - h.z - 45, 28, "#ffe24a", 320, 180);
-    spawnParticles(h.x, h.y - h.z - 45, 18, "#ff5f2e", 260, 140);
+    spawnParticles(h.x, h.y - h.z - 45, 30, "#ffe24a", 330, 180);
+    spawnParticles(h.x, h.y - h.z - 45, 20, "#ff5f2e", 270, 140);
 
     if (!state.armReloadShownOnce || forceShowCutin) {
       state.armReloadShownOnce = true;
       state.phase = "arm_reload";
       setVisible("arm-reload-screen", true);
     } else {
-      addPopup(h.x, h.y - h.z - 96, "ARM RELOAD!", "#ffe24a", 26);
+      // Phase 2 Signature: Dramatic 0.45s Camera Zoom-In on Henry!
+      state.zoomTimer = 0.48;
+      addPopup(h.x, h.y - h.z - 98, "ARM RELOAD!", "#ffe24a", 27);
     }
   }
 
-  function performMeleeHit(isKick) {
+  function performMeleeHit(moveKind) {
     var h = state.hero;
+    var perk = SKIN_PERKS[state.skinIdx] || SKIN_PERKS[0];
     var superMode = h.armReloadTimer > 0;
-    var reach = isKick ? 112 : (superMode ? 124 : (h.weapon ? 116 : 94));
+    var isSpecial = moveKind === "kick" || moveKind === "uppercut";
+    var reach = isSpecial ? 118 : (superMode ? 126 : (h.weapon ? 118 : 96));
     var hitX = h.x + h.facing * (reach * 0.55);
-    var dmg = (isKick ? 2 : (h.comboStep === 2 ? 2.5 : 1.5)) * SKIN_PERKS[state.skinIdx].dmgMul;
+    var dmg = (isSpecial ? 2.2 : (h.comboStep === 2 ? 2.5 : 1.5)) * perk.dmgMul;
     if (h.weapon) dmg += 1.5;
     if (superMode) dmg = 6;
 
     // 1. Deflect Flying Mustache Boomerangs!
     for (var pi = 0; pi < state.projectiles.length; pi++) {
       var p = state.projectiles[pi];
-      if (p.owner === "enemy" && Math.abs(p.x - hitX) < 76 && Math.abs(p.y - (h.y - h.z - 46)) < 68) {
+      if (p.owner === "enemy" && Math.abs(p.x - hitX) < 78 && Math.abs(p.y - (h.y - h.z - 46)) < 68) {
         p.owner = "hero";
-        p.vx = h.facing * 520;
-        p.vy = -20;
-        p.life = 2.0;
-        state.thermo = Math.min(100, state.thermo + 22);
+        p.vx = h.facing * 540;
+        p.vy = -18;
+        p.life = 2.1;
+        state.parries++;
+        state.thermo = Math.min(100, state.thermo + 24 * perk.thermoMul);
         state.score += 250;
         state.hitstop = 0.05;
         state.shake = 8;
@@ -552,16 +681,33 @@
       }
     }
 
-    // 2. Hit Street Props (Phone Booth, Parked White Car, Crates)
+    // 2. Hit Street Props (Trash Can -> Launch across street! Phone Booth -> Pizza! Car -> Bonus!)
     for (var pri = 0; pri < state.props.length; pri++) {
       var pr = state.props[pri];
       if (pr.hp <= 0) continue;
       var pcx = pr.x + pr.w * 0.5;
       if (Math.abs(pcx - hitX) < pr.w * 0.5 + 52 && Math.abs(pr.y - h.y) < 55) {
+        if (pr.kind === "trash") {
+          pr.hp = 0;
+          state.projectiles.push({
+            kind: "trashcan",
+            owner: "hero",
+            x: pcx,
+            y: pr.y - 22,
+            vx: h.facing * 490,
+            vy: 0,
+            rot: 0,
+            life: 1.6
+          });
+          state.score += 200;
+          sfx("heavy");
+          addPopup(pcx, pr.y - 68, "TRASH LAUNCH! +200", "#e2e8f0", 20);
+          continue;
+        }
         pr.hp = Math.max(0, pr.hp - (superMode ? 2 : 1));
         pr.hitFlash = 0.16;
         state.shake = Math.max(state.shake, 6);
-        state.thermo = Math.min(100, state.thermo + 14);
+        state.thermo = Math.min(100, state.thermo + 14 * perk.thermoMul);
         state.score += 150;
         sfx(pr.kind === "car" ? "glass" : "heavy");
         spawnParticles(pcx, pr.y - 32, 12, pr.kind === "booth" ? "#facc15" : "#e2e8f0", 220, 480);
@@ -592,7 +738,8 @@
       var inLane = Math.abs(e.y - h.y) <= 44;
       if (inFront && inLane) {
         landed = true;
-        damageEnemy(e, dmg, h.facing, isKick || h.comboStep === 2 || superMode, superMode);
+        var launchUp = moveKind === "uppercut";
+        damageEnemy(e, dmg, h.facing, isSpecial || h.comboStep === 2 || superMode, superMode, launchUp);
       }
     }
 
@@ -605,27 +752,57 @@
     }
   }
 
-  function damageEnemy(e, dmg, dir, heavy, superMode) {
+  function damageEnemy(e, dmg, dir, heavy, superMode, launchUp) {
+    var perk = SKIN_PERKS[state.skinIdx] || SKIN_PERKS[0];
+
+    // Counter-Stun Bonus on Don Mustachio right after his telegraphed slam!
+    if (e.kind === "boss" && e.counterWindow > 0) {
+      e.counterWindow = 0;
+      dmg *= 2.2;
+      e.stunTimer = 1.65;
+      state.score += 600;
+      sfx("parry");
+      addPopup(e.x, e.y - 148, "COUNTER STUN! +600", "#38e8ff", 25);
+    }
+
     e.hp -= dmg;
     e.hitFlash = 0.16;
-    e.stunTimer = e.kind === "boss" ? 0.22 : (heavy ? 0.55 : 0.34);
+    e.stunTimer = Math.max(e.stunTimer, e.kind === "boss" ? 0.24 : (heavy ? 0.72 : 0.36));
     e.vx = dir * (heavy ? (superMode ? 480 : 320) : 140);
-    if (heavy && e.kind !== "boss") e.vz = 220;
+    if (launchUp && e.kind !== "boss") e.vz = 390;
+    else if (heavy && e.kind !== "boss") e.vz = 220;
 
     state.combo++;
     state.maxCombo = Math.max(state.maxCombo, state.combo);
     state.comboTimer = 2.6;
-    state.hitstop = heavy ? 0.055 : 0.028;
+    state.hitstop = heavy ? 0.052 : 0.026;
     state.shake = Math.max(state.shake, heavy ? 9 : 4);
     if (state.hero.armReloadTimer <= 0) {
-      var mult = state.hero.hp <= 1 ? 1.5 : 1.0;
+      var mult = (state.hero.hp <= 1 ? 1.5 : 1.0) * perk.thermoMul;
       state.thermo = Math.min(100, state.thermo + (heavy ? 12 : 7) * mult);
     }
 
-    // Knock purple glasses off goon on first big hit!
+    // Pop spinning purple sunglasses off goon on first hit!
     if (!e.glassesLost && e.kind !== "boss") {
       e.glassesLost = true;
-      spawnParticles(e.x, e.y - e.z - 64, 5, "#c084fc", 180, 420);
+      state.debris.push({
+        kind: "glasses",
+        x: e.x,
+        y: e.y - e.z - 68,
+        vx: -dir * 120 + (Math.random() - 0.5) * 80,
+        vy: -240,
+        rot: 0,
+        life: 1.1
+      });
+    }
+
+    // Boss Phase II Enrage Trigger at < 50% HP!
+    if (e.kind === "boss" && !e.phase2 && e.hp > 0 && e.hp <= e.maxHp * 0.5) {
+      e.phase2 = true;
+      state.shake = 14;
+      sfx("boss_rage");
+      spawnParticles(e.x, e.y - 70, 26, "#c084fc", 300, 180);
+      addPopup(e.x, e.y - 144, "PHASE II: HARBOR RAGE!", "#c084fc", 25);
     }
 
     var words = superMode ? ["SUPER PUNCH!", "ARM RELOAD!", "MEGA POW!"] : (heavy ? ["POW!", "BAM!", "WHAM!"] : ["SMACK!", "HIT!"]);
@@ -633,7 +810,6 @@
     addPopup(e.x, e.y - e.z - 76, word, superMode ? "#ffe24a" : (heavy ? "#ff7a18" : "#ffffff"), heavy ? 22 : 17);
     spawnParticles(e.x, e.y - e.z - 46, heavy ? 14 : 7, superMode ? "#ffe24a" : "#ff5f2e", 240, 340);
 
-    // Check if goon hits FANCY storefront glass!
     if (e.x > 855 && e.x < 1070 && heavy && !state.shatteredWindows.fancy1) {
       state.shatteredWindows.fancy1 = true;
       sfx("glass");
@@ -651,13 +827,12 @@
     if (e.dying) return;
     e.dying = true;
     e.dieTimer = 0.85;
-    e.vx = dir * (dramatic ? 380 : 210);
-    e.vz = dramatic ? 320 : 180;
+    e.vx = dir * (dramatic ? 390 : 210);
+    e.vz = dramatic ? 330 : 185;
 
-    // 45% chance on heavy KOs near waterfront to splash into harbor!
-    if (dramatic && e.y >= 412 && e.kind !== "boss") {
+    if (dramatic && e.y >= 410 && e.kind !== "boss") {
       e.splashKO = true;
-      e.vy = 135;
+      e.vy = 145;
     }
 
     var comboMult = state.thermo >= 80 ? 3 : (state.thermo >= 40 ? 2 : 1);
@@ -668,8 +843,11 @@
     if (e.kind === "boss") {
       state.bossSlain = true;
       state.bossActive = false;
+      apiState.secretUnlocked = true;
+      saveLocal();
+      refreshSecretUnlockUi();
       sfx("victory");
-      spawnParticles(e.x, e.y - 60, 42, "#ffe24a", 360, 280);
+      spawnParticles(e.x, e.y - 60, 44, "#ffe24a", 360, 280);
       if (!state.endless) {
         setTimeout(function () {
           if (state.phase === "playing") finishRun(true);
@@ -682,27 +860,23 @@
 
     state.kos++;
 
-    // Drop golden mustache or pizza occasionally
     if (state.kos % 5 === 0) {
       state.pickups.push({ kind: "gold_mustache", x: e.x, y: e.y, z: 22, vz: 190 });
-    } else if (state.hero.hp <= 3 && Math.random() < 0.35) {
+    } else if (state.hero.hp <= 3 && Math.random() < 0.36) {
       state.pickups.push({ kind: "pizza", x: e.x, y: e.y, z: 22, vz: 180 });
     }
 
-    // Trigger iconic first-time ARM RELOAD Power-Up at 8 KOs (just like the reference video!)
     if (state.kos === 8 && !state.armReloadShownOnce) {
       setTimeout(function () {
         if (state.phase === "playing") triggerArmReload(true);
       }, 320);
     }
 
-    // Encourage player to advance along the street with flashing GO ->
     if (state.kos === 6 || state.kos === 14 || state.kos === 20) {
       state.goTimer = 2.8;
       sfx("go");
     }
 
-    // Trigger Harbor Syndicate Kingpin Boss at 25 KOs!
     if (!state.bossActive && !state.bossSlain && state.kos >= GOAL_KOS) {
       summonKingpinBoss();
     }
@@ -712,7 +886,7 @@
     state.bossActive = true;
     state.limoPhase = 1;
     state.limoX = Math.min(WORLD_W - 220, state.camX + W + 180);
-    sfx("go");
+    sfx("boss_rage");
     addPopup(state.camX + W * 0.5, 220, "WARNING: DON MUSTACHIO ARRIVES!", "#ff5f2e", 26);
     var bx = Math.min(WORLD_W - 120, state.camX + W - 110);
     spawnEnemy("boss", bx, 420);
@@ -721,7 +895,7 @@
   function isStandingOnProp(h) {
     for (var i = 0; i < state.props.length; i++) {
       var pr = state.props[i];
-      if (pr.hp <= 0) continue;
+      if (pr.hp <= 0 || pr.kind === "trash") continue;
       if (h.x > pr.x + 4 && h.x < pr.x + pr.w - 4 && Math.abs(h.y - pr.y) < 34) {
         var topZ = pr.kind === "booth" ? 86 : (pr.kind === "car" ? 44 : 36);
         if (Math.abs(h.z - topZ) < 10) return topZ;
@@ -731,18 +905,102 @@
   }
 
   // =========================================================================
-  // UPDATE LOOP (60 FPS FIXED-TIMESTEP FRIENDLY)
+  // 2.8-SECOND ACTION INTRO CINEMATIC (Zero-Load Street Drop-In!)
+  // =========================================================================
+  function beginIntroCinematic() {
+    state.phase = "intro";
+    state.introTimer = 0;
+    state.introDropped = false;
+    state.camX = 40;
+    state.limoPhase = 1;
+    state.limoX = 1020;
+    state.hero.x = 340;
+    state.hero.y = 418;
+    state.hero.z = 460;
+    state.hero.vz = 0;
+    state.speech = { x: 650, y: 300, text: "SEIZE THE HARBOR!", timer: 1.1 };
+    setVisible("btn-skip-intro", true);
+    setVisible("arcade-hud", false);
+  }
+
+  function finishIntro() {
+    if (state.phase !== "intro") return;
+    state.phase = "playing";
+    state.hero.z = 0;
+    state.hero.vz = 0;
+    state.limoPhase = 0;
+    state.speech = null;
+    setVisible("btn-skip-intro", false);
+    setVisible("arcade-hud", true);
+    var tc = document.getElementById("touch-controls");
+    if (tc) tc.classList.add("active");
+    sfx("go");
+    addPopup(state.hero.x + 120, 250, "ROUND 1 · FIGHT!", "#ffe24a", 34);
+  }
+
+  function updateIntro(dt) {
+    state.introTimer += dt;
+    if (state.limoPhase === 1) {
+      state.limoX -= 460 * dt;
+      if (state.limoX <= 640) {
+        state.limoX = 640;
+        if (state.introTimer > 0.95) state.limoPhase = 2;
+      }
+    } else if (state.limoPhase === 2) {
+      state.limoX += 520 * dt;
+      if (state.limoX > 1180) state.limoPhase = 0;
+    }
+
+    if (state.introTimer >= 1.05 && !state.introDropped) {
+      state.hero.z = Math.max(0, state.hero.z - 1450 * dt);
+      if (state.hero.z <= 0) {
+        state.introDropped = true;
+        state.hero.z = 0;
+        state.shake = 14;
+        sfx("land");
+        spawnParticles(state.hero.x, state.hero.y, 26, "#ffe24a", 280, 320);
+        spawnParticles(state.hero.x, state.hero.y, 14, "#e2e8f0", 220, 340);
+        state.speech = { x: state.hero.x + 10, y: 274, text: "READY FOR THE RELOAD?", timer: 1.25 };
+      }
+    }
+
+    if (state.speech) {
+      state.speech.timer -= dt;
+      if (state.speech.timer <= 0) state.speech = null;
+    }
+    state.shake = Math.max(0, state.shake - dt * 24);
+    updateParticles(dt);
+
+    if (state.introTimer >= 2.65) {
+      finishIntro();
+    }
+  }
+
+  // =========================================================================
+  // MAIN 60 FPS UPDATE LOOP
   // =========================================================================
   function update(dt) {
     state.time += dt;
 
+    // Living sky seagulls!
+    for (var si = 0; si < state.seagulls.length; si++) {
+      var sg = state.seagulls[si];
+      sg.x -= sg.speed * dt;
+      sg.wing += dt * 7;
+      if (sg.x < -60) sg.x = W + 80;
+    }
+
     if (state.phase === "title") {
-      // Attract mode: gentle harbor breeze & hero breathing on the quay!
       state.camX = 120 + Math.sin(state.time * 0.35) * 110;
       state.hero.x = state.camX + 340;
       state.hero.y = 420;
       state.hero.walkPhase += dt * 4;
       updateParticles(dt);
+      return;
+    }
+
+    if (state.phase === "intro") {
+      updateIntro(dt);
       return;
     }
 
@@ -755,6 +1013,13 @@
     }
 
     state.shake = Math.max(0, state.shake - dt * 24);
+    if (state.zoomTimer > 0) {
+      state.zoomTimer = Math.max(0, state.zoomTimer - dt);
+      state.camZoom += (1.16 - state.camZoom) * Math.min(1, dt * 14);
+    } else {
+      state.camZoom += (1.0 - state.camZoom) * Math.min(1, dt * 9);
+    }
+
     if (state.goTimer > 0) state.goTimer = Math.max(0, state.goTimer - dt);
     if (state.comboTimer > 0) {
       state.comboTimer -= dt;
@@ -762,13 +1027,42 @@
     }
 
     var h = state.hero;
+    var perk = SKIN_PERKS[state.skinIdx] || SKIN_PERKS[0];
     h.oCd = Math.max(0, h.oCd - dt);
     h.kCd = Math.max(0, h.kCd - dt);
     h.comboWindow = Math.max(0, h.comboWindow - dt);
     h.invuln = Math.max(0, h.invuln - dt);
+
+    // Update dash afterimages
+    for (var ai = h.afterimages.length - 1; ai >= 0; ai--) {
+      h.afterimages[ai].life -= dt;
+      if (h.afterimages[ai].life <= 0) h.afterimages.splice(ai, 1);
+    }
+
+    // Orbiting Golden Mustache Shield Slices Enemies & Auto-Deflects Boomerangs!
+    if (h.mustacheShieldTimer > 0) {
+      h.mustacheShieldTimer = Math.max(0, h.mustacheShieldTimer - dt);
+      for (var msP = 0; msP < state.projectiles.length; msP++) {
+        var mp = state.projectiles[msP];
+        if (mp.owner === "enemy" && Math.hypot(mp.x - h.x, mp.y - (h.y - h.z - 46)) < 78) {
+          mp.owner = "hero";
+          mp.vx = -mp.vx * 1.4;
+          state.parries++;
+          sfx("parry");
+          addPopup(mp.x, mp.y - 20, "SHIELD PARRY!", "#ffe24a", 18);
+        }
+      }
+      for (var msE = 0; msE < state.enemies.length; msE++) {
+        var me = state.enemies[msE];
+        if (!me.dying && me.stunTimer <= 0 && Math.hypot(me.x - h.x, me.y - h.y) < 76) {
+          damageEnemy(me, 1.2, me.x >= h.x ? 1 : -1, false, false, false);
+        }
+      }
+    }
+
     if (h.armReloadTimer > 0) {
       h.armReloadTimer = Math.max(0, h.armReloadTimer - dt);
-      if (Math.random() < 0.45) {
+      if (Math.random() < 0.48) {
         spawnParticles(h.x + (Math.random() - 0.5) * 34, h.y - h.z - 45, 1, "#ffe24a", 75, -80);
       }
     }
@@ -785,7 +1079,7 @@
     if (keys.ArrowUp || keys.KeyW) my -= 1;
     if (keys.ArrowDown || keys.KeyS) my += 1;
 
-    var spd = 265 * SKIN_PERKS[state.skinIdx].speedMul * (h.armReloadTimer > 0 ? 1.2 : 1.0);
+    var spd = 265 * perk.speedMul * (h.armReloadTimer > 0 ? 1.2 : 1.0);
     if (mx !== 0) {
       h.facing = mx > 0 ? 1 : -1;
       h.walkPhase += dt * 11;
@@ -800,7 +1094,6 @@
     h.x = Math.max(44, Math.min(WORLD_W - 54, h.x));
     h.y = Math.max(LANE_MIN_Y, Math.min(LANE_MAX_Y, h.y));
 
-    // Jump & Prop Roof Landing Physics
     var prevZ = h.z;
     h.z += h.vz * dt;
     h.vz -= 1280 * dt;
@@ -808,12 +1101,10 @@
     var floorZ = 0;
     for (var pi = 0; pi < state.props.length; pi++) {
       var pr = state.props[pi];
-      if (pr.hp <= 0) continue;
+      if (pr.hp <= 0 || pr.kind === "trash") continue;
       if (h.x > pr.x + 6 && h.x < pr.x + pr.w - 6 && Math.abs(h.y - pr.y) < 34) {
         var topZ = pr.kind === "booth" ? 86 : (pr.kind === "car" ? 44 : 36);
-        if (prevZ >= topZ - 10 && h.vz <= 0) {
-          floorZ = Math.max(floorZ, topZ);
-        }
+        if (prevZ >= topZ - 10 && h.vz <= 0) floorZ = Math.max(floorZ, topZ);
       }
     }
     if (h.z <= floorZ) {
@@ -821,24 +1112,18 @@
       h.vz = 0;
     }
 
-    // Smooth camera follow
     var targetCam = Math.max(0, Math.min(WORLD_W - W, h.x - W * 0.42));
     state.camX += (targetCam - state.camX) * Math.min(1, dt * 6.5);
 
-    // Syndicate Limousine animation
     if (state.limoPhase === 1) {
       var stopX = Math.min(WORLD_W - 260, state.camX + W - 260);
       state.limoX -= 320 * dt;
-      if (state.limoX <= stopX) {
-        state.limoX = stopX;
-        state.limoPhase = 2;
-      }
+      if (state.limoX <= stopX) { state.limoX = stopX; state.limoPhase = 2; }
     } else if (state.limoPhase === 2) {
       state.limoX += 380 * dt;
       if (state.limoX > state.camX + W + 340) state.limoPhase = 0;
     }
 
-    // Spawn Enemies (up to cap, continuous in Endless or until Boss)
     var aliveGoons = state.enemies.filter(function (e) { return !e.dying && e.kind !== "boss"; }).length;
     var needMore = state.endless || (!state.bossActive && !state.bossSlain && state.kos + aliveGoons < GOAL_KOS);
     if (needMore && aliveGoons < 4) {
@@ -854,15 +1139,15 @@
       }
     }
 
-    // Update Props
     for (var pIdx = 0; pIdx < state.props.length; pIdx++) {
       state.props[pIdx].hitFlash = Math.max(0, state.props[pIdx].hitFlash - dt);
     }
 
-    // Update Enemies
+    // Update Enemies (including Bowling-Ball Thrown Goons & Boss Phase II Telegraph!)
     for (var ei = state.enemies.length - 1; ei >= 0; ei--) {
       var e = state.enemies[ei];
       e.hitFlash = Math.max(0, e.hitFlash - dt);
+      e.counterWindow = Math.max(0, e.counterWindow - dt);
       if (e.trailHp > e.hp) e.trailHp = Math.max(e.hp, e.trailHp - dt * 4.5);
 
       if (e.dying) {
@@ -884,6 +1169,27 @@
         continue;
       }
 
+      if (e.bowling) {
+        e.x += e.vx * dt;
+        e.z = Math.max(0, e.z + e.vz * dt);
+        if (e.z > 0) e.vz -= 900 * dt;
+        e.stunTimer -= dt;
+        // Strike any other goon in bowling path!
+        for (var bi2 = 0; bi2 < state.enemies.length; bi2++) {
+          var other = state.enemies[bi2];
+          if (other === e || other.dying) continue;
+          if (Math.abs(other.x - e.x) < 48 && Math.abs(other.y - e.y) < 38) {
+            damageEnemy(other, 4, e.vx >= 0 ? 1 : -1, true, true, false);
+            addPopup(other.x, other.y - 98, "STRIKE!", "#ffe24a", 22);
+          }
+        }
+        if (e.stunTimer <= 0 || e.x < state.camX - 40 || e.x > state.camX + W + 40) {
+          e.bowling = false;
+          koEnemy(e, e.vx >= 0 ? 1 : -1, true);
+        }
+        continue;
+      }
+
       if (e.stunTimer > 0) {
         e.stunTimer -= dt;
         e.x += e.vx * dt;
@@ -893,13 +1199,32 @@
         continue;
       }
 
+      // Boss Telegraphed Seismic Streetlamp Slam!
+      if (e.kind === "boss" && e.telegraphTimer > 0) {
+        e.telegraphTimer -= dt;
+        if (e.telegraphTimer <= 0) {
+          state.shake = 14;
+          sfx("heavy");
+          spawnParticles(e.x, e.y, 26, "#ff5f2e", 300, 320);
+          addPopup(e.x, e.y - 134, "SEISMIC SLAM!", "#ff5f2e", 24);
+          if (Math.abs(h.x - e.x) < 190 && h.z < 36) {
+            hurtHero(1, e.x > h.x ? -1 : 1);
+          } else {
+            // Player jumped over the shockwave -> open Counter-Stun Window!
+            e.counterWindow = 1.6;
+            addPopup(e.x, e.y - 160, "COUNTER NOW!", "#38e8ff", 20);
+          }
+        }
+        continue;
+      }
+
       var dx = h.x - e.x;
       var dy = h.y - e.y;
       e.facing = dx >= 0 ? 1 : -1;
       var dist = Math.hypot(dx, dy);
 
-      var moveSpd = e.kind === "boss" ? 128 : (e.kind === "heavy" ? 148 : (e.kind === "thrower" ? 96 : 118));
-      var stopDist = e.kind === "thrower" ? 235 : (e.kind === "boss" ? 86 : 64);
+      var moveSpd = e.kind === "boss" ? (e.phase2 ? 152 : 128) : (e.kind === "heavy" ? 148 : (e.kind === "thrower" ? 96 : 118));
+      var stopDist = e.kind === "thrower" ? 235 : (e.kind === "boss" ? 90 : 64);
 
       if (Math.abs(dx) > stopDist) {
         e.x += (dx > 0 ? 1 : -1) * moveSpd * dt;
@@ -927,21 +1252,19 @@
           });
           sfx("kick");
         } else if (e.kind === "boss") {
-          e.attackCd = e.hp < e.maxHp * 0.5 ? 1.35 : 1.85;
-          if (dist < 130) {
-            if (h.z < 36) hurtHero(1, e.facing);
-            state.shake = 10;
-            sfx("heavy");
-            addPopup(e.x, e.y - 120, "KINGPIN SLAM!", "#ff5f2e", 21);
+          e.attackCd = e.phase2 ? 1.45 : 1.9;
+          if (dist < 175) {
+            // Telegraph the Seismic Slam so player can jump & counter!
+            e.telegraphTimer = e.phase2 ? 0.62 : 0.78;
+            addPopup(e.x, e.y - 138, "JUMP! SLAM INCOMING!", "#ffe24a", 18);
           } else {
-            // Triple flying mustache volley!
             for (var v = -1; v <= 1; v++) {
               state.projectiles.push({
                 kind: "mustache",
                 owner: "enemy",
                 x: e.x + e.facing * 32,
                 y: e.y - 54 + v * 16,
-                vx: e.facing * 320,
+                vx: e.facing * (e.phase2 ? 355 : 315),
                 vy: v * 28,
                 rot: 0,
                 life: 2.6
@@ -956,7 +1279,7 @@
       }
     }
 
-    // Update Projectiles (Flying Mustache Boomerangs + Thrown Pipes)
+    // Update Projectiles (Mustache Boomerangs, Thrown Pipes, Launched Trash Cans)
     for (var qi = state.projectiles.length - 1; qi >= 0; qi--) {
       var q = state.projectiles[qi];
       q.life -= dt;
@@ -976,9 +1299,9 @@
         for (var tei = 0; tei < state.enemies.length; tei++) {
           var te = state.enemies[tei];
           if (te.dying) continue;
-          if (Math.abs(q.x - te.x) < 44 && Math.abs(q.y - (te.y - te.z - 48)) < 58) {
-            damageEnemy(te, q.kind === "pipe" ? 4.5 : 4, q.vx >= 0 ? 1 : -1, true, true);
-            if (q.kind !== "pipe") {
+          if (Math.abs(q.x - te.x) < 46 && Math.abs(q.y - (te.y - te.z - 48)) < 58) {
+            damageEnemy(te, q.kind === "trashcan" ? 4.5 : 4.2, q.vx >= 0 ? 1 : -1, true, true, false);
+            if (q.kind === "mustache") {
               state.projectiles.splice(qi, 1);
               break;
             }
@@ -987,12 +1310,12 @@
       }
     }
 
-    // Update Pickups (Pizza Heal, Steel Pipe, Golden Mustache)
+    // Update Pickups (Pizza Heal, Steel Pipe, Golden Mustache -> 5.5s Orbiting Shield!)
     for (var ki = state.pickups.length - 1; ki >= 0; ki--) {
       var pk = state.pickups[ki];
       pk.z = Math.max(0, pk.z + pk.vz * dt);
       if (pk.z > 0) pk.vz -= 900 * dt;
-      if (Math.abs(pk.x - h.x) < 42 && Math.abs(pk.y - h.y) < 40 && h.z < 36) {
+      if (Math.abs(pk.x - h.x) < 44 && Math.abs(pk.y - h.y) < 42 && h.z < 38) {
         sfx("pickup");
         if (pk.kind === "pizza") {
           h.hp = Math.min(h.maxHp, h.hp + 2);
@@ -1003,7 +1326,8 @@
         } else {
           state.score += 250;
           state.thermo = Math.min(100, state.thermo + 25);
-          addPopup(pk.x, pk.y - 44, "GOLD MUSTACHE! +250", "#ffe24a", 19);
+          h.mustacheShieldTimer = 5.5;
+          addPopup(pk.x, pk.y - 44, "MUSTACHE SHIELD! +250", "#ffe24a", 20);
         }
         state.pickups.splice(ki, 1);
       }
@@ -1023,6 +1347,7 @@
     sfx("hurt");
     spawnParticles(h.x, h.y - h.z - 46, 12, "#ef4444", 200, 320);
     if (h.hp <= 0) {
+      sfx("gameover");
       finishRun(false);
     }
   }
@@ -1036,6 +1361,15 @@
       p.vy += p.grav * dt;
       if (p.life <= 0) state.particles.splice(i, 1);
     }
+    for (var d = state.debris.length - 1; d >= 0; d--) {
+      var db = state.debris[d];
+      db.life -= dt;
+      db.x += db.vx * dt;
+      db.y += db.vy * dt;
+      db.vy += 680 * dt;
+      db.rot += dt * 15;
+      if (db.life <= 0) state.debris.splice(d, 1);
+    }
     for (var j = state.popups.length - 1; j >= 0; j--) {
       var pop = state.popups[j];
       pop.life -= dt;
@@ -1045,18 +1379,26 @@
   }
 
   // =========================================================================
-  // 16-BIT HARBOR STREET RENDERER (EXACT 1:1 VISUAL DNA OF REFERENCE VIDEO)
+  // 16-BIT HARBOR STREET RENDERER (PHASE 2 ENHANCED)
   // =========================================================================
   function render() {
     if (!ctx) return;
     ctx.imageSmoothingEnabled = false;
     ctx.save();
 
+    // Dynamic Arm Reload Camera Zoom-In
+    if (state.camZoom > 1.002) {
+      var focusX = Math.max(120, Math.min(W - 120, state.hero.x - state.camX));
+      var focusY = Math.max(140, Math.min(H - 120, state.hero.y - state.hero.z - 56));
+      ctx.translate(focusX, focusY);
+      ctx.scale(state.camZoom, state.camZoom);
+      ctx.translate(-focusX, -focusY);
+    }
+
     if (state.shake > 0.2) {
       ctx.translate((Math.random() - 0.5) * state.shake, (Math.random() - 0.5) * state.shake);
     }
 
-    // 1. Dynamic Sky (Day -> Sunset at 12+ KOs -> Neon Night at Boss!)
     var isNight = state.bossActive;
     var isSunset = !isNight && state.kos >= 12;
     var skyGrad = ctx.createLinearGradient(0, 0, 0, 290);
@@ -1075,13 +1417,10 @@
     ctx.fillStyle = skyGrad;
     ctx.fillRect(0, 0, W, 320);
 
-    // 2. Fluffy 16-bit Pixel Clouds (Far Parallax 0.15x)
     drawClouds(state.camX * 0.15, isNight);
-
-    // 3. Distant Medieval Harbor Castle Fortress (Far Parallax 0.25x, right horizon like reference video)
+    if (!isNight) drawSeagulls();
     drawDistantCastle(state.camX * 0.25, isNight);
 
-    // 4. Midground Colorful Harbor Rowhouses (1.0x world scroll)
     ctx.save();
     ctx.translate(-Math.round(state.camX), 0);
 
@@ -1091,22 +1430,18 @@
       drawBuilding(b, isNight || isSunset);
     }
 
-    // Victorian Black Wrought-Iron Streetlamps
     for (var li = 0; li < LAMPS_X.length; li++) {
       var lx = LAMPS_X[li];
       if (lx < state.camX - 60 || lx > state.camX + W + 60) continue;
       drawStreetLamp(lx, 376, isNight || isSunset);
     }
 
-    // 5. Paved Stone Harbor Quay Sidewalk (y = 374..468)
     drawQuaySidewalk(state.camX);
 
-    // Syndicate Boss Limousine if active
     if (state.limoPhase > 0) {
       drawLimo(state.limoX, 396);
     }
 
-    // 6. Depth-Sorted Entities (Props, Pickups, Hero, Enemies)
     var drawList = [];
     for (var pri = 0; pri < state.props.length; pri++) {
       drawList.push({ y: state.props[pri].y, fn: drawPropFn(state.props[pri]) });
@@ -1121,20 +1456,37 @@
     drawList.sort(function (a, b) { return a.y - b.y; });
     for (var di = 0; di < drawList.length; di++) drawList[di].fn();
 
-    // 7. Flying Projectiles (Mustache Boomerangs & Thrown Pipes)
     for (var qi = 0; qi < state.projectiles.length; qi++) {
       drawProjectile(state.projectiles[qi]);
     }
 
-    // 8. Iron Mooring Bollards along front quay edge
+    // Flying Purple Sunglasses Debris!
+    for (var dbi = 0; dbi < state.debris.length; dbi++) {
+      var db = state.debris[dbi];
+      ctx.save();
+      ctx.translate(Math.round(db.x), Math.round(db.y));
+      ctx.rotate(db.rot);
+      ctx.fillStyle = "#18181b";
+      ctx.fillRect(-10, -4, 20, 4);
+      ctx.fillStyle = "#a855f7";
+      ctx.fillRect(-9, -3, 7, 5);
+      ctx.fillRect(2, -3, 7, 5);
+      ctx.restore();
+    }
+
     drawMooringBollards(state.camX);
 
-    // 9. Particles & Comic Onomatopoeia Popups
     for (var pai = 0; pai < state.particles.length; pai++) {
       var pa = state.particles[pai];
       ctx.fillStyle = pa.color;
       ctx.fillRect(Math.round(pa.x), Math.round(pa.y), Math.round(pa.size), Math.round(pa.size));
     }
+
+    // Comic Speech Bubble during Intro Cinematic!
+    if (state.speech) {
+      drawSpeechBubble(state.speech.x, state.speech.y, state.speech.text);
+    }
+
     for (var poi = 0; poi < state.popups.length; poi++) {
       var pop = state.popups[poi];
       ctx.save();
@@ -1149,12 +1501,10 @@
       ctx.restore();
     }
 
-    ctx.restore(); // end world camera transform
+    ctx.restore();
 
-    // 10. Animated Royal Blue Rolling Harbor Water Waves (Bottom Foreground y = 468..540)
     drawHarborWater();
 
-    // 11. Giant Arcade Combo Banner
     if (state.combo >= 4 && state.phase === "playing") {
       ctx.save();
       ctx.font = "900 28px Impact, 'Trebuchet MS', sans-serif";
@@ -1168,7 +1518,6 @@
       ctx.restore();
     }
 
-    // 12. Low-HP Urgent Red Edge Flash (1 half-heart left)
     if (state.phase === "playing" && state.hero.hp === 1) {
       var pulse = 0.16 + Math.sin(state.time * 10) * 0.1;
       ctx.strokeStyle = "rgba(225, 29, 72, " + pulse.toFixed(2) + ")";
@@ -1177,6 +1526,46 @@
     }
 
     ctx.restore();
+  }
+
+  function drawSpeechBubble(x, y, text) {
+    ctx.save();
+    ctx.font = "900 15px 'Trebuchet MS', sans-serif";
+    var tw = Math.max(130, ctx.measureText(text).width + 28);
+    var bx = Math.round(x - tw * 0.5);
+    var by = Math.round(y - 36);
+    ctx.fillStyle = "#ffffff";
+    ctx.strokeStyle = "#0a0c12";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.roundRect(bx, by, tw, 34, 8);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x - 8, by + 34);
+    ctx.lineTo(x, by + 46);
+    ctx.lineTo(x + 8, by + 34);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#0a0c12";
+    ctx.textAlign = "center";
+    ctx.fillText(text, x, by + 22);
+    ctx.restore();
+  }
+
+  function drawSeagulls() {
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2.4;
+    for (var i = 0; i < state.seagulls.length; i++) {
+      var sg = state.seagulls[i];
+      var flap = Math.sin(sg.wing) * 5;
+      ctx.beginPath();
+      ctx.moveTo(sg.x - 10, sg.y + flap);
+      ctx.lineTo(sg.x, sg.y);
+      ctx.lineTo(sg.x + 10, sg.y + flap);
+      ctx.stroke();
+    }
   }
 
   function drawClouds(offsetX, isNight) {
@@ -1200,7 +1589,6 @@
     ctx.fillRect(baseX, 82, 230, 150);
     ctx.fillRect(baseX + 36, 46, 54, 60);
     ctx.fillRect(baseX + 140, 58, 64, 50);
-    // Battlements
     for (var m = 0; m < 10; m++) {
       ctx.fillRect(baseX + m * 23, 72, 13, 12);
     }
@@ -1212,27 +1600,27 @@
 
   function drawBuilding(b, litWindows) {
     var topY = 376 - b.h;
-    // Slate pitched roof
     var roofH = 74;
     ctx.fillStyle = b.roof;
     ctx.fillRect(b.x, topY, b.w, roofH);
     ctx.strokeStyle = "#18202c";
     ctx.lineWidth = 3;
     ctx.strokeRect(b.x, topY, b.w, roofH);
-    // Roof shingle horizontal pixel lines
     ctx.fillStyle = "rgba(255,255,255,0.12)";
     for (var ry = topY + 12; ry < topY + roofH; ry += 12) {
       ctx.fillRect(b.x + 3, ry, b.w - 6, 2);
     }
-    // Brick Chimneys
+    // Brick Chimney + Gentle Rising Smoke Puff
     ctx.fillStyle = "#9c4a35";
     ctx.fillRect(b.x + 18, topY - 22, 26, 28);
     ctx.strokeRect(b.x + 18, topY - 22, 26, 28);
     ctx.fillStyle = "#c88a55";
     ctx.fillRect(b.x + 22, topY - 30, 7, 10);
     ctx.fillRect(b.x + 33, topY - 30, 7, 10);
+    var smY = ((state.time * 18 + b.x) % 36);
+    ctx.fillStyle = "rgba(255, 255, 255, " + (0.35 * (1 - smY / 36)).toFixed(2) + ")";
+    ctx.fillRect(b.x + 24 + Math.sin(state.time * 2 + b.x) * 4, topY - 36 - smY, 10, 8);
 
-    // Main Facade Wall
     var wallY = topY + roofH;
     var wallH = 376 - wallY;
     ctx.fillStyle = b.col;
@@ -1241,7 +1629,6 @@
     ctx.lineWidth = 3;
     ctx.strokeRect(b.x, wallY, b.w, wallH);
 
-    // Stone corner quoins (just like the blue townhouse in frame_03s!)
     if (b.quoins) {
       ctx.fillStyle = "#c4bfb5";
       for (var qy = wallY + 4; qy < 368; qy += 18) {
@@ -1251,20 +1638,16 @@
       }
     }
 
-    // Foundation stone course
     ctx.fillStyle = "#9aa0a8";
     ctx.fillRect(b.x + 2, 356, b.w - 4, 20);
 
     if (b.style === "barber") {
-      // Iconic Barbershop storefront
       ctx.fillStyle = "#2b2024";
       ctx.fillRect(b.x + 28, 286, 126, 90);
-      // Striped red/white awning
       for (var s = 0; s < 10; s++) {
         ctx.fillStyle = s % 2 === 0 ? "#dc2626" : "#f8fafc";
         ctx.fillRect(b.x + 28 + s * 12.6, 286, 13, 18);
       }
-      // Sign
       ctx.fillStyle = "#1e293b";
       ctx.fillRect(b.x + 28, 266, 126, 22);
       ctx.strokeStyle = "#f8fafc";
@@ -1274,7 +1657,6 @@
       ctx.font = "bold 13px 'Trebuchet MS', sans-serif";
       ctx.textAlign = "center";
       ctx.fillText(b.label, b.x + 91, 281);
-      // Spinning Barber Pole!
       var px = b.x + 160;
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(px, 314, 12, 46);
@@ -1286,7 +1668,6 @@
       ctx.strokeStyle = "#141821";
       ctx.strokeRect(px, 314, 12, 46);
     } else if (b.style === "fancy") {
-      // Iconic FANCY storefront with shatterable showroom window
       ctx.fillStyle = "#1f2937";
       ctx.fillRect(b.x + 12, 236, b.w - 24, 34);
       ctx.strokeStyle = "#0f172a";
@@ -1320,7 +1701,6 @@
       ctx.lineWidth = 3;
       ctx.strokeRect(b.x + 18, 278, b.w - 36, 94);
     } else {
-      // Classic 6-pane mullioned windows + paneled door
       var cols = b.windows || 2;
       var spacing = b.w / (cols + 1);
       for (var row = 0; row < 2; row++) {
@@ -1328,9 +1708,7 @@
         if (wy > 310) continue;
         for (var col = 0; col < cols; col++) {
           var wx = b.x + spacing * (col + 1) - 20;
-          // Skip bottom center window where door goes
           if (row === 1 && cols === 2 && col === 0) {
-            // Draw paneled front door
             ctx.fillStyle = b.doorCol || "#6d28d9";
             ctx.fillRect(wx + 2, 300, 38, 76);
             ctx.strokeStyle = "#141821";
@@ -1351,9 +1729,16 @@
           ctx.moveTo(wx, wy + 18); ctx.lineTo(wx + 40, wy + 18);
           ctx.moveTo(wx, wy + 35); ctx.lineTo(wx + 40, wy + 35);
           ctx.stroke();
-          // Window sill
           ctx.fillStyle = "#cbd5e1";
           ctx.fillRect(wx - 4, wy + 52, 48, 6);
+          if (b.flowers && row === 0) {
+            ctx.fillStyle = "#15803d";
+            ctx.fillRect(wx - 2, wy + 46, 44, 6);
+            ctx.fillStyle = "#fb7185";
+            ctx.fillRect(wx + 4, wy + 43, 6, 5);
+            ctx.fillRect(wx + 18, wy + 42, 6, 5);
+            ctx.fillRect(wx + 31, wy + 43, 6, 5);
+          }
         }
       }
     }
@@ -1380,36 +1765,23 @@
   function drawQuaySidewalk(camX) {
     var startX = Math.floor(camX / 48) * 48 - 48;
     var endX = camX + W + 96;
-    // Paved sidewalk stone plane
     ctx.fillStyle = "#adb6c2";
     ctx.fillRect(startX, 376, endX - startX, 74);
     ctx.fillStyle = "#949eaa";
     ctx.fillRect(startX, 376, endX - startX, 8);
-
-    // Paver grid lines
     ctx.strokeStyle = "#6c7684";
     ctx.lineWidth = 2;
     for (var py = 392; py < 450; py += 18) {
-      ctx.beginPath();
-      ctx.moveTo(startX, py);
-      ctx.lineTo(endX, py);
-      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(startX, py); ctx.lineTo(endX, py); ctx.stroke();
     }
     for (var px = startX; px < endX; px += 48) {
-      ctx.beginPath();
-      ctx.moveTo(px, 376);
-      ctx.lineTo(px - 14, 450);
-      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(px, 376); ctx.lineTo(px - 14, 450); ctx.stroke();
     }
-
-    // Thick Stone Quay Wall above harbor water
     ctx.fillStyle = "#7c8594";
     ctx.fillRect(startX, 450, endX - startX, 20);
     ctx.strokeStyle = "#2b323d";
     ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(startX, 450); ctx.lineTo(endX, 450);
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(startX, 450); ctx.lineTo(endX, 450); ctx.stroke();
     for (var bx = startX; bx < endX; bx += 42) {
       ctx.strokeRect(bx, 450, 42, 20);
     }
@@ -1432,8 +1804,6 @@
   function drawHarborWater() {
     ctx.fillStyle = "#124ca6";
     ctx.fillRect(0, WATER_Y, W, H - WATER_Y);
-
-    // Multi-layer rolling 16-bit white/cyan harbor waves
     for (var layer = 0; layer < 4; layer++) {
       var baseY = WATER_Y + 10 + layer * 17;
       var speed = (layer % 2 === 0 ? 1 : -1) * (24 + layer * 9);
@@ -1471,31 +1841,36 @@
 
   function drawPropFn(pr) {
     return function () {
-      if (pr.hp <= 0 && pr.kind === "crate") return;
+      if (pr.hp <= 0 && (pr.kind === "crate" || pr.kind === "trash")) return;
       ctx.save();
       if (pr.hitFlash > 0) ctx.translate((Math.random() - 0.5) * 6, 0);
 
-      if (pr.kind === "booth") {
-        // Iconic Yellow Telephone Booth (exact reference frame_03s!)
+      if (pr.kind === "trash") {
+        ctx.fillStyle = "#64748b";
+        ctx.fillRect(pr.x, pr.y - pr.h, pr.w, pr.h);
+        ctx.fillStyle = "#94a3b8";
+        ctx.fillRect(pr.x - 3, pr.y - pr.h - 5, pr.w + 6, 7);
+        ctx.strokeStyle = "#141821";
+        ctx.lineWidth = 2.5;
+        ctx.strokeRect(pr.x, pr.y - pr.h, pr.w, pr.h);
+        ctx.strokeRect(pr.x - 3, pr.y - pr.h - 5, pr.w + 6, 7);
+      } else if (pr.kind === "booth") {
         var by = pr.y - pr.h;
         ctx.fillStyle = pr.hp <= 0 ? "#856a12" : "#f5c828";
         ctx.fillRect(pr.x, by, pr.w, pr.h);
         ctx.strokeStyle = "#141821";
         ctx.lineWidth = 3;
         ctx.strokeRect(pr.x, by, pr.w, pr.h);
-        // Header sign
         ctx.fillStyle = "#1e293b";
         ctx.fillRect(pr.x + 4, by + 5, pr.w - 8, 12);
         ctx.fillStyle = "#fef08a";
         ctx.font = "bold 7.5px monospace";
         ctx.textAlign = "center";
         ctx.fillText("TELEPHONE", pr.x + pr.w * 0.5, by + 14);
-        // Window panes
         ctx.fillStyle = pr.hp <= 0 ? "#1f2937" : "#7dd3fc";
         ctx.fillRect(pr.x + 8, by + 22, pr.w - 16, 52);
         ctx.strokeRect(pr.x + 8, by + 22, pr.w - 16, 52);
       } else if (pr.kind === "car") {
-        // Parked Retro White Hatchback Car (destructible Street Fighter II style!)
         var cy = pr.y - pr.h;
         var dmgStage = pr.hp <= 0 ? 2 : (pr.hp <= 3 ? 1 : 0);
         ctx.fillStyle = dmgStage === 2 ? "#94a3b8" : "#e2e8f0";
@@ -1508,27 +1883,22 @@
         ctx.fillStyle = dmgStage >= 1 ? "#334155" : "#64748b";
         ctx.fillRect(pr.x + 34, cy + 4, 34, 16);
         ctx.fillRect(pr.x + 74, cy + 4, 34, 16);
-        // Wheels
         ctx.fillStyle = "#111827";
         ctx.beginPath(); ctx.arc(pr.x + 32, pr.y - 2, 14, 0, Math.PI * 2); ctx.fill();
         ctx.beginPath(); ctx.arc(pr.x + 116, pr.y - 2, 14, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = "#cbd5e1";
         ctx.beginPath(); ctx.arc(pr.x + 32, pr.y - 2, 6, 0, Math.PI * 2); ctx.fill();
         ctx.beginPath(); ctx.arc(pr.x + 116, pr.y - 2, 6, 0, Math.PI * 2); ctx.fill();
-        // Smoke if damaged
         if (dmgStage >= 1 && Math.random() < 0.25) {
           spawnParticles(pr.x + 18, cy + 16, 1, "#64748b", 35, -60);
         }
       } else {
-        // Wooden Street Crate
         ctx.fillStyle = "#a16207";
         ctx.fillRect(pr.x, pr.y - pr.h, pr.w, pr.h);
         ctx.strokeStyle = "#1c1917";
         ctx.lineWidth = 3;
         ctx.strokeRect(pr.x, pr.y - pr.h, pr.w, pr.h);
-        ctx.beginPath();
-        ctx.moveTo(pr.x, pr.y - pr.h); ctx.lineTo(pr.x + pr.w, pr.y);
-        ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(pr.x, pr.y - pr.h); ctx.lineTo(pr.x + pr.w, pr.y); ctx.stroke();
       }
       ctx.restore();
     };
@@ -1541,7 +1911,6 @@
       ctx.save();
       ctx.fillStyle = "rgba(0,0,0,0.35)";
       ctx.beginPath(); ctx.ellipse(pk.x, pk.y, 16, 5, 0, 0, Math.PI * 2); ctx.fill();
-
       if (pk.kind === "pizza") {
         ctx.fillStyle = "#f59e0b";
         ctx.beginPath();
@@ -1569,14 +1938,30 @@
 
   function drawHero() {
     var h = state.hero;
-    // Ground shadow
+    var perk = SKIN_PERKS[state.skinIdx] || SKIN_PERKS[0];
+
+    // Draw Cyan / Agent Blitz Dash Afterimages
+    for (var ai = 0; ai < h.afterimages.length; ai++) {
+      var af = h.afterimages[ai];
+      var aImg = sprites.heroKick;
+      if (aImg && aImg.complete && aImg.naturalWidth > 0) {
+        ctx.save();
+        ctx.globalAlpha = af.life * 1.8;
+        ctx.translate(Math.round(af.x), Math.round(af.y - af.z));
+        ctx.scale(af.facing, 1);
+        ctx.filter = "brightness(1.8) hue-rotate(170deg)";
+        var aw = Math.round(110 * (aImg.naturalWidth / aImg.naturalHeight));
+        ctx.drawImage(aImg, -Math.round(aw * 0.45), -110, aw, 110);
+        ctx.restore();
+      }
+    }
+
     ctx.fillStyle = "rgba(0,0,0,0.38)";
     var shScale = Math.max(0.45, 1 - h.z / 260);
     ctx.beginPath();
     ctx.ellipse(h.x, h.y + 2, 28 * shScale, 9 * shScale, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Blink on damage invuln only during active combat (never on title screen or Arm Reload)
     if (state.phase === "playing" && h.invuln > 0 && h.armReloadTimer <= 0 && Math.floor(state.time * 18) % 2 === 0) return;
 
     var img = sprites.heroIdle;
@@ -1593,19 +1978,19 @@
     ctx.save();
     ctx.translate(Math.round(h.x), Math.round(h.y - h.z + bob));
 
-    // Arm Reload Blazing Golden Aura
     if (h.armReloadTimer > 0) {
-      var aura = ctx.createRadialGradient(0, -54, 12, 0, -54, 72);
-      aura.addColorStop(0, "rgba(255, 226, 74, 0.72)");
-      aura.addColorStop(0.55, "rgba(255, 95, 46, 0.35)");
+      var aura = ctx.createRadialGradient(0, -54, 12, 0, -54, 74);
+      aura.addColorStop(0, "rgba(255, 226, 74, 0.75)");
+      aura.addColorStop(0.55, "rgba(255, 95, 46, 0.38)");
       aura.addColorStop(1, "rgba(255, 95, 46, 0)");
       ctx.fillStyle = aura;
-      ctx.beginPath();
-      ctx.arc(0, -54, 72, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.beginPath(); ctx.arc(0, -54, 74, 0, Math.PI * 2); ctx.fill();
     }
 
     ctx.scale(h.facing, 1);
+    if (perk.filter && perk.filter !== "none") {
+      ctx.filter = perk.filter;
+    }
 
     if (img && img.complete && img.naturalWidth > 0) {
       var drawW = Math.round(drawH * (img.naturalWidth / img.naturalHeight));
@@ -1614,8 +1999,8 @@
       ctx.fillStyle = "#f59e0b";
       ctx.fillRect(-20, -96, 40, 96);
     }
+    ctx.filter = "none";
 
-    // Held Steel Pipe indicator
     if (h.weapon) {
       ctx.fillStyle = "#e2e8f0";
       ctx.strokeStyle = "#0f172a";
@@ -1623,12 +2008,35 @@
       ctx.fillRect(16, -64, 34, 7);
       ctx.strokeRect(16, -64, 34, 7);
     }
-
     ctx.restore();
+
+    // Orbiting Golden Mustache Shield!
+    if (h.mustacheShieldTimer > 0) {
+      for (var m = 0; m < 2; m++) {
+        var ang = state.time * 6.2 + m * Math.PI;
+        var mx = h.x + Math.cos(ang) * 58;
+        var my = h.y - h.z - 52 + Math.sin(ang) * 20;
+        drawMustacheShape(mx, my, 0.72, "#ffe24a", "#78350f");
+      }
+    }
   }
 
   function drawEnemyFn(e) {
     return function () {
+      // Boss Telegraphed Seismic Slam Red Warning Ring!
+      if (e.kind === "boss" && e.telegraphTimer > 0) {
+        ctx.save();
+        var tPulse = 0.25 + Math.sin(state.time * 28) * 0.15;
+        ctx.fillStyle = "rgba(239, 68, 68, " + tPulse.toFixed(2) + ")";
+        ctx.strokeStyle = "#ffe24a";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.ellipse(e.x, e.y, 185, 42, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+
       ctx.fillStyle = "rgba(0,0,0,0.35)";
       ctx.beginPath();
       ctx.ellipse(e.x, e.y + 2, e.kind === "boss" ? 38 : 26, 9, 0, 0, Math.PI * 2);
@@ -1636,18 +2044,19 @@
 
       var img = e.kind === "boss" ? sprites.bossKingpin : sprites.enemySuit;
       var drawH = e.kind === "boss" ? 148 : (e.kind === "heavy" ? 116 : 104);
-      var bob = e.dying ? 0 : Math.abs(Math.sin(e.walkPhase)) * -5;
+      var bob = (e.dying || e.bowling) ? 0 : Math.abs(Math.sin(e.walkPhase)) * -5;
 
       ctx.save();
       ctx.translate(Math.round(e.x), Math.round(e.y - e.z + bob));
-      if (e.dying) {
-        ctx.rotate((0.85 - e.dieTimer) * (e.vx >= 0 ? 7 : -7));
+      if (e.dying || e.bowling) {
+        ctx.rotate((state.time * 12) * (e.vx >= 0 ? 1 : -1));
       }
-      // Enemy sprites face left natively, so flip when facing right!
       ctx.scale(e.facing > 0 ? -1 : 1, 1);
 
       if (e.hitFlash > 0) {
         ctx.filter = "brightness(2.4)";
+      } else if (e.kind === "boss" && e.phase2) {
+        ctx.filter = "saturate(1.6) drop-shadow(0 0 8px #c084fc)";
       } else if (e.kind === "heavy") {
         ctx.filter = "hue-rotate(-32deg) saturate(1.3)";
       } else if (e.kind === "thrower") {
@@ -1664,7 +2073,17 @@
       ctx.filter = "none";
       ctx.restore();
 
-      // Tiny overhead HP pips for damaged non-boss goons
+      // Dizzy Spinning Stars above stunned goons & counter-stunned Boss!
+      if (!e.dying && !e.bowling && e.stunTimer > 0.1) {
+        for (var st = 0; st < 3; st++) {
+          var sa = state.time * 7 + (st * Math.PI * 2) / 3;
+          var sx = e.x + Math.cos(sa) * 24;
+          var sy = e.y - e.z - drawH - 6 + Math.sin(sa) * 6;
+          ctx.fillStyle = "#ffe24a";
+          ctx.fillRect(Math.round(sx) - 3, Math.round(sy) - 3, 6, 6);
+        }
+      }
+
       if (!e.dying && e.kind !== "boss" && e.hp < e.maxHp) {
         var bw = 42;
         ctx.fillStyle = "#141821";
@@ -1708,8 +2127,13 @@
       ctx.lineWidth = 2.5;
       ctx.fillRect(-20, -4, 40, 8);
       ctx.strokeRect(-20, -4, 40, 8);
+    } else if (q.kind === "trashcan") {
+      ctx.fillStyle = "#64748b";
+      ctx.strokeStyle = "#0f172a";
+      ctx.lineWidth = 2.5;
+      ctx.fillRect(-14, -18, 28, 36);
+      ctx.strokeRect(-14, -18, 28, 36);
     } else {
-      // Iconic Spinning Mustache Boomerang!
       var fill = q.owner === "hero" ? "#38e8ff" : "#7c3e18";
       var stroke = q.owner === "hero" ? "#ffe680" : "#141821";
       drawMustacheShape(0, 0, 0.9, fill, stroke);
@@ -1731,7 +2155,6 @@
       ? Math.max(0.1, state.hero.armReloadTimer / 8.0)
       : Math.max(0, Math.min(1, state.thermo / 100));
 
-    // Top ornate brass medallion circle (matches frame_03s!)
     c.fillStyle = "#5c1124";
     c.strokeStyle = "#f5b82e";
     c.lineWidth = 3;
@@ -1741,17 +2164,14 @@
       c.beginPath(); c.arc(27, 22, 11, 0, Math.PI * 2); c.fill();
     }
 
-    // Outer brass tube body
     c.fillStyle = "#d99b26";
     c.strokeStyle = "#3a1a08";
     c.lineWidth = 2.5;
     c.beginPath(); c.roundRect(14, 44, 26, 150, 12); c.fill(); c.stroke();
 
-    // Inner glass channel
     c.fillStyle = "#dbeafe";
     c.fillRect(20, 54, 14, 130);
 
-    // Rising Mercury Column (Crimson -> Gold when Arm Reload ready!)
     var fillH = Math.round(126 * pct);
     var grad = c.createLinearGradient(0, 184, 0, 54);
     if (pct >= 0.99 || state.hero.armReloadTimer > 0) {
@@ -1765,14 +2185,12 @@
     c.fillStyle = grad;
     c.fillRect(21, 182 - fillH, 12, fillH);
 
-    // Graduation ticks
     c.strokeStyle = "#1e293b";
     c.lineWidth = 1.5;
     for (var ty = 64; ty <= 174; ty += 14) {
       c.beginPath(); c.moveTo(20, ty); c.lineTo(28, ty); c.stroke();
     }
 
-    // Bottom ornate crimson/gold bulb
     c.fillStyle = "#b81d33";
     c.strokeStyle = "#f5b82e";
     c.lineWidth = 3;
@@ -1803,11 +2221,10 @@
       }
     }
 
-    // Skill badges [O] [K] [L]
     var rO = document.getElementById("ring-o");
     if (rO) rO.setAttribute("stroke-dashoffset", String(Math.round(113 * Math.min(1, h.oCd / 0.21))));
     var rK = document.getElementById("ring-k");
-    if (rK) rK.setAttribute("stroke-dashoffset", String(Math.round(113 * Math.min(1, h.kCd / 0.55))));
+    if (rK) rK.setAttribute("stroke-dashoffset", String(Math.round(113 * Math.min(1, h.kCd / 0.52))));
     var rL = document.getElementById("ring-l");
     var ultPct = h.armReloadTimer > 0 ? h.armReloadTimer / 8.0 : state.thermo / 100;
     if (rL) rL.setAttribute("stroke-dashoffset", String(Math.round(113 * (1 - ultPct))));
@@ -1824,7 +2241,6 @@
       else readyTag.classList.add("is-hidden");
     }
 
-    // Counter [000/025] & Score
     var koEl = document.getElementById("hud-ko-counter");
     if (koEl) {
       var kStr = String(state.kos).padStart(3, "0");
@@ -1833,10 +2249,8 @@
     var scEl = document.getElementById("hud-score-pill");
     if (scEl) scEl.textContent = "SCORE " + String(state.score).padStart(5, "0");
 
-    // Flashing GO ->
     setVisible("go-banner", state.goTimer > 0 && state.phase === "playing");
 
-    // Boss HP Bar
     var boss = null;
     for (var ei = 0; ei < state.enemies.length; ei++) {
       if (state.enemies[ei].kind === "boss" && !state.enemies[ei].dying) {
@@ -1848,6 +2262,8 @@
     if (boss) {
       var bpct = Math.max(0, Math.min(1, boss.hp / boss.maxHp));
       var tpct = Math.max(bpct, Math.min(1, boss.trailHp / boss.maxHp));
+      var bn = document.getElementById("boss-hud-name");
+      if (bn) bn.textContent = boss.phase2 ? "DON MUSTACHIO · RAGE!" : "DON MUSTACHIO";
       var pctEl = document.getElementById("boss-hud-pct");
       if (pctEl) pctEl.textContent = Math.ceil(bpct * 100) + "%";
       var fillEl = document.getElementById("boss-hp-fill");
@@ -1858,22 +2274,23 @@
   }
 
   // =========================================================================
-  // GAME FLOW & REDDIT SUBMISSIONS
+  // GAME FLOW, MEDALS & REDDIT SUBMISSIONS
   // =========================================================================
-  function startRun(endless) {
+  function startRun(endless, skipIntroFlag) {
     ensureAudio();
     startMusic();
     resetWorld(endless);
-    state.phase = "playing";
     setVisible("arcade-title-screen", false);
     setVisible("arcade-pause-modal", false);
     setVisible("arcade-end-modal", false);
     setVisible("arm-reload-screen", false);
-    setVisible("arcade-hud", true);
-    var tc = document.getElementById("touch-controls");
-    if (tc) tc.classList.add("active");
-    sfx("go");
-    addPopup(state.hero.x, 260, "FIGHT!", "#ffe24a", 34);
+
+    if (skipIntroFlag) {
+      state.phase = "intro";
+      finishIntro();
+    } else {
+      beginIntroCinematic();
+    }
 
     fetch("/api/start-run", { method: "POST" })
       .then(function (r) { return r.ok ? r.json() : null; })
@@ -1891,6 +2308,18 @@
     return "D";
   }
 
+  function buildMedals() {
+    var m = [];
+    if (state.reloadsUsed >= 1) m.push("ARM RELOAD MASTER");
+    if (state.parries >= 1) m.push("PARRY ACE");
+    if (state.throws >= 1) m.push("BOWLING KING");
+    if (state.maxCombo >= 15) m.push("COMBO x" + state.maxCombo);
+    if (state.kos >= GOAL_KOS) m.push("QUAY CLEANER");
+    if (state.bossSlain) m.push("KINGPIN SLAYER");
+    if (m.length === 0) m.push("HARBOR ROOKIE");
+    return m;
+  }
+
   function finishRun(victory) {
     state.phase = "ended";
     state.victory = victory;
@@ -1898,10 +2327,10 @@
     if (tc) tc.classList.remove("active");
     setVisible("arcade-end-modal", true);
 
-    if (state.score > apiState.bestScore) {
-      apiState.bestScore = state.score;
-      saveLocal();
-    }
+    if (state.score > apiState.bestScore) apiState.bestScore = state.score;
+    if (state.score >= 5000 || victory) apiState.secretUnlocked = true;
+    saveLocal();
+    refreshSecretUnlockUi();
 
     var rank = computeRank(state.score, victory);
     var tag = document.getElementById("end-outcome-tag");
@@ -1912,9 +2341,16 @@
     if (rk) rk.textContent = rank;
     var sum = document.getElementById("end-summary-box");
     var chronicle = victory
-      ? "Cleared the Harbor Quay with " + state.kos + " KOs, max combo " + state.maxCombo + "x, and crushed Don Mustachio with ARM RELOAD!"
-      : "Fought through " + state.kos + " suited goons on the Harbor Quay (max combo " + state.maxCombo + "x, " + state.score + " PTS).";
+      ? "Cleared the Harbor Quay with " + state.kos + " KOs, max combo " + state.maxCombo + "x, " + state.parries + " mustache parries, and crushed Don Mustachio!"
+      : "Battled through " + state.kos + " suited goons on the Harbor Quay (max combo " + state.maxCombo + "x, " + state.score + " PTS).";
     if (sum) sum.textContent = chronicle;
+
+    var mStrip = document.getElementById("end-medals-strip");
+    if (mStrip) {
+      mStrip.innerHTML = buildMedals().map(function (lbl) {
+        return '<span class="medal-chip">' + lbl + '</span>';
+      }).join("");
+    }
 
     if (!apiState.submitted) {
       apiState.submitted = true;
@@ -1928,8 +2364,8 @@
           bossSlain: state.bossSlain,
           bossReached: state.bossActive || state.bossSlain,
           level: Math.max(1, Math.floor(state.kos / 4) + 1),
-          heroClass: state.skinIdx,
-          buildSummary: SKIN_PERKS[state.skinIdx].name + " · ARM RELOAD",
+          heroClass: state.skinIdx % 3,
+          buildSummary: (SKIN_PERKS[state.skinIdx] || SKIN_PERKS[0]).name + " · ARM RELOAD",
           isEndless: state.endless
         })
       }).catch(function () {});
@@ -1941,7 +2377,7 @@
       state.phase = "paused";
       setVisible("arcade-pause-modal", true);
       var ps = document.getElementById("pause-stats-line");
-      if (ps) ps.textContent = "KOs: " + state.kos + " / " + GOAL_KOS + " · Score: " + state.score + " · Max Combo: " + state.maxCombo + "x";
+      if (ps) ps.textContent = "KOs: " + state.kos + "/" + GOAL_KOS + " · Score: " + state.score + " · Combo: " + state.maxCombo + "x · Parries: " + state.parries;
     } else if (state.phase === "paused") {
       state.phase = "playing";
       setVisible("arcade-pause-modal", false);
@@ -1968,6 +2404,11 @@
   // =========================================================================
   window.addEventListener("keydown", function (ev) {
     keys[ev.code] = true;
+    if (state.phase === "intro" && (ev.code === "Space" || ev.code === "Enter" || ev.code === "KeyO" || ev.code === "KeyK")) {
+      ev.preventDefault();
+      finishIntro();
+      return;
+    }
     if (state.phase === "arm_reload" && (ev.code === "Space" || ev.code === "Enter" || ev.code === "KeyO" || ev.code === "KeyL")) {
       ev.preventDefault();
       dismissArmReload();
@@ -1975,7 +2416,7 @@
     }
     if (state.phase === "title" && (ev.code === "Enter" || ev.code === "Space")) {
       ev.preventDefault();
-      startRun(state.endless);
+      startRun(state.endless, false);
       return;
     }
     if (ev.code === "Escape" || ev.code === "KeyP") {
@@ -2000,6 +2441,9 @@
     addPopup(state.hero.x, state.hero.y - 95, "INVINCIBLE SUPER PUNCHES!", "#ffe24a", 23);
   }
 
+  var btnSkipIntro = document.getElementById("btn-skip-intro");
+  if (btnSkipIntro) btnSkipIntro.addEventListener("click", finishIntro);
+
   var armScreen = document.getElementById("arm-reload-screen");
   if (armScreen) armScreen.addEventListener("click", dismissArmReload);
   var armBtn = document.getElementById("btn-arm-continue");
@@ -2008,9 +2452,11 @@
   var skinBtns = document.querySelectorAll("#skin-selector .skin-btn");
   skinBtns.forEach(function (btn) {
     btn.addEventListener("click", function () {
+      var idx = Number(btn.getAttribute("data-skin")) || 0;
+      if (idx === 3 && !apiState.secretUnlocked) return;
       skinBtns.forEach(function (b) { b.classList.remove("selected"); });
       btn.classList.add("selected");
-      state.skinIdx = Number(btn.getAttribute("data-skin")) || 0;
+      state.skinIdx = idx;
     });
   });
 
@@ -2028,7 +2474,7 @@
   });
 
   var btnStart = document.getElementById("btn-press-start");
-  if (btnStart) btnStart.addEventListener("click", function () { startRun(state.endless); });
+  if (btnStart) btnStart.addEventListener("click", function () { startRun(state.endless, false); });
 
   var btnSkillO = document.getElementById("btn-skill-o");
   if (btnSkillO) btnSkillO.addEventListener("click", heroPunch);
@@ -2044,7 +2490,7 @@
   var btnResumeBot = document.getElementById("btn-pause-resume");
   if (btnResumeBot) btnResumeBot.addEventListener("click", togglePause);
   var btnRestart = document.getElementById("btn-pause-restart");
-  if (btnRestart) btnRestart.addEventListener("click", function () { startRun(state.endless); });
+  if (btnRestart) btnRestart.addEventListener("click", function () { startRun(state.endless, true); });
 
   var btnAudio = document.getElementById("btn-toggle-audio");
   if (btnAudio) btnAudio.addEventListener("click", function () {
@@ -2060,9 +2506,9 @@
   });
 
   var btnEndReplay = document.getElementById("btn-end-replay");
-  if (btnEndReplay) btnEndReplay.addEventListener("click", function () { startRun(false); });
+  if (btnEndReplay) btnEndReplay.addEventListener("click", function () { startRun(false, true); });
   var btnEndEndless = document.getElementById("btn-end-endless");
-  if (btnEndEndless) btnEndEndless.addEventListener("click", function () { startRun(true); });
+  if (btnEndEndless) btnEndEndless.addEventListener("click", function () { startRun(true, true); });
   var btnEndShare = document.getElementById("btn-end-share");
   if (btnEndShare) btnEndShare.addEventListener("click", function () {
     var st = document.getElementById("end-status-msg");
@@ -2075,11 +2521,11 @@
         kills: state.kos,
         bossSlain: state.bossSlain,
         level: Math.max(1, Math.floor(state.kos / 4) + 1),
-        heroClass: state.skinIdx,
+        heroClass: state.skinIdx % 3,
         streak: apiState.streak,
         buildEmojis: "🥊⚡👨🏻",
         rank: computeRank(state.score, state.victory),
-        chronicle: "HENRY'S ARCADE STREETS · " + state.kos + " KOs · " + state.maxCombo + "x Combo · ARM RELOAD!"
+        chronicle: "HENRY'S ARCADE STREETS · " + state.kos + " KOs · " + state.maxCombo + "x Combo · " + buildMedals().join(" · ")
       })
     })
       .then(function (r) { return r.json().catch(function () { return {}; }); })
@@ -2091,7 +2537,6 @@
       });
   });
 
-  // Mobile Touch Controls Bindings
   function bindHold(id, prop) {
     var el = document.getElementById(id);
     if (!el) return;
@@ -2111,16 +2556,17 @@
   var tL = document.getElementById("touch-l");
   if (tL) tL.addEventListener("pointerdown", function (e) { e.preventDefault(); triggerArmReload(false); });
 
-  // Verification hook for automated Chrome CDP testing
   window.__ARCADE_DEBUG__ = {
     getState: function () { return state; },
-    startStory: function () { startRun(false); },
+    startStory: function (skipIntro) { startRun(false, Boolean(skipIntro)); },
+    finishIntro: finishIntro,
     punch: heroPunch,
     kick: heroKick,
     jump: heroJump,
     showArmReload: function () { triggerArmReload(true); },
     dismissArmReload: dismissArmReload,
-    summonBoss: summonKingpinBoss
+    summonBoss: summonKingpinBoss,
+    finishVictory: function () { finishRun(true); }
   };
 
   applyCrtVisual();

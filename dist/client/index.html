@@ -104,6 +104,9 @@
         <div class="go-banner is-hidden" id="go-banner">GO &#10140;</div>
       </div>
 
+      <!-- Intro Cinematic Skip Button -->
+      <button class="skip-intro-pill is-hidden" id="btn-skip-intro" type="button">SKIP INTRO &#9656;</button>
+
       <!-- Mobile Touch Controls -->
       <div class="touch-controls" id="touch-controls">
         <div class="touch-pad-left">
@@ -141,15 +144,19 @@
           <div class="skin-row" id="skin-selector">
             <button class="skin-btn selected" data-skin="0" type="button">
               <span class="skin-name">GOLDEN TITAN</span>
-              <span class="skin-role">Classic Arm Reload</span>
+              <span class="skin-role">Power Kick [K]</span>
             </button>
             <button class="skin-btn" data-skin="1" type="button">
               <span class="skin-name">ROYAL RANGER</span>
-              <span class="skin-role">+15% Speed &amp; Kick</span>
+              <span class="skin-role">Blitz Dash [K]</span>
             </button>
             <button class="skin-btn" data-skin="2" type="button">
-              <span class="skin-name">CRIMSON BRAWLER</span>
-              <span class="skin-role">+20% Punch Power</span>
+              <span class="skin-name">CRIMSON FIST</span>
+              <span class="skin-role">Uppercut [K]</span>
+            </button>
+            <button class="skin-btn locked" id="skin-secret-btn" data-skin="3" type="button">
+              <span class="skin-name">SECRET AGENT</span>
+              <span class="skin-role" id="skin-secret-role">5K PTS Unlock</span>
             </button>
           </div>
 
@@ -160,7 +167,7 @@
 
           <button class="btn-press-start" id="btn-press-start" type="button">
             <span class="start-main">PRESS START · ENTER THE STREETS</span>
-            <span class="start-sub">MOVE · SPACE JUMP · [O] PUNCH · [K] KICK · [L] ARM RELOAD</span>
+            <span class="start-sub">MOVE · SPACE JUMP · [O] PUNCH/THROW · [K] SPECIAL · [L] ARM RELOAD</span>
           </button>
         </div>
       </div>
@@ -176,9 +183,9 @@
             <h4>Street Fighter Controls</h4>
             <ul>
               <li><strong>WASD / Arrows:</strong> Walk Left/Right &amp; Shift Sidewalk Lane</li>
-              <li><strong>Space:</strong> Jump onto Phone Booth &amp; Car Roofs</li>
-              <li><strong>[O] or [J]:</strong> 3-Hit Punch Combo &amp; Deflect Mustache Boomerangs!</li>
-              <li><strong>[K]:</strong> Flying Jump-Kick / Throw Picked-Up Weapon</li>
+              <li><strong>Space:</strong> Jump onto Phone Booth &amp; Car Roofs / Dodge Boss Slams</li>
+              <li><strong>[O] / [J]:</strong> 3-Hit Punch Combo, Parry Mustaches &amp; Grab-Throw Stunned Goons!</li>
+              <li><strong>[K]:</strong> Fighter Signature Move (Power Kick / Blitz Dash / Rising Uppercut)</li>
               <li><strong>[L]:</strong> Trigger <strong>ARM RELOAD</strong> (Super Punches + Invincibility)</li>
             </ul>
           </div>
@@ -212,6 +219,10 @@
           </div>
           <div class="arcade-panel-sec" id="end-summary-box">
             Cleared the Harbor Quay with 25 KOs and defeated Don Mustachio!
+          </div>
+          <div class="arcade-panel-sec">
+            <h4>Earned Arcade Medals</h4>
+            <div class="medals-strip" id="end-medals-strip"></div>
           </div>
           <div class="arcade-btn-row-3">
             <button class="btn-arcade-sec" id="btn-end-share" type="button">SHARE REDDIT</button>
